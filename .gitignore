@@ -1,0 +1,7 @@
+HDL/db/
+HDL/incremental_db/
+HDL/output_files/
+HDL/greybox_tmp/
+HDL/.qsys_edit/
+HDL/*.bak
+HDL/*.qws
