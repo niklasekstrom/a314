@@ -1,8 +1,6 @@
 module a314_top(
-    //input               CLK_3M5,
     input               CLK_14M,
 
-    //output              DR_XMEM,
     input               DR_WE_n,
     input               DR_RAS0_n,
     input               DR_RAS1_n,
@@ -16,7 +14,6 @@ module a314_top(
     input       [5:2]   CP_A,
     inout       [3:0]   CP_D,
 
-    //output              SR_CE_n,
     output              SR_OE_n,
     output              SR_WE_n,
     output              SR_LB_n,
@@ -24,24 +21,18 @@ module a314_top(
     output      [18:0]  SR_A,
     inout       [15:0]  SR_D,
 
-    output              LED_B,
-    output              LED_C,
+    output              AMI_INT2,
 
     input               RPI_SCLK0,
     input               RPI_SCE0,
     input               RPI_MOSI0,
     output              RPI_MISO0,
 
-    //input               RPI_SCLK1,
-    //input               RPI_SCE1,
-    //input               RPI_MOSI1,
-    output              RPI_MISO1,
+    output              RPI_IRQ,
 
     output              RTC_SCL,
     inout               RTC_SDA
     );
-
-    assign LED_B = 1'bz;
 
     wire clk14 = CLK_14M;
     wire clk200;
@@ -200,8 +191,8 @@ module a314_top(
 
     cmem cmem_inst(
         .clk200(clk200),
-        .AMI_INT2_n(LED_C),
-        .RASP_IRQ(RPI_MISO1),
+        .AMI_INT2_n(AMI_INT2),
+        .RASP_IRQ(RPI_IRQ),
 
         .spi_read(spi_read_cmem),
         .spi_write(spi_write_cmem),
