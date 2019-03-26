@@ -16,105 +16,81 @@
 #include "../a314device/a314.h"
 #include "../a314device/proto_a314.h"
 
-#define ID_314_DISK (('3' << 24) | ('1' << 16) | ('4' << 8))
+#define PICMD_SERVICE_NAME "picmd"
 
-struct FileHandle *con;
+#define ID_314_DISK (('3' << 24) | ('1' << 16) | ('4' << 8))
 
 struct MsgPort *sync_mp;
 struct MsgPort *async_mp;
 
+struct A314_IORequest *read_ior;
+struct A314_IORequest *sync_ior;
+
 struct Library *A314Base;
 ULONG a314_membase;
 
+struct FileHandle *con;
+
 ULONG socket;
 
-struct A314_IORequest *wmsg;
-UBYTE awbuf[256];
-int awlen = 0;
-
-struct A314_IORequest *rmsg;
 UBYTE arbuf[256];
+UBYTE awbuf[256];
 
-struct StandardPacket wsp;
+struct StandardPacket sync_sp;
+struct StandardPacket wait_sp;
+
 UBYTE cwbuf[256];
-struct StandardPacket rsp;
 UBYTE crbuf[16];
 
 BOOL pending_a314_read = FALSE;
 BOOL pending_con_wait = FALSE;
 BOOL stream_closed = FALSE;
 
-void set_screen_mode(LONG mode)
+void put_con_sp(struct MsgPort *reply_port, struct StandardPacket *sp, LONG action, LONG arg1, LONG arg2, LONG arg3)
 {
-	wsp.sp_Msg.mn_Node.ln_Type = NT_MESSAGE;
-	wsp.sp_Msg.mn_Node.ln_Pri = 0;
-	wsp.sp_Msg.mn_Node.ln_Name = (char *)&(wsp.sp_Pkt);
-	wsp.sp_Msg.mn_Length = sizeof(struct StandardPacket);
-	wsp.sp_Msg.mn_ReplyPort = sync_mp;
-	wsp.sp_Pkt.dp_Link = &(wsp.sp_Msg);
-	wsp.sp_Pkt.dp_Port = sync_mp;
-	wsp.sp_Pkt.dp_Type = ACTION_SCREEN_MODE;
-	wsp.sp_Pkt.dp_Arg1 = mode;
-	PutMsg(con->fh_Type, &(wsp.sp_Msg));
-
-	Wait(1L << sync_mp->mp_SigBit);
-	GetMsg(sync_mp);
+	sp->sp_Msg.mn_Node.ln_Type = NT_MESSAGE;
+	sp->sp_Msg.mn_Node.ln_Pri = 0;
+	sp->sp_Msg.mn_Node.ln_Name = (char *)&(sp->sp_Pkt);
+	sp->sp_Msg.mn_Length = sizeof(struct StandardPacket);
+	sp->sp_Msg.mn_ReplyPort = reply_port;
+	sp->sp_Pkt.dp_Link = &(sp->sp_Msg);
+	sp->sp_Pkt.dp_Port = reply_port;
+	sp->sp_Pkt.dp_Type = action;
+	sp->sp_Pkt.dp_Arg1 = arg1;
+	sp->sp_Pkt.dp_Arg2 = arg2;
+	sp->sp_Pkt.dp_Arg3 = arg3;
+	PutMsg(con->fh_Type, &(sp->sp_Msg));
 }
 
-void con_write(char *s, int length)
+LONG set_screen_mode(LONG mode)
 {
-	wsp.sp_Msg.mn_Node.ln_Type = NT_MESSAGE;
-	wsp.sp_Msg.mn_Node.ln_Pri = 0;
-	wsp.sp_Msg.mn_Node.ln_Name = (char *)&(wsp.sp_Pkt);
-	wsp.sp_Msg.mn_Length = sizeof(struct StandardPacket);
-	wsp.sp_Msg.mn_ReplyPort = sync_mp;
-	wsp.sp_Pkt.dp_Link = &(wsp.sp_Msg);
-	wsp.sp_Pkt.dp_Port = sync_mp;
-	wsp.sp_Pkt.dp_Type = ACTION_WRITE;
-	wsp.sp_Pkt.dp_Arg1 = con->fh_Arg1;
-	wsp.sp_Pkt.dp_Arg2 = (LONG)s;
-	wsp.sp_Pkt.dp_Arg3 = length;
-	PutMsg(con->fh_Type, &(wsp.sp_Msg));
-
+	put_con_sp(sync_mp, &sync_sp, ACTION_SCREEN_MODE, mode, 0, 0);
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
+	return sync_sp.sp_Pkt.dp_Res1;
 }
 
-void con_read()
+LONG con_write(char *s, int length)
 {
-	rsp.sp_Msg.mn_Node.ln_Type = NT_MESSAGE;
-	rsp.sp_Msg.mn_Node.ln_Pri = 0;
-	rsp.sp_Msg.mn_Node.ln_Name = (char *)&(rsp.sp_Pkt);
-	rsp.sp_Msg.mn_Length = sizeof(struct StandardPacket);
-	rsp.sp_Msg.mn_ReplyPort = sync_mp;
-	rsp.sp_Pkt.dp_Link = &(rsp.sp_Msg);
-	rsp.sp_Pkt.dp_Port = sync_mp;
-	rsp.sp_Pkt.dp_Type = ACTION_READ;
-	rsp.sp_Pkt.dp_Arg1 = con->fh_Arg1;
-	rsp.sp_Pkt.dp_Arg2 = (LONG)&crbuf[0];
-	rsp.sp_Pkt.dp_Arg3 = 15;
-	PutMsg(con->fh_Type, &(rsp.sp_Msg));
-
+	put_con_sp(sync_mp, &sync_sp, ACTION_WRITE, con->fh_Arg1, (LONG)s, length);
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
+	return sync_sp.sp_Pkt.dp_Res1;
+}
+
+LONG con_read()
+{
+	put_con_sp(sync_mp, &sync_sp, ACTION_READ, con->fh_Arg1, (LONG)&crbuf[0], sizeof(crbuf));
+	Wait(1L << sync_mp->mp_SigBit);
+	GetMsg(sync_mp);
+	return sync_sp.sp_Pkt.dp_Res1;
 }
 
 void start_con_wait()
 {
-	rsp.sp_Msg.mn_Node.ln_Type = NT_MESSAGE;
-	rsp.sp_Msg.mn_Node.ln_Pri = 0;
-	rsp.sp_Msg.mn_Node.ln_Name = (char *)&(rsp.sp_Pkt);
-	rsp.sp_Msg.mn_Length = sizeof(struct StandardPacket);
-	rsp.sp_Msg.mn_ReplyPort = async_mp;
-	rsp.sp_Pkt.dp_Link = &(rsp.sp_Msg);
-	rsp.sp_Pkt.dp_Port = async_mp;
-	rsp.sp_Pkt.dp_Type = ACTION_WAIT_CHAR;
-	rsp.sp_Pkt.dp_Arg1 = 100000;
-	PutMsg(con->fh_Type, &(rsp.sp_Msg));
-
+	put_con_sp(async_mp, &wait_sp, ACTION_WAIT_CHAR, 100000, 0, 0);
 	pending_con_wait = TRUE;
 }
-
 
 void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWORD cmd, char *buffer, int length)
 {
@@ -130,58 +106,44 @@ void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWOR
 BYTE a314_connect(char *name)
 {
 	socket = time(NULL);
-	start_a314_cmd(sync_mp, wmsg, A314_CONNECT, name, strlen(name));
+	start_a314_cmd(sync_mp, sync_ior, A314_CONNECT, name, strlen(name));
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
-	return wmsg->a314_Request.io_Error;
+	return sync_ior->a314_Request.io_Error;
 }
 
 BYTE a314_write(int length)
 {
-	start_a314_cmd(sync_mp, wmsg, A314_WRITE, awbuf, length);
+	start_a314_cmd(sync_mp, sync_ior, A314_WRITE, awbuf, length);
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
-	return wmsg->a314_Request.io_Error;
+	return sync_ior->a314_Request.io_Error;
 }
 
 BYTE a314_eos()
 {
-	start_a314_cmd(sync_mp, wmsg, A314_EOS, NULL, 0);
+	start_a314_cmd(sync_mp, sync_ior, A314_EOS, NULL, 0);
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
-	return wmsg->a314_Request.io_Error;
+	return sync_ior->a314_Request.io_Error;
 }
 
 BYTE a314_reset()
 {
-	start_a314_cmd(sync_mp, wmsg, A314_RESET, NULL, 0);
+	start_a314_cmd(sync_mp, sync_ior, A314_RESET, NULL, 0);
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
-	return wmsg->a314_Request.io_Error;
+	return sync_ior->a314_Request.io_Error;
 }
 
 void start_a314_read()
 {
-	start_a314_cmd(async_mp, rmsg, A314_READ, arbuf, 255);
+	start_a314_cmd(async_mp, read_ior, A314_READ, arbuf, 255);
 	pending_a314_read = TRUE;
 }
 
-
 #define CSI 0x9b
 #define ESC 0x1b
-
-void process_con_char(UBYTE c)
-{
-	if (c == CSI)
-	{
-		awbuf[awlen++] = ESC;
-		awbuf[awlen++] = '[';
-	}
-	else
-	{
-		awbuf[awlen++] = c;
-	}
-}
 
 void handle_con_wait_completed()
 {
@@ -190,15 +152,14 @@ void handle_con_wait_completed()
 	if (stream_closed)
 		return;
 
-	if (rsp.sp_Pkt.dp_Res1 == DOSFALSE)
+	if (wait_sp.sp_Pkt.dp_Res1 == DOSFALSE)
 	{
 		start_con_wait();
 	}
 	else
 	{
-		con_read();
+		int len = con_read();
 
-		int len = rsp.sp_Pkt.dp_Res1;
 		if (len == 0 || len == -1)
 		{
 			int l = sprintf(cwbuf, "CON read problem -- got length %d\n", len);
@@ -209,13 +170,23 @@ void handle_con_wait_completed()
 		}
 		else
 		{
-			awlen = 0;
+			int awlen = 0;
 
 			for (int i = 0; i < len; i++)
-				process_con_char(crbuf[i]);
+			{
+				UBYTE c = crbuf[i];
+				if (c == CSI)
+				{
+					awbuf[awlen++] = ESC;
+					awbuf[awlen++] = '[';
+				}
+				else
+				{
+					awbuf[awlen++] = c;
+				}
+			}
 
-			if (awlen != 0)
-				a314_write(awlen);
+			a314_write(awlen);
 
 			start_con_wait();
 		}
@@ -229,11 +200,11 @@ void handle_a314_read_completed()
 	if (stream_closed)
 		return;
 
-	int res = rmsg->a314_Request.io_Error;
+	int res = read_ior->a314_Request.io_Error;
 	if (res == A314_READ_OK)
 	{
-		UBYTE *p = rmsg->a314_Buffer;
-		int len = rmsg->a314_Length;
+		UBYTE *p = read_ior->a314_Buffer;
+		int len = read_ior->a314_Length;
 
 		con_write(p, len);
 		start_a314_read();
@@ -249,128 +220,59 @@ void handle_a314_read_completed()
 	}
 }
 
-int main(int argc, char **argv)
+UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, char **argv)
 {
-	if (argc < 2)
-	{
-		printf("Usage: %s <command> [<argument>...]\n   where <command> is the program to run on the Raspberry Pi\n", argv[0]);
-		return 0;
-	}
+	int buf_len = 2;
 
-	struct Process *proc = (struct Process *)FindTask(NULL);
-
-	con = (struct FileHandle *)BADDR(proc->pr_CIS);
-
-	sync_mp = CreatePort(NULL, 0);
-	if (sync_mp == NULL)
-	{
-		printf("Unable to create sync reply message port\n");
-		return 0;
-	}
-
-	async_mp = CreatePort(NULL, 0);
-	if (async_mp == NULL)
-	{
-		printf("Unable to create async reply message port\n");
-		DeletePort(sync_mp);
-		return 0;
-	}
-
-	wmsg = (struct A314_IORequest *)CreateExtIO(sync_mp, sizeof(struct A314_IORequest));
-	if (wmsg == NULL)
-	{
-		printf("Unable to create io request for writes\n");
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
-	}
-
-	rmsg = (struct A314_IORequest *)CreateExtIO(sync_mp, sizeof(struct A314_IORequest));
-	if (rmsg == NULL)
-	{
-		printf("Unable to create io request for reads\n");
-		DeleteExtIO((struct IORequest *)wmsg);
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
-	}
-
-	if (OpenDevice(A314_NAME, 0, (struct IORequest *)wmsg, 0) != 0)
-	{
-		printf("Unable to open a314.device\n");
-		DeleteExtIO((struct IORequest *)rmsg);
-		DeleteExtIO((struct IORequest *)wmsg);
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
-	}
-
-	memcpy(rmsg, wmsg, sizeof(struct A314_IORequest));
-
-	A314Base = &(wmsg->a314_Request.io_Device->dd_Library);
-	a314_membase = GetA314MemBase();
-
-	ULONG portsig = 1L << async_mp->mp_SigBit;
-
-	if (a314_connect("picmd") != A314_CONNECT_OK)
-	{
-		printf("Unable to connect to picmd\n");
-		CloseDevice((struct IORequest *)wmsg);
-		DeleteExtIO((struct IORequest *)rmsg);
-		DeleteExtIO((struct IORequest *)wmsg);
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
-	}
-
-	struct FileLock *fl = (struct FileLock *)BADDR(proc->pr_CurrentDir);
-	struct DeviceList *dl = (struct DeviceList *)BADDR(fl->fl_Volume);
-	BOOL is_pidisk = dl->dl_DiskType == ID_314_DISK;
-	int dir_components = 0;
+	int component_count = 0;
 	UBYTE *components[20];
-	int total_comp_len = 0;
 
-	if (is_pidisk && proc->pr_CurrentDir != 0)
+	if (current_dir != 0)
 	{
-		struct FileInfoBlock *fib = AllocMem(sizeof(struct FileInfoBlock), 0);
-		BPTR lock = DupLock(proc->pr_CurrentDir);
+		struct FileLock *fl = (struct FileLock *)BADDR(current_dir);
+		struct DeviceList *dl = (struct DeviceList *)BADDR(fl->fl_Volume);
 
-		while (lock != 0)
+		if (dl->dl_DiskType == ID_314_DISK)
 		{
-			if (Examine(lock, fib) != DOSTRUE)
+			struct FileInfoBlock *fib = AllocMem(sizeof(struct FileInfoBlock), 0);
+
+			BPTR lock = DupLock(current_dir);
+
+			while (lock != 0)
 			{
-				UnLock(lock);
-				break;
+				if (Examine(lock, fib) == 0)
+				{
+					UnLock(lock);
+					break;
+				}
+
+				int n = strlen(fib->fib_FileName);
+				UBYTE *p = AllocMem(n + 1, 0);
+				p[0] = (UBYTE)n;
+				memcpy(&p[1], fib->fib_FileName, n);
+				components[component_count++] = p;
+
+				buf_len += n + 1;
+
+				BPTR child = lock;
+				lock = ParentDir(child);
+				UnLock(child);
 			}
 
-			int n = strlen(fib->fib_FileName);
-			UBYTE *p = AllocMem(n + 1, 0);
-			p[0] = (UBYTE)n;
-			memcpy(&p[1], fib->fib_FileName, n);
-			components[dir_components++] = p;
-
-			total_comp_len += n + 1;
-
-			BPTR parent = lock;
-			lock = ParentDir(parent);
-			UnLock(parent);
+			FreeMem(fib, sizeof(struct FileInfoBlock));
 		}
-
-		FreeMem(fib, sizeof(struct FileInfoBlock));
 	}
 
-	int total_arg_len = 0;
 	for (int i = 1; i < argc; i++)
-		total_arg_len += strlen(argv[i]) + 1;
+		buf_len += strlen(argv[i]) + 1;
 
-	int total_buffer_len = 1 + total_comp_len + 1 + total_arg_len;
-	UBYTE *buffer = AllocMem(total_buffer_len, MEMF_A314);
+	UBYTE *buffer = AllocMem(buf_len, MEMF_A314);
 
 	UBYTE *p = buffer;
-	*p++ = (UBYTE)dir_components;
-	for (int i = 0; i < dir_components; i++)
+	*p++ = (UBYTE)component_count;
+	for (int i = 0; i < component_count; i++)
 	{
-		UBYTE *q = components[dir_components - 1 - i];
+		UBYTE *q = components[component_count - 1 - i];
 		int n = *q;
 		memcpy(p, q, n + 1);
 		p += n + 1;
@@ -389,13 +291,93 @@ int main(int argc, char **argv)
 
 	ULONG *lptr = (ULONG *)awbuf;
 	*lptr++ = (ULONG)buffer - a314_membase;
-	*lptr++ = total_buffer_len;
+	*lptr++ = buf_len;
 	a314_write(8);
+
+	*buffer_len = buf_len;
+	return buffer;
+}
+
+int main(int argc, char **argv)
+{
+	if (argc < 2)
+	{
+		printf("Usage: %s <command> [<argument>...]\n   where <command> is the program to run on the Raspberry Pi\n", argv[0]);
+		return 0;
+	}
+
+	sync_mp = CreatePort(NULL, 0);
+	if (sync_mp == NULL)
+	{
+		printf("Unable to create sync reply message port\n");
+		return 0;
+	}
+
+	async_mp = CreatePort(NULL, 0);
+	if (async_mp == NULL)
+	{
+		printf("Unable to create async reply message port\n");
+		DeletePort(sync_mp);
+		return 0;
+	}
+
+	sync_ior = (struct A314_IORequest *)CreateExtIO(sync_mp, sizeof(struct A314_IORequest));
+	if (sync_ior == NULL)
+	{
+		printf("Unable to create io request for synchronous commands\n");
+		DeletePort(async_mp);
+		DeletePort(sync_mp);
+		return 0;
+	}
+
+	read_ior = (struct A314_IORequest *)CreateExtIO(sync_mp, sizeof(struct A314_IORequest));
+	if (read_ior == NULL)
+	{
+		printf("Unable to create io request for reads\n");
+		DeleteExtIO((struct IORequest *)sync_ior);
+		DeletePort(async_mp);
+		DeletePort(sync_mp);
+		return 0;
+	}
+
+	if (OpenDevice(A314_NAME, 0, (struct IORequest *)sync_ior, 0) != 0)
+	{
+		printf("Unable to open a314.device\n");
+		DeleteExtIO((struct IORequest *)read_ior);
+		DeleteExtIO((struct IORequest *)sync_ior);
+		DeletePort(async_mp);
+		DeletePort(sync_mp);
+		return 0;
+	}
+
+	memcpy(read_ior, sync_ior, sizeof(struct A314_IORequest));
+
+	A314Base = &(sync_ior->a314_Request.io_Device->dd_Library);
+	a314_membase = GetA314MemBase();
+
+	if (a314_connect(PICMD_SERVICE_NAME) != A314_CONNECT_OK)
+	{
+		printf("Unable to connect to picmd service\n");
+		CloseDevice((struct IORequest *)sync_ior);
+		DeleteExtIO((struct IORequest *)read_ior);
+		DeleteExtIO((struct IORequest *)sync_ior);
+		DeletePort(async_mp);
+		DeletePort(sync_mp);
+		return 0;
+	}
+
+	struct Process *proc = (struct Process *)FindTask(NULL);
+	con = (struct FileHandle *)BADDR(proc->pr_CIS);
+
+	int start_msg_len;
+	UBYTE *start_msg = create_and_send_start_msg(&start_msg_len, proc->pr_CurrentDir, argc, argv);
 
 	set_screen_mode(DOSTRUE);
 
 	start_con_wait();
 	start_a314_read();
+
+	ULONG portsig = 1L << async_mp->mp_SigBit;
 
 	while (TRUE)
 	{
@@ -406,9 +388,9 @@ int main(int argc, char **argv)
 			struct Message *msg;
 			while (msg = GetMsg(async_mp))
 			{
-				if (msg == (struct Message *)&rsp)
+				if (msg == (struct Message *)&wait_sp)
 					handle_con_wait_completed();
-				else if (msg == (struct Message *)rmsg)
+				else if (msg == (struct Message *)read_ior)
 					handle_a314_read_completed();
 			}
 		}
@@ -419,11 +401,11 @@ int main(int argc, char **argv)
 
 	set_screen_mode(DOSFALSE);
 
-	FreeMem(buffer, total_buffer_len);
+	FreeMem(start_msg, start_msg_len);
 
-	CloseDevice((struct IORequest *)wmsg);
-	DeleteExtIO((struct IORequest *)rmsg);
-	DeleteExtIO((struct IORequest *)wmsg);
+	CloseDevice((struct IORequest *)sync_ior);
+	DeleteExtIO((struct IORequest *)read_ior);
+	DeleteExtIO((struct IORequest *)sync_ior);
 	DeletePort(async_mp);
 	DeletePort(sync_mp);
 	return 0;

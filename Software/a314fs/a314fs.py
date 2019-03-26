@@ -6,23 +6,21 @@ import os
 import struct
 import glob
 import logging
+import json
 
 logging.basicConfig(format = '%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s')
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
-#CONFIG_FILE_PATH = '/etc/opt/a314/a314fs.conf'
-#
-#try:
-#    f = open(CONFIG_FILE_PATH, 'r')
-#    cfg = json.load(f)
-#    SHARED_DIRECTORY = cfg['shared_directory']
-#    f.close()
-#except:
-#    print 'Unable to read config file "%s" correctly, terminating.' % CONFIG_FILE_PATH
-#    exit(-1)
+CONFIG_FILE_PATH = '/etc/opt/a314/a314fs.conf'
 
 SHARED_DIRECTORY = '/home/pi/a314shared'
+
+with open(CONFIG_FILE_PATH, 'rb') as f:
+    cfg = json.load(f)
+    devs = cfg['devices']
+    dev = devs['PI0']
+    SHARED_DIRECTORY = dev['path']
 
 MSG_REGISTER_REQ		= 1
 MSG_REGISTER_RES		= 2

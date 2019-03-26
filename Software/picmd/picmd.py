@@ -10,12 +10,41 @@ import signal
 import termios
 import fcntl
 import logging
+import json
 
 logging.basicConfig(format = '%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-SHARED_DIRECTORY = '/home/pi/a314shared'
+FS_CFG_FILE = '/etc/opt/a314/a314fs.conf'
+PICMD_CFG_FILE = '/etc/opt/a314/picmd.conf'
+
+volume_paths = {}
+search_path = ""
+env_vars = {}
+
+def load_cfg():
+    with open(FS_CFG_FILE, 'rt') as f:
+        cfg = json.load(f)
+        devs = cfg['devices']
+        for _, dev in devs.items():
+            volume_paths[dev['volume']] = dev['path']
+
+    global search_path
+    search_path = os.getenv('PATH')
+
+    with open(PICMD_CFG_FILE, 'rt') as f:
+        cfg = json.load(f)
+
+        if 'paths' in cfg:
+            search_path = ':'.join(cfg['paths']) + ':' + search_path
+            os.environ['PATH'] = search_path
+
+        if 'env_vars' in cfg:
+            for key, val in cfg['env_vars'].items():
+                env_vars[key] = val
+
+load_cfg()
 
 MSG_REGISTER_REQ		= 1
 MSG_REGISTER_RES		= 2
@@ -179,11 +208,15 @@ class PiCmdSession(object):
 
                 self.pid, self.fd = pty.fork()
                 if self.pid == 0:
+                    for key, val in env_vars.items():
+                        os.putenv(key, val)
+                    os.putenv('PATH', search_path)
                     os.putenv('TERM', 'ansi')
                     winsize = struct.pack('HHHH', CONSOLE_HEIGHT, CONSOLE_WIDTH, 0, 0)
                     fcntl.ioctl(sys.stdin, termios.TIOCSWINSZ, winsize)
-                    if component_count != 0:
-                        os.chdir(os.path.join(SHARED_DIRECTORY, *components[1:]))
+                    if component_count != 0 and components[0] in volume_paths:
+                        path = volume_paths[components[0]]
+                        os.chdir(os.path.join(path, *components[1:]))
                     os.execvp(args[0], args)
 
                 self.first_packet = False
