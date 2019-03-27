@@ -141,6 +141,9 @@ class PiCmdSession(object):
         self.in_cs = False
         self.holding = ''
 
+        self.recv_in_cs = False
+        self.recv_holding = ''
+
     def massage_ansi(self, text):
         out = ''
         for c in text:
@@ -176,6 +179,36 @@ class PiCmdSession(object):
                     self.in_cs = False
         return out
 
+    def process_con_bytes(self, data):
+        out = ''
+        for c in data:
+            if not self.recv_in_cs:
+                if c == '\x9b':
+                    self.recv_in_cs = True
+                    self.recv_holding = '\x1b['
+                else:
+                    out += c
+            else: # self.recv_in_cs
+                self.recv_holding += c
+                if c >= chr(0x40) and c <= chr(0x7e):
+                    if c == 'r':
+                        # Window Bounds Report
+                        # ESC[1;1;rows;cols r
+                        rows, cols = map(int, self.recv_holding[6:-2].split(';'))
+                        winsize = struct.pack('HHHH', rows, cols, 0, 0)
+                        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, winsize)
+                    elif c == '|':
+                        # Input Event Report
+                        # ESC[12;0;0;x;x;x;x;x|
+                        # Window resized
+                        send_data(self.stream_id, '\x9b' + '0 q')
+                    else:
+                        out += self.recv_holding
+                    self.recv_holding = ''
+                    self.recv_in_cs = False
+        if len(out) != 0:
+            os.write(self.fd, out)
+
     def process_msg_data(self, data):
         if self.first_packet:
             if len(data) != 8:
@@ -206,6 +239,9 @@ class PiCmdSession(object):
                     args.append(buf[ind:ind+n])
                     ind += n
 
+                if arg_count == 0:
+                    args.append('bash')
+
                 self.pid, self.fd = pty.fork()
                 if self.pid == 0:
                     for key, val in env_vars.items():
@@ -220,8 +256,12 @@ class PiCmdSession(object):
                     os.execvp(args[0], args)
 
                 self.first_packet = False
+
+                send_data(self.stream_id, '\x9b' + '12{')
+                send_data(self.stream_id, '\x9b' + '0 q')
+
         elif self.pid:
-            os.write(self.fd, data)
+            self.process_con_bytes(data)
 
     def close(self):
         if self.pid:

@@ -34,13 +34,9 @@ struct FileHandle *con;
 ULONG socket;
 
 UBYTE arbuf[256];
-UBYTE awbuf[256];
 
 struct StandardPacket sync_sp;
 struct StandardPacket wait_sp;
-
-UBYTE cwbuf[256];
-UBYTE crbuf[16];
 
 BOOL pending_a314_read = FALSE;
 BOOL pending_con_wait = FALSE;
@@ -78,9 +74,9 @@ LONG con_write(char *s, int length)
 	return sync_sp.sp_Pkt.dp_Res1;
 }
 
-LONG con_read()
+LONG con_read(char *s, int length)
 {
-	put_con_sp(sync_mp, &sync_sp, ACTION_READ, con->fh_Arg1, (LONG)&crbuf[0], sizeof(crbuf));
+	put_con_sp(sync_mp, &sync_sp, ACTION_READ, con->fh_Arg1, (LONG)s, length);
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
 	return sync_sp.sp_Pkt.dp_Res1;
@@ -112,9 +108,9 @@ BYTE a314_connect(char *name)
 	return sync_ior->a314_Request.io_Error;
 }
 
-BYTE a314_write(int length)
+BYTE a314_write(char *buffer, int length)
 {
-	start_a314_cmd(sync_mp, sync_ior, A314_WRITE, awbuf, length);
+	start_a314_cmd(sync_mp, sync_ior, A314_WRITE, buffer, length);
 	Wait(1L << sync_mp->mp_SigBit);
 	GetMsg(sync_mp);
 	return sync_ior->a314_Request.io_Error;
@@ -142,9 +138,6 @@ void start_a314_read()
 	pending_a314_read = TRUE;
 }
 
-#define CSI 0x9b
-#define ESC 0x1b
-
 void handle_con_wait_completed()
 {
 	pending_con_wait = FALSE;
@@ -158,36 +151,17 @@ void handle_con_wait_completed()
 	}
 	else
 	{
-		int len = con_read();
+		unsigned char buf[64];
+		int len = con_read(buf, sizeof(buf));
 
 		if (len == 0 || len == -1)
 		{
-			int l = sprintf(cwbuf, "CON read problem -- got length %d\n", len);
-			con_write(cwbuf, l);
-
 			a314_reset();
 			stream_closed = TRUE;
 		}
 		else
 		{
-			int awlen = 0;
-
-			for (int i = 0; i < len; i++)
-			{
-				UBYTE c = crbuf[i];
-				if (c == CSI)
-				{
-					awbuf[awlen++] = ESC;
-					awbuf[awlen++] = '[';
-				}
-				else
-				{
-					awbuf[awlen++] = c;
-				}
-			}
-
-			a314_write(awlen);
-
+			a314_write(buf, len);
 			start_con_wait();
 		}
 	}
@@ -289,10 +263,8 @@ UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, ch
 		p += n;
 	}
 
-	ULONG *lptr = (ULONG *)awbuf;
-	*lptr++ = (ULONG)buffer - a314_membase;
-	*lptr++ = buf_len;
-	a314_write(8);
+	ULONG buf_desc[2] = {(ULONG)buffer - a314_membase, buf_len};
+	a314_write((char *)buf_desc, sizeof(buf_desc));
 
 	*buffer_len = buf_len;
 	return buffer;
@@ -300,12 +272,6 @@ UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, ch
 
 int main(int argc, char **argv)
 {
-	if (argc < 2)
-	{
-		printf("Usage: %s <command> [<argument>...]\n   where <command> is the program to run on the Raspberry Pi\n", argv[0]);
-		return 0;
-	}
-
 	sync_mp = CreatePort(NULL, 0);
 	if (sync_mp == NULL)
 	{
