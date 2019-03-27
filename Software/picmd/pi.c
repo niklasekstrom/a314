@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 
 #include "../a314device/a314.h"
@@ -194,9 +195,9 @@ void handle_a314_read_completed()
 	}
 }
 
-UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, char **argv)
+UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, char **argv, short rows, short cols)
 {
-	int buf_len = 2;
+	int buf_len = 6;
 
 	int component_count = 0;
 	UBYTE *components[20];
@@ -243,6 +244,12 @@ UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, ch
 	UBYTE *buffer = AllocMem(buf_len, MEMF_A314);
 
 	UBYTE *p = buffer;
+
+	*(short *)p = rows;
+	p += 2;
+	*(short *)p = cols;
+	p += 2;
+
 	*p++ = (UBYTE)component_count;
 	for (int i = 0; i < component_count; i++)
 	{
@@ -335,10 +342,39 @@ int main(int argc, char **argv)
 	struct Process *proc = (struct Process *)FindTask(NULL);
 	con = (struct FileHandle *)BADDR(proc->pr_CIS);
 
-	int start_msg_len;
-	UBYTE *start_msg = create_and_send_start_msg(&start_msg_len, proc->pr_CurrentDir, argc, argv);
-
 	set_screen_mode(DOSTRUE);
+
+	con_write("\x9b" "12{", 4);
+	con_write("\x9b" "0 q", 4);
+
+	int len = con_read(arbuf, 32);	// "\x9b" "1;1;33;77 r"
+	if (len < 10 || arbuf[len - 1] != 'r')
+	{
+		printf("Failure to receive window bounds report\n");
+		set_screen_mode(DOSFALSE);
+		CloseDevice((struct IORequest *)sync_ior);
+		DeleteExtIO((struct IORequest *)read_ior);
+		DeleteExtIO((struct IORequest *)sync_ior);
+		DeletePort(async_mp);
+		DeletePort(sync_mp);
+		return 0;
+	}
+
+	int start = 5;
+	int ind = start;
+	while (arbuf[ind] != ';')
+		ind++;
+	arbuf[ind] = 0;
+	int rows = atoi(arbuf + start);
+	ind++;
+	start = ind;
+	while (arbuf[ind] != ' ')
+		ind++;
+	arbuf[ind] = 0;
+	int cols = atoi(arbuf + start);
+
+	int start_msg_len;
+	UBYTE *start_msg = create_and_send_start_msg(&start_msg_len, proc->pr_CurrentDir, argc, argv, (short)rows, (short)cols);
 
 	start_con_wait();
 	start_a314_read();

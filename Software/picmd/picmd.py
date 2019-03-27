@@ -219,6 +219,9 @@ class PiCmdSession(object):
                 buf = read_mem(address, length)
 
                 ind = 0
+                rows, cols = struct.unpack('>HH', buf[ind:ind+4])
+                ind += 4
+
                 component_count = ord(buf[ind])
                 ind += 1
 
@@ -248,7 +251,7 @@ class PiCmdSession(object):
                         os.putenv(key, val)
                     os.putenv('PATH', search_path)
                     os.putenv('TERM', 'ansi')
-                    winsize = struct.pack('HHHH', CONSOLE_HEIGHT, CONSOLE_WIDTH, 0, 0)
+                    winsize = struct.pack('HHHH', rows, cols, 0, 0)
                     fcntl.ioctl(sys.stdin, termios.TIOCSWINSZ, winsize)
                     if component_count != 0 and components[0] in volume_paths:
                         path = volume_paths[components[0]]
@@ -256,9 +259,6 @@ class PiCmdSession(object):
                     os.execvp(args[0], args)
 
                 self.first_packet = False
-
-                send_data(self.stream_id, '\x9b' + '12{')
-                send_data(self.stream_id, '\x9b' + '0 q')
 
         elif self.pid:
             self.process_con_bytes(data)
