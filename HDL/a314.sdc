@@ -105,7 +105,7 @@ set_false_path -from [get_keepers {clock_port:clock_port_inst|*}] -to [get_keepe
 
 set_false_path -from [get_ports {RPI_SCE0}]
 
-set_false_path -to [get_ports {LED_C RPI_MISO1}]
+set_false_path -to [get_ports {AMI_INT2 RPI_IRQ}]
 
 #**************************************************************
 # Set Multicycle Path

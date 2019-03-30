@@ -95,6 +95,8 @@
 #define MSG_SUCCESS             1
 #define MSG_FAIL                0
 
+#define IRQ_GPIO                "25"
+
 static sigset_t original_sigset;
 
 static uint8_t mode = SPI_CS_HIGH;
@@ -372,7 +374,7 @@ static void set_direction()
 {
     for (int retry = 0; retry < 100; retry++)
     {
-        int fd = open("/sys/class/gpio/gpio19/direction", O_WRONLY);
+        int fd = open("/sys/class/gpio/gpio" IRQ_GPIO "/direction", O_WRONLY);
         if (fd != -1)
         {
             write(fd, "in", 2);
@@ -385,19 +387,19 @@ static void set_direction()
 
 static int init_gpio()
 {
-    if (open_write_close("/sys/class/gpio/export", "19") != 0)
+    if (open_write_close("/sys/class/gpio/export", IRQ_GPIO) != 0)
         return -1;
 
     gpio_exported = true;
 
     set_direction();
 
-    if (open_write_close("/sys/class/gpio/gpio19/edge", "both") == -1)
+    if (open_write_close("/sys/class/gpio/gpio" IRQ_GPIO "/edge", "both") == -1)
         return -1;
 
     gpio_edge_set = true;
 
-    gpio_fd = open("/sys/class/gpio/gpio19/value", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    gpio_fd = open("/sys/class/gpio/gpio" IRQ_GPIO "/value", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (gpio_fd == -1)
         return -1;
 
@@ -410,10 +412,10 @@ static void shutdown_gpio()
         close(gpio_fd);
 
     if (gpio_edge_set)
-        open_write_close("/sys/class/gpio/gpio19/edge", "none");
+        open_write_close("/sys/class/gpio/gpio" IRQ_GPIO "/edge", "none");
 
     if (gpio_exported)
-        open_write_close("/sys/class/gpio/unexport", "19");
+        open_write_close("/sys/class/gpio/unexport", IRQ_GPIO);
 }
 
 static int init_server_socket()
