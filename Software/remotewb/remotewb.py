@@ -37,7 +37,7 @@ class MyProtocol(asyncio.Protocol):
             asyncio.ensure_future(create_websockets_server())
         else:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            name = 'remotewb-server'
+            name = 'remotewb'
             msg = struct.pack('=IIB', len(name), 0, MSG_REGISTER_REQ) + name.encode()
             self.transport.write(msg)
 

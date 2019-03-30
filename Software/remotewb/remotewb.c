@@ -384,9 +384,9 @@ int main()
 	memcpy(wmsg, cmsg, sizeof(struct A314_IORequest));
 	memcpy(rmsg, cmsg, sizeof(struct A314_IORequest));
 
-	if (a314_connect("remotewb-server") != A314_CONNECT_OK)
+	if (a314_connect("remotewb") != A314_CONNECT_OK)
 	{
-		printf("Unable to connect to remotewb-server\n");
+		printf("Unable to connect to remotewb service\n");
 
 		CloseDevice((struct IORequest *)cmsg);
 		DeleteExtIO((struct IORequest *)rmsg);
