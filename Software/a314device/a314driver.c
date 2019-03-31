@@ -280,10 +280,18 @@ void write_cp_nibble(int index, UBYTE value)
 	*p = value & 0xf;
 }
 
+UBYTE read_cp_nibble(int index)
+{
+	UBYTE *p = (UBYTE *)CLOCK_PORT_ADDRESS;
+	p += 4 * index + 3;
+	return *p & 0xf;
+}
+
 void write_base_address(void *p)
 {
 	ULONG ba = (ULONG)p - a314_membase;
 
+	Disable();
 	write_cp_nibble(13, 8);
 
 	for (int i = 0; i < 6; i++)
@@ -293,6 +301,7 @@ void write_base_address(void *p)
 	}
 
 	write_cp_nibble(13, 0);
+	Enable();
 }
 
 
@@ -306,36 +315,72 @@ void fix_address_mapping()
 
 	UBYTE swap = (agnus == 0x00 || agnus == 0x10) ? 0x1 : 0x0;
 
+	Disable();
 	write_cp_nibble(13, 8);
 	write_cp_nibble(11, swap);
 	write_cp_nibble(13, 0);
+	Enable();
 }
 
 
 
 
+// Addresses to variables in CMEM.
+#define R_EVENTS_ADDRESS	12
+#define R_ENABLE_ADDRESS	13
+#define A_EVENTS_ADDRESS	14
+#define A_ENABLE_ADDRESS	15
 
-// Notification to Raspberry that Amiga has modified the mentioned resource.
-#define RASP_IRQ_RESERVED	8
-#define RASP_IRQ_BASE_ADDRESS	4
-#define RASP_IRQ_R2A		2
-#define RASP_IRQ_A2R		1
+// Events that are communicated via IRQ from Amiga to Raspberry.
+#define R_EVENT_A2R_TAIL	1
+#define R_EVENT_R2A_HEAD	2
+#define R_EVENT_BASE_ADDRESS	4
 
-void set_rasp_irq(UBYTE status)
+// Events that are communicated from Raspberry to Amiga.
+#define A_EVENT_R2A_TAIL        1
+#define A_EVENT_A2R_HEAD        2
+
+void set_rasp_irq(UBYTE events)
 {
+	Disable();
 	write_cp_nibble(13, 8);
-	write_cp_nibble(12, status);
+	write_cp_nibble(R_EVENTS_ADDRESS, events);
 	write_cp_nibble(13, 0);
+	Enable();
+}
+
+UBYTE read_a_events()
+{
+	Disable();
+	write_cp_nibble(13, 8);
+	UBYTE events = read_cp_nibble(A_EVENTS_ADDRESS);
+	write_cp_nibble(13, 0);
+	Enable();
+	return events;
+}
+
+void write_a_enable(UBYTE enable)
+{
+	Disable();
+	write_cp_nibble(13, 8);
+	write_cp_nibble(A_ENABLE_ADDRESS, enable);
+	write_cp_nibble(13, 0);
+	Enable();
 }
 
 
+// Structure used to communicate with the PORTS interrupt server.
+struct PortsData
+{
+	struct Task *task;
+	ULONG signal;
+};
+
+struct PortsData ports_data;
+extern void PortsServer();
+struct Interrupt ports_interrupt;
 
 
-
-
-// Bits that mask the kind of interrupt requested.
-#define R2A_MASK	0x01
-#define A2R_MASK	0x02
 
 // Structure used to communicate with the vblank interrupt server.
 struct VBlankData
@@ -363,7 +408,7 @@ void request_r2a_interrupt()
 {
 	if (!vblank_r2a_requested)
 	{
-		vblank_data.reqs = vblank_data.reqs ^ R2A_MASK;
+		vblank_data.reqs = vblank_data.reqs ^ A_EVENT_R2A_TAIL;
 		vblank_r2a_requested = TRUE;
 	}
 }
@@ -374,7 +419,7 @@ void request_a2r_interrupt(int min_free)
 	vblank_data.max_len = max_len;
 	if (!vblank_a2r_requested)
 	{
-		vblank_data.reqs = vblank_data.reqs ^ A2R_MASK;
+		vblank_data.reqs = vblank_data.reqs ^ A_EVENT_A2R_HEAD;
 		vblank_a2r_requested = TRUE;
 	}
 }
@@ -389,26 +434,27 @@ void handle_vblank_signal()
 	BOOL r2a_fired = FALSE;
 	BOOL a2r_fired = FALSE;
 
-	if (vblank_r2a_requested && ((actual & R2A_MASK) == 0))
+	if (vblank_r2a_requested && ((actual & A_EVENT_R2A_TAIL) == 0))
 	{
 		vblank_r2a_requested = FALSE;
 		r2a_fired = TRUE;
 	}
 
-	if (vblank_a2r_requested && ((actual & A2R_MASK) == 0))
+	if (vblank_a2r_requested && ((actual & A_EVENT_A2R_HEAD) == 0))
 	{
 		vblank_a2r_requested = FALSE;
 		a2r_fired = TRUE;
 	}
 
 	if (r2a_fired)
+	{
 		handle_packets_received_r2a();
+		request_r2a_interrupt();
+	}
 
 	if (a2r_fired)
 		handle_room_in_a2r();
 }
-
-
 
 
 
@@ -789,8 +835,6 @@ void handle_packets_received_r2a()
 
 		handle_received_packet_r2a(type, stream_id, len);
 	}
-
-	request_r2a_interrupt();
 }
 
 
@@ -1136,9 +1180,11 @@ void handle_received_app_request(struct A314_IORequest *ior)
 }
 
 
+#define SIGB_PORTS SIGBREAKB_CTRL_D
 #define SIGB_VBLANK SIGBREAKB_CTRL_E
 #define SIGB_MSGPORT SIGBREAKB_CTRL_F
 
+#define SIGF_PORTS SIGBREAKF_CTRL_D
 #define SIGF_VBLANK SIGBREAKF_CTRL_E
 #define SIGF_MSGPORT SIGBREAKF_CTRL_F
 
@@ -1147,10 +1193,14 @@ struct Task *task;
 
 void task_main()
 {
-	write_base_address(ca);
-	set_rasp_irq(RASP_IRQ_BASE_ADDRESS);
+	write_a_enable(0);
+	read_a_events();
 
-	// Setup vblank interrupt.
+	write_base_address(ca);
+
+	set_rasp_irq(R_EVENT_BASE_ADDRESS);
+
+	// Setup VERTB interrupt server.
 	vblank_data.ca = ca;
 	vblank_data.task = FindTask(NULL);
 	vblank_data.signal = SIGF_VBLANK;
@@ -1167,6 +1217,21 @@ void task_main()
 	AddIntServer(INTB_VERTB, &vblank_interrupt);
 
 
+	// Setup PORTS interrupt server.
+	ports_data.task = FindTask(NULL);
+	ports_data.signal = SIGF_PORTS;
+
+	ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	ports_interrupt.is_Node.ln_Pri = 0;
+	ports_interrupt.is_Node.ln_Name = device_name;
+	ports_interrupt.is_Data = (APTR)&ports_data;
+	ports_interrupt.is_Code = PortsServer;
+
+	AddIntServer(INTB_PORTS, &ports_interrupt);
+
+
+	BOOL a2r_head_enabled = FALSE;
+	write_a_enable(A_EVENT_R2A_TAIL);
 
 	request_r2a_interrupt();
 
@@ -1175,10 +1240,17 @@ void task_main()
 	{
 		debug_printf("Waiting for signal\n");
 
-		ULONG signal = Wait(SIGF_VBLANK | SIGF_MSGPORT);
+		ULONG signal = Wait(SIGF_PORTS | SIGF_VBLANK | SIGF_MSGPORT);
 
 		UBYTE prev_a2r_tail = ca->a2r_tail;
 		UBYTE prev_r2a_head = ca->r2a_head;
+
+		if (signal & SIGF_PORTS)
+		{
+			debug_printf("Was signaled by ports interrupt server\n");
+			handle_packets_received_r2a();
+			handle_room_in_a2r();
+		}
 
 		if (signal & SIGF_VBLANK)
 		{
@@ -1195,16 +1267,29 @@ void task_main()
 			}
 		}
 
-		UBYTE irq_status = 0;
+		if (sq_head != NULL && !a2r_head_enabled)
+		{
+			write_a_enable(A_EVENT_R2A_TAIL | A_EVENT_A2R_HEAD);
+			a2r_head_enabled = TRUE;
+		}
+		else if (sq_head == NULL && a2r_head_enabled)
+		{
+			write_a_enable(A_EVENT_R2A_TAIL);
+			a2r_head_enabled = FALSE;
+		}
+
+		UBYTE r_events = 0;
 		if (ca->a2r_tail != prev_a2r_tail)
-			irq_status |= RASP_IRQ_A2R;
+			r_events |= R_EVENT_A2R_TAIL;
 		if (ca->r2a_head != prev_r2a_head)
-			irq_status |= RASP_IRQ_R2A;
-		if (irq_status != 0)
-			set_rasp_irq(irq_status);
+			r_events |= R_EVENT_R2A_HEAD;
+		if (r_events != 0)
+			set_rasp_irq(r_events);
 	}
 
 	debug_printf("Shutting down\n");
+
+	RemIntServer(INTB_PORTS, &ports_interrupt);
 
 	RemIntServer(INTB_VERTB, &vblank_interrupt);
 	FreeMem(ca, sizeof(struct ComArea));

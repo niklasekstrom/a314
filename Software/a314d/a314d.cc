@@ -60,6 +60,10 @@
 #define R_EVENT_R2A_HEAD        2
 #define R_EVENT_BASE_ADDRESS    4
 
+// Events that are communicated from Raspberry to Amiga.
+#define A_EVENT_R2A_TAIL        1
+#define A_EVENT_A2R_HEAD        2
+
 // Offset relative to communication area for queue pointers.
 #define A2R_TAIL_OFFSET         0
 #define R2A_HEAD_OFFSET         1
@@ -120,6 +124,7 @@ static bool have_base_address = false;
 static unsigned int base_address = 0;
 
 static uint8_t channel_status[4];
+static uint8_t channel_status_updated = 0;
 
 static uint8_t recv_buf[256];
 static uint8_t send_buf[256];
@@ -1051,6 +1056,7 @@ static bool receive_from_a2r()
     }
 
     channel_status[A2R_HEAD_OFFSET] = channel_status[A2R_TAIL_OFFSET];
+    channel_status_updated |= A_EVENT_A2R_HEAD;
     return true;
 }
 
@@ -1110,6 +1116,7 @@ static bool flush_send_queue()
     tail = (tail + to_write) & 255;
 
     channel_status[R2A_TAIL_OFFSET] = tail;
+    channel_status_updated |= A_EVENT_R2A_TAIL;
     return true;
 }
 
@@ -1128,11 +1135,18 @@ static void read_channel_status()
 
     for (int i = 0; i < 4; i++)
         channel_status[i] = rx_buf[3 + i];
+
+    channel_status_updated = 0;
 }
 
 static void write_channel_status()
 {
-    spi_write_mem(base_address + 2, &channel_status[R2A_TAIL_OFFSET], 2);
+    if (channel_status_updated != 0)
+    {
+        spi_write_mem(base_address + 2, &channel_status[R2A_TAIL_OFFSET], 2);
+        spi_write_cmem(A_EVENTS_ADDRESS, channel_status_updated);
+        channel_status_updated = 0;
+    }
 }
 
 static void close_all_logical_channels()
