@@ -638,7 +638,8 @@ while not done:
         req = read_mem(address + 2, length - 2)
         res = process_request(req)
         write_mem(address + 2, res)
-        write_mem(address, '\xff\xff')
+        #write_mem(address, '\xff\xff')
+        send_data(stream_id, '\xff\xff')
     elif ptype == MSG_EOS:
         if stream_id == current_stream_id:
             logger.debug('Got EOS, stream closed')

@@ -890,8 +890,11 @@ _write_req_and_wait_for_res
 	lea	(4+l125,a7),a0
 	move.l	a0,-(a7)
 	jsr	_a314_write
-	jsr	_wait_for_response
-	addq.w	#8,a7
+	move.l	#8,-(a7)
+	lea	(12+l125,a7),a0
+	move.l	a0,-(a7)
+	jsr	_a314_read
+	add.w	#16,a7
 l121
 l123	reg	d2
 	movem.l	(a7)+,d2

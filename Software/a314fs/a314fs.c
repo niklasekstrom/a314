@@ -380,7 +380,8 @@ void write_req_and_wait_for_res(int len)
 {
 	ULONG buf[2] = {(ULONG)request_buffer - a314_membase, len};
 	a314_write((char *)&buf[0], 8);
-	wait_for_response();
+	//wait_for_response();
+	a314_read((char *)&buf[0], 8);
 }
 
 struct FileLock *create_and_add_file_lock(long key, long mode)
