@@ -13,6 +13,7 @@ _PortsServer:
 	lea.l	$dc0000,a0
 	move.b	#8,$37(a0)
 	move.b	$3b(a0),d0
+	and.b	$3f(a0),d0
 	move.b	#0,$37(a0)
 
 	and	#$f,d0
