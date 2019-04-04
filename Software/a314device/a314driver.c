@@ -292,7 +292,8 @@ void write_base_address(void *p)
 	ULONG ba = (ULONG)p - a314_membase;
 
 	Disable();
-	write_cp_nibble(13, 8);
+	UBYTE prev_regd = read_cp_nibble(13);
+	write_cp_nibble(13, prev_regd | 8);
 
 	for (int i = 0; i < 6; i++)
 	{
@@ -300,7 +301,7 @@ void write_base_address(void *p)
 		ba >>= 4;
 	}
 
-	write_cp_nibble(13, 0);
+	write_cp_nibble(13, prev_regd);
 	Enable();
 }
 
@@ -316,9 +317,10 @@ void fix_address_mapping()
 	UBYTE swap = (agnus == 0x00 || agnus == 0x10) ? 0x1 : 0x0;
 
 	Disable();
-	write_cp_nibble(13, 8);
+	UBYTE prev_regd = read_cp_nibble(13);
+	write_cp_nibble(13, prev_regd | 8);
 	write_cp_nibble(11, swap);
-	write_cp_nibble(13, 0);
+	write_cp_nibble(13, prev_regd);
 	Enable();
 }
 
@@ -343,18 +345,20 @@ void fix_address_mapping()
 void set_rasp_irq(UBYTE events)
 {
 	Disable();
-	write_cp_nibble(13, 8);
+	UBYTE prev_regd = read_cp_nibble(13);
+	write_cp_nibble(13, prev_regd | 8);
 	write_cp_nibble(R_EVENTS_ADDRESS, events);
-	write_cp_nibble(13, 0);
+	write_cp_nibble(13, prev_regd);
 	Enable();
 }
 
 UBYTE read_a_events()
 {
 	Disable();
-	write_cp_nibble(13, 8);
+	UBYTE prev_regd = read_cp_nibble(13);
+	write_cp_nibble(13, prev_regd | 8);
 	UBYTE events = read_cp_nibble(A_EVENTS_ADDRESS);
-	write_cp_nibble(13, 0);
+	write_cp_nibble(13, prev_regd);
 	Enable();
 	return events;
 }
@@ -362,103 +366,17 @@ UBYTE read_a_events()
 void write_a_enable(UBYTE enable)
 {
 	Disable();
-	write_cp_nibble(13, 8);
+	UBYTE prev_regd = read_cp_nibble(13);
+	write_cp_nibble(13, prev_regd | 8);
 	write_cp_nibble(A_ENABLE_ADDRESS, enable);
-	write_cp_nibble(13, 0);
+	write_cp_nibble(13, prev_regd);
 	Enable();
 }
 
 
-// Structure used to communicate with the PORTS interrupt server.
-struct PortsData
-{
-	struct Task *task;
-	ULONG signal;
-};
-
-struct PortsData ports_data;
-extern void PortsServer();
+extern void IntServer();
+struct Interrupt vertb_interrupt;
 struct Interrupt ports_interrupt;
-
-
-
-// Structure used to communicate with the vblank interrupt server.
-struct VBlankData
-{
-	struct ComArea *ca;
-	struct Task *task;
-	ULONG signal;
-	UBYTE reqs;
-	UBYTE acks;
-	UBYTE max_len;
-	UBYTE padding;
-};
-
-struct VBlankData vblank_data;
-extern void VBlankServer();
-struct Interrupt vblank_interrupt;
-
-
-
-
-BOOL vblank_r2a_requested = FALSE;
-BOOL vblank_a2r_requested = FALSE;
-
-void request_r2a_interrupt()
-{
-	if (!vblank_r2a_requested)
-	{
-		vblank_data.reqs = vblank_data.reqs ^ A_EVENT_R2A_TAIL;
-		vblank_r2a_requested = TRUE;
-	}
-}
-
-void request_a2r_interrupt(int min_free)
-{
-	BYTE max_len = 255 - (3 + min_free);
-	vblank_data.max_len = max_len;
-	if (!vblank_a2r_requested)
-	{
-		vblank_data.reqs = vblank_data.reqs ^ A_EVENT_A2R_HEAD;
-		vblank_a2r_requested = TRUE;
-	}
-}
-
-void handle_packets_received_r2a();
-void handle_room_in_a2r();
-
-void handle_vblank_signal()
-{
-	UBYTE actual = vblank_data.reqs ^ vblank_data.acks;
-
-	BOOL r2a_fired = FALSE;
-	BOOL a2r_fired = FALSE;
-
-	if (vblank_r2a_requested && ((actual & A_EVENT_R2A_TAIL) == 0))
-	{
-		vblank_r2a_requested = FALSE;
-		r2a_fired = TRUE;
-	}
-
-	if (vblank_a2r_requested && ((actual & A_EVENT_A2R_HEAD) == 0))
-	{
-		vblank_a2r_requested = FALSE;
-		a2r_fired = TRUE;
-	}
-
-	if (r2a_fired)
-	{
-		handle_packets_received_r2a();
-		request_r2a_interrupt();
-	}
-
-	if (a2r_fired)
-		handle_room_in_a2r();
-}
-
-
-
-
 
 
 
@@ -558,8 +476,6 @@ void add_to_send_queue(struct Socket *s)
 	sq_tail = s;
 
 	s->flags |= SOCKET_IN_SEND_QUEUE;
-
-	request_a2r_interrupt(sq_head->send_queue_required_length);
 }
 
 void remove_from_send_queue(struct Socket *s)
@@ -586,9 +502,6 @@ void remove_from_send_queue(struct Socket *s)
 		s->next_in_send_queue = NULL;
 		s->flags &= ~SOCKET_IN_SEND_QUEUE;
 	}
-
-	if (sq_head != NULL)
-		request_a2r_interrupt(sq_head->send_queue_required_length);
 }
 
 
@@ -1180,12 +1093,10 @@ void handle_received_app_request(struct A314_IORequest *ior)
 }
 
 
-#define SIGB_PORTS SIGBREAKB_CTRL_D
-#define SIGB_VBLANK SIGBREAKB_CTRL_E
+#define SIGB_INT SIGBREAKB_CTRL_E
 #define SIGB_MSGPORT SIGBREAKB_CTRL_F
 
-#define SIGF_PORTS SIGBREAKF_CTRL_D
-#define SIGF_VBLANK SIGBREAKF_CTRL_E
+#define SIGF_INT SIGBREAKF_CTRL_E
 #define SIGF_MSGPORT SIGBREAKF_CTRL_F
 
 struct MsgPort task_mp;
@@ -1200,98 +1111,86 @@ void task_main()
 
 	set_rasp_irq(R_EVENT_BASE_ADDRESS);
 
-	// Setup VERTB interrupt server.
-	vblank_data.ca = ca;
-	vblank_data.task = FindTask(NULL);
-	vblank_data.signal = SIGF_VBLANK;
-	vblank_data.reqs = 0;
-	vblank_data.acks = 0;
-	vblank_data.max_len = 0;
 
-	vblank_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	vblank_interrupt.is_Node.ln_Pri = -60;
-	vblank_interrupt.is_Node.ln_Name = device_name;
-	vblank_interrupt.is_Data = (APTR)&vblank_data;
-	vblank_interrupt.is_Code = VBlankServer;
+	vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	vertb_interrupt.is_Node.ln_Pri = -60;
+	vertb_interrupt.is_Node.ln_Name = device_name;
+	vertb_interrupt.is_Data = (APTR)task;
+	vertb_interrupt.is_Code = IntServer;
 
-	AddIntServer(INTB_VERTB, &vblank_interrupt);
+	AddIntServer(INTB_VERTB, &vertb_interrupt);
 
-
-	// Setup PORTS interrupt server.
-	ports_data.task = FindTask(NULL);
-	ports_data.signal = SIGF_PORTS;
 
 	ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
 	ports_interrupt.is_Node.ln_Pri = 0;
 	ports_interrupt.is_Node.ln_Name = device_name;
-	ports_interrupt.is_Data = (APTR)&ports_data;
-	ports_interrupt.is_Code = PortsServer;
+	ports_interrupt.is_Data = (APTR)task;
+	ports_interrupt.is_Code = IntServer;
 
 	AddIntServer(INTB_PORTS, &ports_interrupt);
 
 
-	BOOL a2r_head_enabled = FALSE;
 	write_a_enable(A_EVENT_R2A_TAIL);
 
-	request_r2a_interrupt();
-
-	BOOL done = FALSE;
-	while (!done)
+	while (1)
 	{
 		debug_printf("Waiting for signal\n");
 
-		ULONG signal = Wait(SIGF_PORTS | SIGF_VBLANK | SIGF_MSGPORT);
+		ULONG signal = Wait(SIGF_MSGPORT | SIGF_INT);
 
 		UBYTE prev_a2r_tail = ca->a2r_tail;
 		UBYTE prev_r2a_head = ca->r2a_head;
 
-		if (signal & SIGF_PORTS)
-		{
-			debug_printf("Was signaled by ports interrupt server\n");
-			handle_packets_received_r2a();
-			handle_room_in_a2r();
-		}
-
-		if (signal & SIGF_VBLANK)
-		{
-			debug_printf("Was signaled by vblank interrupt server\n");
-			handle_vblank_signal();
-		}
-
 		if (signal & SIGF_MSGPORT)
 		{
+			write_a_enable(0);
+
 			struct Message *msg;
 			while (msg = GetMsg(&task_mp))
-			{
 				handle_received_app_request((struct A314_IORequest *)msg);
+		}
+
+		UBYTE a_enable = 0;
+		while (a_enable == 0)
+		{
+			handle_packets_received_r2a();
+			handle_room_in_a2r();
+
+			UBYTE r_events = 0;
+			if (ca->a2r_tail != prev_a2r_tail)
+				r_events |= R_EVENT_A2R_TAIL;
+			if (ca->r2a_head != prev_r2a_head)
+				r_events |= R_EVENT_R2A_HEAD;
+
+			Disable();
+			UBYTE prev_regd = read_cp_nibble(13);
+			write_cp_nibble(13, prev_regd | 8);
+			read_cp_nibble(A_EVENTS_ADDRESS);
+
+			if (ca->r2a_head == ca->r2a_tail)
+			{
+				if (sq_head == NULL)
+					a_enable = A_EVENT_R2A_TAIL;
+				else if (!room_in_a2r(sq_head->send_queue_required_length))
+					a_enable = A_EVENT_R2A_TAIL | A_EVENT_A2R_HEAD;
+
+				if (a_enable != 0)
+				{
+					write_cp_nibble(A_ENABLE_ADDRESS, a_enable);
+					if (r_events != 0)
+						write_cp_nibble(R_EVENTS_ADDRESS, r_events);
+				}
 			}
-		}
 
-		if (sq_head != NULL && !a2r_head_enabled)
-		{
-			write_a_enable(A_EVENT_R2A_TAIL | A_EVENT_A2R_HEAD);
-			a2r_head_enabled = TRUE;
+			write_cp_nibble(13, prev_regd);
+			Enable();
 		}
-		else if (sq_head == NULL && a2r_head_enabled)
-		{
-			write_a_enable(A_EVENT_R2A_TAIL);
-			a2r_head_enabled = FALSE;
-		}
-
-		UBYTE r_events = 0;
-		if (ca->a2r_tail != prev_a2r_tail)
-			r_events |= R_EVENT_A2R_TAIL;
-		if (ca->r2a_head != prev_r2a_head)
-			r_events |= R_EVENT_R2A_HEAD;
-		if (r_events != 0)
-			set_rasp_irq(r_events);
 	}
 
 	debug_printf("Shutting down\n");
 
 	RemIntServer(INTB_PORTS, &ports_interrupt);
-
-	RemIntServer(INTB_VERTB, &vblank_interrupt);
+	RemIntServer(INTB_VERTB, &vertb_interrupt);
 	FreeMem(ca, sizeof(struct ComArea));
 
 	// Stack and task structure should be reclaimed.
