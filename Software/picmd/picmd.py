@@ -22,6 +22,7 @@ PICMD_CFG_FILE = '/etc/opt/a314/picmd.conf'
 volume_paths = {}
 search_path = ""
 env_vars = {}
+sgr_map = {}
 
 def load_cfg():
     with open(FS_CFG_FILE, 'rt') as f:
@@ -44,6 +45,10 @@ def load_cfg():
             for key, val in cfg['env_vars'].items():
                 env_vars[key] = val
 
+        if 'sgr_map' in cfg:
+            for key, val in cfg['sgr_map'].items():
+                sgr_map[str(key)] = str(val)
+            
 load_cfg()
 
 MSG_REGISTER_REQ		= 1
@@ -121,12 +126,6 @@ def send_reset(stream_id):
     m = struct.pack('=IIB', 0, stream_id, MSG_RESET)
     drv.sendall(m)
 
-CONSOLE_WIDTH = 77
-CONSOLE_HEIGHT = 30
-
-#CMAP = {'30':'32', '31':'33', '32':'33', '33':'33', '34':'32', '35':'32', '36':'32', '37':'37'}
-CMAP = {'30':'30', '31':'31', '32':'32', '33':'33', '34':'34', '35':'35', '36':'36', '37':'37'}
-
 sessions = {}
 
 class PiCmdSession(object):
@@ -137,64 +136,29 @@ class PiCmdSession(object):
         self.first_packet = True
         self.reset_after = None
 
-        self.was_esc = False
-        self.in_cs = False
-        self.holding = ''
+        self.rasp_was_esc = False
+        self.rasp_in_cs = False
+        self.rasp_holding = ''
 
-        self.recv_in_cs = False
-        self.recv_holding = ''
+        self.amiga_in_cs = False
+        self.amiga_holding = ''
 
-    def massage_ansi(self, text):
-        out = ''
-        for c in text:
-            if not self.in_cs:
-                if not self.was_esc:
-                    if c == '\x1b':
-                        self.was_esc = True
-                    else:
-                        out += c
-                else: # self.was_esc
-                    if c == '[':
-                        self.was_esc = False
-                        self.in_cs = True
-                        self.holding = '\x1b['
-                    elif c == '\x1b':
-                        out += '\x1b'
-                    else:
-                        out += '\x1b'
-                        out += c
-                        self.was_esc = False
-            else: # self.in_cs
-                self.holding += c
-                if c >= chr(0x40) and c <= chr(0x7e):
-                    if c == 'm':
-                        arr = self.holding[2:-1].split(';')
-                        repl = '\x1b[' + (';'.join([CMAP[v] if v in CMAP else v for v in arr])) + 'm'
-                        #print "Before:", self.holding[1:], " After:", repl[1:]
-                        out += repl
-                        #self.cmap['32'] = str((int(CMAP['32']) - 30 + 1) % 8 + 30)
-                    else:
-                        out += self.holding
-                    self.holding = ''
-                    self.in_cs = False
-        return out
-
-    def process_con_bytes(self, data):
+    def process_amiga_ansi(self, data):
         out = ''
         for c in data:
-            if not self.recv_in_cs:
+            if not self.amiga_in_cs:
                 if c == '\x9b':
-                    self.recv_in_cs = True
-                    self.recv_holding = '\x1b['
+                    self.amiga_in_cs = True
+                    self.amiga_holding = '\x1b['
                 else:
                     out += c
-            else: # self.recv_in_cs
-                self.recv_holding += c
+            else: # self.amiga_in_cs
+                self.amiga_holding += c
                 if c >= chr(0x40) and c <= chr(0x7e):
                     if c == 'r':
                         # Window Bounds Report
                         # ESC[1;1;rows;cols r
-                        rows, cols = map(int, self.recv_holding[6:-2].split(';'))
+                        rows, cols = map(int, self.amiga_holding[6:-2].split(';'))
                         winsize = struct.pack('HHHH', rows, cols, 0, 0)
                         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, winsize)
                     elif c == '|':
@@ -203,9 +167,9 @@ class PiCmdSession(object):
                         # Window resized
                         send_data(self.stream_id, '\x9b' + '0 q')
                     else:
-                        out += self.recv_holding
-                    self.recv_holding = ''
-                    self.recv_in_cs = False
+                        out += self.amiga_holding
+                    self.amiga_holding = ''
+                    self.amiga_in_cs = False
         if len(out) != 0:
             os.write(self.fd, out)
 
@@ -261,7 +225,7 @@ class PiCmdSession(object):
                 self.first_packet = False
 
         elif self.pid:
-            self.process_con_bytes(data)
+            self.process_amiga_ansi(data)
 
     def close(self):
         if self.pid:
@@ -270,10 +234,45 @@ class PiCmdSession(object):
             os.close(self.fd)
         del sessions[self.stream_id]
 
+    def process_rasp_ansi(self, text):
+        out = ''
+        for c in text:
+            if not self.rasp_in_cs:
+                if not self.rasp_was_esc:
+                    if c == '\x1b':
+                        self.rasp_was_esc = True
+                    else:
+                        out += c
+                else: # self.rasp_was_esc
+                    if c == '[':
+                        self.rasp_was_esc = False
+                        self.rasp_in_cs = True
+                        self.rasp_holding = '\x1b['
+                    elif c == '\x1b':
+                        out += '\x1b'
+                    else:
+                        out += '\x1b'
+                        out += c
+                        self.rasp_was_esc = False
+            else: # self.rasp_in_cs
+                self.rasp_holding += c
+                if c >= chr(0x40) and c <= chr(0x7e):
+                    if c == 'm':
+                        # Select Graphic Rendition
+                        # ESC[30;37m
+                        attrs = self.rasp_holding[2:-1].split(';')
+                        attrs = [sgr_map[a] if a in sgr_map else a for a in attrs]
+                        out += '\x1b[' + (';'.join(attrs)) + 'm'
+                    else:
+                        out += self.rasp_holding
+                    self.rasp_holding = ''
+                    self.rasp_in_cs = False
+        return out
+
     def handle_text(self):
         try:
             text = os.read(self.fd, 1024)
-            #text = self.massage_ansi(text)
+            text = self.process_rasp_ansi(text)
             while len(text) > 0:
                 take = min(len(text), 252)
                 send_data(self.stream_id, text[:take])
