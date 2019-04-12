@@ -275,14 +275,14 @@ void append_a2r_packet(UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
 
 void write_cp_nibble(int index, UBYTE value)
 {
-	UBYTE *p = (UBYTE *)CLOCK_PORT_ADDRESS;
+	volatile UBYTE *p = (UBYTE *)CLOCK_PORT_ADDRESS;
 	p += 4 * index + 3;
 	*p = value & 0xf;
 }
 
 UBYTE read_cp_nibble(int index)
 {
-	UBYTE *p = (UBYTE *)CLOCK_PORT_ADDRESS;
+	volatile UBYTE *p = (UBYTE *)CLOCK_PORT_ADDRESS;
 	p += 4 * index + 3;
 	return *p & 0xf;
 }
