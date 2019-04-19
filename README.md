@@ -6,23 +6,23 @@ The *A314* is an expansion board for the Amiga 500 that goes in the trapdoor exp
 
 |         |            |
 | ------------- |---------------|
-| ![PCB](/Documentation/Images/populated_pcb.jpg)      | ![A314 with RPi attached](/Documentation/Images/a314_with_rpi.jpg) |
+| ![PCB](Documentation/Images/populated_pcb.jpg)      | ![A314 with RPi attached](Documentation/Images/a314_with_rpi.jpg) |
 
-Drivers running on both sides (*a314.device* on the Amiga and *a314d* on the RPi) let processes on the RPi expose services to which processes on the Amiga can connect to, and establish logical communication channels between the processes. When a process on one side sends a packet to a process on the other side, an interrupt is generated that wakes up the receiving process.
+Drivers running on both sides ([*a314.device*](Software/a314device) on the Amiga and [*a314d*](Software/a314d) on the RPi) let processes on the RPi expose services to which processes on the Amiga can connect to, and establish logical communication channels between the processes. When a process on one side sends a packet to a process on the other side, an interrupt is generated that wakes up the receiving process.
 
 ## What can you do with it today?
 
 We have implemented a few services that run on the RPi and on the A500:
 
-*  *a314fs* is a file system that is mounted in AmigaDOS as a device, PI0:, and the volume in it, PiDisk:, is mapped to a directory on the RPi.
+*  [*a314fs*](Software/a314fs) is a file system that is mounted in AmigaDOS as a device, PI0:, and the volume in it, PiDisk:, is mapped to a directory on the RPi.
 
-*  *pi* is a command that lets you invoke commands from the AmigaDOS command line, that are then run on the RPi. For example, if you stand in a directory on PiDisk: and run "pi vc hello.c -o hello" then the vc program (the VBCC cross-compiler) is run on the RPi with the given arguments, which compiles hello.c to the executable hello. As the resulting binary is accessible through the a314fs, the resulting program can be run directly after. Interactive programs can also be executed using the pi command, such as "pi mc -a" which runs Midnight Commander. Running pi without any arguments is equivalent to "pi bash".
+*  [*pi*](Software/picmd) is a command that lets you invoke commands from the AmigaDOS command line, that are then run on the RPi. For example, if you stand in a directory on PiDisk: and run "pi vc hello.c -o hello" then the vc program (the VBCC cross-compiler) is run on the RPi with the given arguments, which compiles hello.c to the executable hello. As the resulting binary is accessible through the a314fs, the resulting program can be run directly after. Interactive programs can also be executed using the pi command, such as "pi mc -a" which runs Midnight Commander. Running pi without any arguments is equivalent to "pi bash".
 
-<img src="/Documentation/Images/workbench.jpg" width="600px"/>
+<img src="Documentation/Images/workbench.jpg" width="500px"/>
 
-*  *RemoteWB* works by moving the Workbench bitplanes over to the chip memory on the A314 (this requires that the A500 has at least a 8372 Agnus) and then each frame the RPi reads those bitplanes, encodes those as a GIF image, and then sends that image to a web browser through a web socket. The web browser sends key presses and mouse movements back to the Amiga through the web socket, and the effect is that the Workbench is remoted the a web browser.
+*  [*RemoteWB*](Software/remotewb) works by moving the Workbench bitplanes over to the chip memory on the A314 (this requires that the A500 has at least a 8372 Agnus) and then each frame the RPi reads those bitplanes, encodes those as a [GIF image](Software/bpls2gif), and then sends that image to a web browser through a web socket. The web browser sends key presses and mouse movements back to the Amiga through the web socket, and the effect is that the Workbench is remoted the a web browser.
 
-*  *VideoPlayer* is a simple program that displays a sequence of images on the A500 by letting the RPi write bitplanes directly to the shared memory (this again requires that the A314 memory is chip memory).
+*  [*VideoPlayer*](Software/videoplayer) is a simple program that displays a sequence of images on the A500 by letting the RPi write bitplanes directly to the shared memory (this again requires that the A314 memory is chip memory).
 
 ## What could it potentially be used for in the future?
 
