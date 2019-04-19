@@ -32,6 +32,8 @@ Here are some services that we have considered but not gotten around to implemen
 
 * An mp3 player that lets the RPi stream samples directly to the shared chip memory, from where Paula would play those samples.
 
+* Your ideas?
+
 ## How can you get involved?
 
 If this sounds interesting, you'll probably want an A314 of your own to play with. We have released all the information needed to make a board free in this GitHub repository.
