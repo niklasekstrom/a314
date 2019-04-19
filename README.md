@@ -18,7 +18,7 @@ We have implemented a few services that run on the RPi and on the A500:
 
 *  *pi* is a command that lets you invoke commands from the AmigaDOS command line, that are then run on the RPi. For example, if you stand in a directory on PiDisk: and run "pi vc hello.c -o hello" then the vc program (the VBCC cross-compiler) is run on the RPi with the given arguments, which compiles hello.c to the executable hello. As the resulting binary is accessible through the a314fs, the resulting program can be run directly after. Interactive programs can also be executed using the pi command, such as "pi mc -a" which runs Midnight Commander. Running pi without any arguments is equivalent to "pi bash".
 
-<div style="text-align:center"><img src="/Documentation/Images/workbench.jpg" width="600px"/></div>
+<img src="/Documentation/Images/workbench.jpg" width="600px"/>
 
 *  *RemoteWB* works by moving the Workbench bitplanes over to the chip memory on the A314 (this requires that the A500 has at least a 8372 Agnus) and then each frame the RPi reads those bitplanes, encodes those as a GIF image, and then sends that image to a web browser through a web socket. The web browser sends key presses and mouse movements back to the Amiga through the web socket, and the effect is that the Workbench is remoted the a web browser.
 
