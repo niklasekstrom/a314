@@ -22,7 +22,7 @@ You may also launch Interactive applications using the pi command, such as "pi m
 
 |         |            |
 | ------------- |---------------|
-| ![Pi command](Documentation/Images/workbench.jpg)  | ![Cross-compiling in RemoteWB](Documentation/Images/compiler.png) |
+| ![Pi command](Documentation/Images/workbench.jpg)  | ![Cross-compiling in RemoteWB](Documentation/Images/remotewb-compiler.png) |
 
 *  [*RemoteWB*](Software/remotewb) works by moving the Workbench bitplanes over to the chip memory on the A314. This requires that the A500 has at least a 8372 Agnus. During drawing of each frame on the Amiga, the RPi reads those bitplanes, encodes them into a [GIF image](Software/bpls2gif), and transmits that image to a web browser through a web socket. The web browser in turn, returns key presses and mouse movements back to the Amiga through the same web socket. In effect, this becomes a web browser based remote control application, comparable to VNC but with near zero performance impact on the Amiga CPU!
 
