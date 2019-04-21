@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2018 Niklas Ekström
+ */
+
 #include <Python.h>
 #include <stdio.h>
 #include <stdlib.h>

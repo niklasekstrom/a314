@@ -1,3 +1,5 @@
+# Copyright (c) 2018 Niklas Ekström
+
 import select
 import sys
 import socket

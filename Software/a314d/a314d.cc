@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2018 Niklas Ekström
+ */
+
 #include <arpa/inet.h>
 
 #include <linux/spi/spidev.h>

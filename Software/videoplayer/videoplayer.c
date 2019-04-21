@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2018 Niklas Ekström
+ */
+
 #include <exec/types.h>
 #include <exec/ports.h>
 #include <exec/tasks.h>

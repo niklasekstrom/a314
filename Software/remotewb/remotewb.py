@@ -1,3 +1,5 @@
+# Copyright (c) 2018 Niklas Ekström
+
 import asyncio
 import json
 import struct
