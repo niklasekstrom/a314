@@ -1198,9 +1198,10 @@ static void handle_a314_irq()
 
         close_all_logical_channels();
         read_base_address();
-        if (!have_base_address)
-            return;
     }
+
+    if (!have_base_address)
+        return;
 
     read_channel_status();
 
