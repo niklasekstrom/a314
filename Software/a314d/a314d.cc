@@ -1126,11 +1126,24 @@ static bool flush_send_queue()
 
 static void read_base_address()
 {
-    unsigned int ba = 0;
+    have_base_address = false;
+
+    unsigned int ba1 = 0;
     for (int i = 0; i < 5; i++)
-        ba |= spi_read_cmem(i) << (i * 4);
-    base_address = ba;
-    have_base_address = true;
+        ba1 |= spi_read_cmem(i) << (i * 4);
+
+    if ((ba1 & 1) == 1)
+    {
+        unsigned int ba2 = 0;
+        for (int i = 0; i < 5; i++)
+            ba2 |= spi_read_cmem(i) << (i * 4);
+
+        if (ba1 == ba2)
+        {
+            have_base_address = true;
+            base_address = ba1 & ~1;
+        }
+    }
 }
 
 static void read_channel_status()
@@ -1183,8 +1196,10 @@ static void handle_a314_irq()
         if (have_base_address && !channels.empty())
             logger_info("Base address was updated while logical channels are open -- closing channels\n");
 
-        read_base_address();
         close_all_logical_channels();
+        read_base_address();
+        if (!have_base_address)
+            return;
     }
 
     read_channel_status();

@@ -294,15 +294,18 @@ UBYTE read_cp_nibble(int index)
 void write_base_address(void *p)
 {
 	ULONG ba = (ULONG)p - a314_membase;
+	ba |= 1;
 
 	Disable();
 	UBYTE prev_regd = read_cp_nibble(13);
 	write_cp_nibble(13, prev_regd | 8);
 
-	for (int i = 0; i < 6; i++)
+	write_cp_nibble(0, 0);
+
+	for (int i = 4; i >= 0; i--)
 	{
-		write_cp_nibble(i, (UBYTE)ba);
-		ba >>= 4;
+		ULONG v = (ba >> (i * 4)) & 0xf;
+		write_cp_nibble(i, (UBYTE)v);
 	}
 
 	write_cp_nibble(13, prev_regd);
