@@ -348,7 +348,6 @@ int main(int argc, char **argv)
 
 	set_screen_mode(DOSTRUE);
 
-	con_write("\x9b" "12{", 4);
 	con_write("\x9b" "0 q", 4);
 
 	int len = con_read(arbuf, 32);	// "\x9b" "1;1;33;77 r"
@@ -356,6 +355,7 @@ int main(int argc, char **argv)
 	{
 		printf("Failure to receive window bounds report\n");
 		set_screen_mode(DOSFALSE);
+		a314_reset();
 		CloseDevice((struct IORequest *)sync_ior);
 		DeleteExtIO((struct IORequest *)read_ior);
 		DeleteExtIO((struct IORequest *)sync_ior);
@@ -363,6 +363,8 @@ int main(int argc, char **argv)
 		DeletePort(sync_mp);
 		return 0;
 	}
+
+	con_write("\x9b" "12{", 4);
 
 	int start = 5;
 	int ind = start;
