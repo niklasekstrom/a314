@@ -397,12 +397,13 @@ struct QueuedData
 };
 
 // Socket flags, these are bit masks, can have many of them.
-#define SOCKET_APP_EOS_RECV		0x0004
-#define SOCKET_RAS_EOS_RECV		0x0008
-#define SOCKET_RESET			0x0010
-#define SOCKET_SHOULD_SEND_RESET	0x0020
-#define SOCKET_APP_READ_EOS		0x0040
-#define SOCKET_IN_SEND_QUEUE		0x0080
+#define SOCKET_RCVD_EOS_FROM_APP	0x0004
+#define SOCKET_RCVD_EOS_FROM_RPI	0x0008
+#define SOCKET_SENT_EOS_TO_APP		0x0010
+#define SOCKET_SENT_EOS_TO_RPI		0x0020
+#define SOCKET_CLOSED			0x0040
+#define SOCKET_SHOULD_SEND_RESET	0x0080
+#define SOCKET_IN_SEND_QUEUE		0x0100
 
 struct Socket
 {
@@ -463,8 +464,35 @@ struct Socket *find_socket_by_stream_id(UBYTE stream_id)
 
 
 
+UBYTE next_stream_id = 1;
+
+UBYTE allocate_stream_id()
+{
+	// Bug: If all stream ids are allocated then this loop won't terminate.
+
+	while (1)
+	{
+		UBYTE stream_id = next_stream_id;
+		next_stream_id += 2;
+		if (find_socket_by_stream_id(stream_id) == NULL)
+			return stream_id;
+	}
+}
+
+void free_stream_id(UBYTE stream_id)
+{
+	// Currently do nothing.
+	// Could speed up allocate_stream_id using a bitmap?
+}
 
 
+
+void delete_socket(struct Socket *s)
+{
+	Remove((struct Node *)s);
+	free_stream_id(s->stream_id);
+	FreeMem(s, sizeof(struct Socket));
+}
 
 
 
@@ -526,11 +554,10 @@ void remove_from_send_queue(struct Socket *s)
 
 
 
-void reset_socket(struct Socket *s, BOOL should_send)
+void close_socket(struct Socket *s, BOOL should_send_reset)
 {
-	debug_printf("Called reset socket\n");
+	debug_printf("Called close socket\n");
 
-	// Release pending connect.
 	if (s->pending_connect != NULL)
 	{
 		struct A314_IORequest *ior = s->pending_connect;
@@ -540,7 +567,6 @@ void reset_socket(struct Socket *s, BOOL should_send)
 		s->pending_connect = NULL;
 	}
 
-	// Release pending read.
 	if (s->pending_read != NULL)
 	{
 		struct A314_IORequest *ior = s->pending_read;
@@ -551,7 +577,6 @@ void reset_socket(struct Socket *s, BOOL should_send)
 		s->pending_read = NULL;
 	}
 
-	// Release pending write/eos.
 	if (s->pending_write != NULL)
 	{
 		struct A314_IORequest *ior = s->pending_write;
@@ -562,7 +587,6 @@ void reset_socket(struct Socket *s, BOOL should_send)
 		s->pending_write = NULL;
 	}
 
-	// Free recevied data on socket.
 	if (s->rq_head != NULL)
 	{
 		struct QueuedData *qd = s->rq_head;
@@ -578,39 +602,29 @@ void reset_socket(struct Socket *s, BOOL should_send)
 
 	remove_from_send_queue(s);
 
-	// När SOCKET_RESET sätts så vet man att allt det ovanför är uppfyllt, dvs ingen pending operation, mottagarkön är tömd och frigjord, och står inte i sändkön.
-	// Efter att denna flagga har satts så får man inte göra operationer pending eller köa data på mottagarkön.
-	// Däremot så kan man sätta socketen på sändkön, om det är så att man ska skicka en PKT_RESET.
-	s->flags |= SOCKET_RESET;
+	// No operations can be pending when SOCKET_CLOSED is set.
+	// However, may not be able to delete socket yet, because is waiting to send PKT_RESET.
+	s->flags |= SOCKET_CLOSED;
 
-	// Om man ska skicka reset så sätter man flaggan SOCKET_SHOULD_SEND_RESET och ställer socketen i send queue.
-	// Man får inte remove'a den så länge som den står i send queue.
-	// Om socket står i send-queue för att skicka reset, och en PKT_RESET tas emot för den strömmen, då ska man plocka bort
-	// från send-queue, och frigöra socket-structen.
+	BOOL should_delete_socket = TRUE;
 
-	if (should_send)
+	if (should_send_reset)
 	{
 		if (sq_head == NULL && room_in_a2r(0))
 		{
 			append_a2r_packet(PKT_RESET, s->stream_id, 0, NULL);
-
-			// Remove from list of active sockets.
-			Remove((struct Node *)s);
-			FreeMem(s, sizeof(struct Socket));
 		}
 		else
 		{
 			s->flags |= SOCKET_SHOULD_SEND_RESET;
 			s->send_queue_required_length = 0;
 			add_to_send_queue(s);
+			should_delete_socket = FALSE;
 		}
 	}
-	else
-	{
-		// Remove from list of active sockets.
-		Remove((struct Node *)s);
-		FreeMem(s, sizeof(struct Socket));
-	}
+
+	if (should_delete_socket)
+		delete_socket(s);
 }
 
 
@@ -625,7 +639,9 @@ void reset_socket(struct Socket *s, BOOL should_send)
 
 
 
-// När jag tar emot ett meddelande från com-arean så skriver jag det hit, för då slipper jag hantera ringbuffer problem.
+// When a message is received on R2A it is written to this buffer,
+// to avoid dealing with the issue that R2A is a circular buffer.
+// This is somewhat inefficient, so may want to change that to read from R2A directly.
 UBYTE received_packet[256];
 
 void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
@@ -634,21 +650,21 @@ void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
 
 	if (s != NULL && type == PKT_RESET)
 	{
-		debug_printf("Received a RESET packet from rasp\n");
-		reset_socket(s, FALSE);
+		debug_printf("Received a RESET packet from rpi\n");
+		close_socket(s, FALSE);
 		return;
 	}
 
-	if (s == NULL || (s->flags & SOCKET_RESET))
+	if (s == NULL || (s->flags & SOCKET_CLOSED))
 	{
-		// Bara ignorera detta meddelande.
-		// Det enda som kan fungera utan en existerande ström är CONNECT, och vi hanterar inte det tsv.
+		// Ignore this packet. The only packet that can do anything useful on a closed
+		// channel is CONNECT, which is not handled at this time.
 		return;
 	}
 
 	if (type == PKT_CONNECT_RESPONSE)
 	{
-		debug_printf("Received a CONNECT RESPONSE packet from rasp\n");
+		debug_printf("Received a CONNECT RESPONSE packet from rpi\n");
 
 		if (s->pending_connect == NULL)
 			debug_printf("SERIOUS ERROR: received a CONNECT RESPONSE even though no connect was pending\n");
@@ -673,7 +689,7 @@ void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
 				debug_printf("Reply request 5\n");
 				s->pending_connect = NULL;
 
-				reset_socket(s, FALSE);
+				close_socket(s, FALSE);
 			}
 		}
 	}
@@ -686,7 +702,7 @@ void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
 			struct A314_IORequest *ior = s->pending_read;
 
 			if (ior->a314_Length < length)
-				reset_socket(s, TRUE);
+				close_socket(s, TRUE);
 			else
 			{
 				memcpy(ior->a314_Buffer, received_packet, length);
@@ -713,14 +729,12 @@ void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
 	}
 	else if (type == PKT_EOS)
 	{
-		debug_printf("Received a EOS packet from rasp\n");
+		debug_printf("Received a EOS packet from rpi\n");
 
-		s->flags |= SOCKET_RAS_EOS_RECV;
+		s->flags |= SOCKET_RCVD_EOS_FROM_RPI;
 
 		if (s->pending_read != NULL)
 		{
-			// Om en read är pending så måste receive queue vara tom.
-
 			struct A314_IORequest *ior = s->pending_read;
 			ior->a314_Length = 0;
 			ior->a314_Request.io_Error = A314_READ_EOS;
@@ -728,12 +742,10 @@ void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
 			debug_printf("Reply request 7\n");
 			s->pending_read = NULL;
 
-			s->flags |= SOCKET_APP_READ_EOS;
+			s->flags |= SOCKET_SENT_EOS_TO_APP;
 
-			if ((s->flags & SOCKET_APP_EOS_RECV) && s->pending_write == NULL)
-			{
-				reset_socket(s, FALSE);
-			}
+			if (s->flags & SOCKET_SENT_EOS_TO_RPI)
+				close_socket(s, FALSE);
 		}
 	}
 }
@@ -767,72 +779,58 @@ void handle_packets_received_r2a()
 
 void handle_room_in_a2r()
 {
-	BOOL has_enough_space = TRUE;
-
-	while (sq_head != NULL && has_enough_space)
+	while (sq_head != NULL)
 	{
 		struct Socket *s = sq_head;
+
+		if (!room_in_a2r(s->send_queue_required_length))
+			break;
+
+		remove_from_send_queue(s);
 
 		if (s->pending_connect != NULL)
 		{
 			struct A314_IORequest *ior = s->pending_connect;
-
 			int len = ior->a314_Length;
-
-			if (room_in_a2r(len))
-			{
-				remove_from_send_queue(s);
-
-				append_a2r_packet(PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
-			}
-			else
-				has_enough_space = FALSE;
+			append_a2r_packet(PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else if (s->pending_write != NULL)
 		{
 			struct A314_IORequest *ior = s->pending_write;
-
 			int len = ior->a314_Length;
 
-			if (room_in_a2r(len))
+			if (ior->a314_Request.io_Command == A314_WRITE)
 			{
+				append_a2r_packet(PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+
+				ior->a314_Request.io_Error = A314_WRITE_OK;
+				ReplyMsg((struct Message *)ior);
+				debug_printf("Reply request 8\n");
+				s->pending_write = NULL;
+			}
+			else // A314_EOS
+			{
+				append_a2r_packet(PKT_EOS, s->stream_id, 0, NULL);
+
+				ior->a314_Request.io_Error = A314_EOS_OK;
+				ReplyMsg((struct Message *)ior);
+				debug_printf("Reply request 9\n");
 				s->pending_write = NULL;
 
-				remove_from_send_queue(s);
+				s->flags |= SOCKET_SENT_EOS_TO_RPI;
 
-				if (ior->a314_Request.io_Command == A314_WRITE)
-				{
-					append_a2r_packet(PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
-
-					ior->a314_Request.io_Error = A314_WRITE_OK;
-					ReplyMsg((struct Message *)ior);
-					debug_printf("Reply request 8\n");
-				}
-				else // A314_EOS
-				{
-					append_a2r_packet(PKT_EOS, s->stream_id, 0, NULL);
-
-					ior->a314_Request.io_Error = A314_EOS_OK;
-					ReplyMsg((struct Message *)ior);
-					debug_printf("Reply request 9\n");
-
-					if (s->flags & SOCKET_APP_READ_EOS)
-						reset_socket(s, FALSE);
-				}
+				if (s->flags & SOCKET_SENT_EOS_TO_APP)
+					close_socket(s, FALSE);
 			}
-			else
-				has_enough_space = FALSE;
 		}
 		else if (s->flags & SOCKET_SHOULD_SEND_RESET)
 		{
-			if (room_in_a2r(0))
-			{
-				remove_from_send_queue(s);
-
-				append_a2r_packet(PKT_RESET, s->stream_id, 0, NULL);
-			}
-			else
-				has_enough_space = FALSE;
+			append_a2r_packet(PKT_RESET, s->stream_id, 0, NULL);
+			delete_socket(s);
+		}
+		else
+		{
+			debug_printf("SERIOUS ERROR: Was in send queue but has nothing to send\n");
 		}
 	}
 }
@@ -851,32 +849,6 @@ void handle_room_in_a2r()
 
 
 
-
-
-UBYTE next_stream_id = 1;
-
-// Bitmask för 128 strömmar => 16 bytes
-// Markera varje plats med en etta om den är upptagen.
-// Kan snabbt leta upp en ledig ström genom att kolla var det finns nollor.
-// Ström 0 är alltid markerad som tagen.
-
-UBYTE allocate_stream_id()
-{
-
-	// Hitta ett stream id för denna strömmen.
-	// Gör en bitmap för att visa vilka ström-id'n som är tagna.
-	// Just nu så loopar man bara, vilket kanske är okej, men det är inte bra.
-	// Ett felmeddelande är att alla stream id'n är tagna.
-	// TODO:
-
-	UBYTE stream_id = next_stream_id;
-	next_stream_id += 2;
-	return stream_id;
-}
-
-void free_stream_id()
-{
-}
 
 void handle_received_app_request(struct A314_IORequest *ior)
 {
@@ -903,9 +875,8 @@ void handle_received_app_request(struct A314_IORequest *ior)
 			s->sig_task = ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask;
 			s->socket = ior->a314_Socket;
 
-			AddTail(&active_sockets, (struct Node *)s);
-
 			s->stream_id = allocate_stream_id();
+			AddTail(&active_sockets, (struct Node *)s);
 
 			s->pending_connect = ior;
 			s->flags = 0;
@@ -925,7 +896,7 @@ void handle_received_app_request(struct A314_IORequest *ior)
 	else if (ior->a314_Request.io_Command == A314_READ)
 	{
 		debug_printf("Received a READ request from application\n");
-		if (s == NULL || (s->flags &  SOCKET_RESET))
+		if (s == NULL || (s->flags & SOCKET_CLOSED))
 		{
 			ior->a314_Length = 0;
 			ior->a314_Request.io_Error = A314_READ_RESET;
@@ -936,69 +907,62 @@ void handle_received_app_request(struct A314_IORequest *ior)
 		{
 			if (s->pending_connect != NULL || s->pending_read != NULL)
 			{
-				reset_socket(s, TRUE);
-
 				ior->a314_Length = 0;
 				ior->a314_Request.io_Error = A314_READ_RESET;
 				ReplyMsg((struct Message *)ior);
 				debug_printf("Reply request 13\n");
+
+				close_socket(s, TRUE);
 			}
-			else
+			else if (s->rq_head != NULL)
 			{
 				struct QueuedData *qd = s->rq_head;
+				int len = qd->length;
 
-				if (qd != NULL)
+				if (ior->a314_Length < len)
 				{
-					int len = qd->length;
+					ior->a314_Length = 0;
+					ior->a314_Request.io_Error = A314_READ_RESET;
+					ReplyMsg((struct Message *)ior);
+					debug_printf("Reply request 14\n");
 
-					if (ior->a314_Length < len)
-					{
-						reset_socket(s, TRUE);
-
-						ior->a314_Length = 0;
-						ior->a314_Request.io_Error = A314_READ_RESET;
-						ReplyMsg((struct Message *)ior);
-						debug_printf("Reply request 14\n");
-					}
-					else
-					{
-						s->rq_head = qd->next;
-						if (s->rq_head == NULL)
-							s->rq_tail = NULL;
-
-						memcpy(ior->a314_Buffer, qd->data, len);
-						FreeMem(qd, sizeof(struct QueuedData) + len);
-
-						ior->a314_Length = len;
-						ior->a314_Request.io_Error = A314_READ_OK;
-						ReplyMsg((struct Message *)ior);
-						debug_printf("Reply request 15\n");
-					}
+					close_socket(s, TRUE);
 				}
 				else
 				{
-					if (s->flags & SOCKET_RAS_EOS_RECV)
-					{
-						ior->a314_Length = 0;
-						ior->a314_Request.io_Error = A314_READ_EOS;
-						ReplyMsg((struct Message *)ior);
-						debug_printf("Reply request 16\n");
+					s->rq_head = qd->next;
+					if (s->rq_head == NULL)
+						s->rq_tail = NULL;
 
-						s->flags |= SOCKET_APP_READ_EOS;
+					memcpy(ior->a314_Buffer, qd->data, len);
+					FreeMem(qd, sizeof(struct QueuedData) + len);
 
-						if ((s->flags & SOCKET_APP_EOS_RECV) && s->pending_write == NULL)
-							reset_socket(s, FALSE);
-					}
-					else
-						s->pending_read = ior;
+					ior->a314_Length = len;
+					ior->a314_Request.io_Error = A314_READ_OK;
+					ReplyMsg((struct Message *)ior);
+					debug_printf("Reply request 15\n");
 				}
 			}
+			else if (s->flags & SOCKET_RCVD_EOS_FROM_RPI)
+			{
+				ior->a314_Length = 0;
+				ior->a314_Request.io_Error = A314_READ_EOS;
+				ReplyMsg((struct Message *)ior);
+				debug_printf("Reply request 16\n");
+
+				s->flags |= SOCKET_SENT_EOS_TO_APP;
+
+				if (s->flags & SOCKET_SENT_EOS_TO_RPI)
+					close_socket(s, FALSE);
+			}
+			else
+				s->pending_read = ior;
 		}
 	}
 	else if (ior->a314_Request.io_Command == A314_WRITE)
 	{
 		debug_printf("Received a WRITE request from application\n");
-		if (s == NULL || (s->flags &  SOCKET_RESET))
+		if (s == NULL || (s->flags & SOCKET_CLOSED))
 		{
 			ior->a314_Length = 0;
 			ior->a314_Request.io_Error = A314_WRITE_RESET;
@@ -1008,13 +972,14 @@ void handle_received_app_request(struct A314_IORequest *ior)
 		else
 		{
 			int len = ior->a314_Length;
-			if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_APP_EOS_RECV) || len + 3 > 255)
+			if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_RCVD_EOS_FROM_APP) || len + 3 > 255)
 			{
-				reset_socket(s, TRUE);
 				ior->a314_Length = 0;
 				ior->a314_Request.io_Error = A314_WRITE_RESET;
 				ReplyMsg((struct Message *)ior);
 				debug_printf("Reply request 18\n");
+
+				close_socket(s, TRUE);
 			}
 			else
 			{
@@ -1038,7 +1003,7 @@ void handle_received_app_request(struct A314_IORequest *ior)
 	else if (ior->a314_Request.io_Command == A314_EOS)
 	{
 		debug_printf("Received an EOS request from application\n");
-		if (s == NULL || (s->flags &  SOCKET_RESET))
+		if (s == NULL || (s->flags & SOCKET_CLOSED))
 		{
 			ior->a314_Request.io_Error = A314_EOS_RESET;
 			ReplyMsg((struct Message *)ior);
@@ -1046,17 +1011,18 @@ void handle_received_app_request(struct A314_IORequest *ior)
 		}
 		else
 		{
-			if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_APP_EOS_RECV))
+			if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_RCVD_EOS_FROM_APP))
 			{
-				reset_socket(s, TRUE);
 				ior->a314_Length = 0;
 				ior->a314_Request.io_Error = A314_EOS_RESET;
 				ReplyMsg((struct Message *)ior);
 				debug_printf("Reply request 21\n");
+
+				close_socket(s, TRUE);
 			}
 			else
 			{
-				s->flags |= SOCKET_APP_EOS_RECV;
+				s->flags |= SOCKET_RCVD_EOS_FROM_APP;
 
 				if (sq_head == NULL && room_in_a2r(0))
 				{
@@ -1065,6 +1031,11 @@ void handle_received_app_request(struct A314_IORequest *ior)
 					ior->a314_Request.io_Error = A314_EOS_OK;
 					ReplyMsg((struct Message *)ior);
 					debug_printf("Reply request 22\n");
+
+					s->flags |= SOCKET_SENT_EOS_TO_RPI;
+
+					if (s->flags & SOCKET_SENT_EOS_TO_APP)
+						close_socket(s, FALSE);
 				}
 				else
 				{
@@ -1078,7 +1049,7 @@ void handle_received_app_request(struct A314_IORequest *ior)
 	else if (ior->a314_Request.io_Command == A314_RESET)
 	{
 		debug_printf("Received a RESET request from application\n");
-		if (s == NULL || (s->flags &  SOCKET_RESET))
+		if (s == NULL || (s->flags & SOCKET_CLOSED))
 		{
 			ior->a314_Request.io_Error = A314_RESET_OK;
 			ReplyMsg((struct Message *)ior);
@@ -1086,10 +1057,11 @@ void handle_received_app_request(struct A314_IORequest *ior)
 		}
 		else
 		{
-			reset_socket(s, TRUE);
 			ior->a314_Request.io_Error = A314_RESET_OK;
 			ReplyMsg((struct Message *)ior);
 			debug_printf("Reply request 24\n");
+
+			close_socket(s, TRUE);
 		}
 	}
 	else
