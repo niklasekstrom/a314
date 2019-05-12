@@ -73,8 +73,8 @@
 
 		function report(e) {
 			var rect = screenImg.getBoundingClientRect();
-			var x = e.clientX - rect.left;
-			var y = e.clientY - rect.top;
+			var x = Math.round(e.clientX - rect.left);
+			var y = Math.round(e.clientY - rect.top);
 			websocket.send(JSON.stringify({x: x, y: y, b: e.buttons}));
 		}
 
