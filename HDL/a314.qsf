@@ -136,7 +136,7 @@ set_global_assignment -name DEVICE 10M08SCE144C8G
 set_global_assignment -name TOP_LEVEL_ENTITY a314_top
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 18.0.0
 set_global_assignment -name PROJECT_CREATION_TIME_DATE "14:38:01  FEBRUARY 09, 2019"
-set_global_assignment -name LAST_QUARTUS_VERSION "18.0.0 Lite Edition"
+set_global_assignment -name LAST_QUARTUS_VERSION "18.1.0 Lite Edition"
 set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
 set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
 set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
@@ -163,20 +163,6 @@ set_global_assignment -name OUTPUT_IO_TIMING_FAR_END_VMEAS "HALF SIGNAL SWING" -
 set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
 set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
-set_global_assignment -name VERILOG_FILE rtc_emulation.v
-set_global_assignment -name VERILOG_FILE timescale.v
-set_global_assignment -name VERILOG_FILE i2c_master_defines.v
-set_global_assignment -name VERILOG_FILE i2c_master_byte_ctrl.v
-set_global_assignment -name VERILOG_FILE i2c_master_bit_ctrl.v
-set_global_assignment -name VERILOG_FILE a314_top.v
-set_global_assignment -name QIP_FILE a314_pll.qip
-set_global_assignment -name SDC_FILE a314.sdc
-set_global_assignment -name VERILOG_FILE dram_port.v
-set_global_assignment -name VERILOG_FILE sram_arbiter.v
-set_global_assignment -name VERILOG_FILE clock_port.v
-set_global_assignment -name VERILOG_FILE rtc_controller.v
-set_global_assignment -name VERILOG_FILE cmem.v
-set_global_assignment -name VERILOG_FILE spi_controller.v
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SR_A[0] -disable
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SR_A[1] -disable
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SR_A[2] -disable
@@ -212,4 +198,18 @@ set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[12] -disable
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[13] -disable
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[14] -disable
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[15] -disable
+set_global_assignment -name VERILOG_FILE rtc_emulation.v
+set_global_assignment -name VERILOG_FILE timescale.v
+set_global_assignment -name VERILOG_FILE i2c_master_defines.v
+set_global_assignment -name VERILOG_FILE i2c_master_byte_ctrl.v
+set_global_assignment -name VERILOG_FILE i2c_master_bit_ctrl.v
+set_global_assignment -name VERILOG_FILE a314_top.v
+set_global_assignment -name QIP_FILE a314_pll.qip
+set_global_assignment -name SDC_FILE a314.sdc
+set_global_assignment -name VERILOG_FILE dram_port.v
+set_global_assignment -name VERILOG_FILE sram_arbiter.v
+set_global_assignment -name VERILOG_FILE clock_port.v
+set_global_assignment -name VERILOG_FILE rtc_controller.v
+set_global_assignment -name VERILOG_FILE cmem.v
+set_global_assignment -name VERILOG_FILE spi_controller.v
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
