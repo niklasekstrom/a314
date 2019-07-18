@@ -24,6 +24,8 @@ You may also launch Interactive applications using the pi command, such as "pi m
 | ------------- |---------------|
 | ![Pi command](Documentation/Images/workbench.jpg)  | ![Cross-compiling in RemoteWB](Documentation/Images/remotewb-compiler.png) |
 
+* [*PiAudio*](Software/piaudio) lets the RPi stream audio samples directly to the shared chip memory, from where Paula plays those samples. PiAudio is integrated with [ALSA](https://www.alsa-project.org) on the RPi so that any program that plays audio through ALSA can be used, i.e. "pi mpg123 -a amiga song.mp3" plays song.mp3 using the program mpg123 to the Amiga.
+
 *  [*RemoteWB*](Software/remotewb) works by moving the Workbench bitplanes over to the chip memory on the A314. This requires that the A500 has at least a 8372 Agnus. During drawing of each frame on the Amiga, the RPi reads those bitplanes, encodes them into a [GIF image](Software/bpls2gif), and transmits that image to a web browser through a web socket. The web browser in turn, returns key presses and mouse movements back to the Amiga through the same web socket. In effect, this becomes a web browser based remote control application, comparable to VNC but with near zero performance impact on the Amiga CPU!
 
 *  [*VideoPlayer*](Software/videoplayer) is a simple program that displays a sequence of images on the A500 by letting the RPi write bitplanes directly to the shared memory (this again requires that the A314 memory is chip memory, and not "ranger" memory).
@@ -33,8 +35,6 @@ You may also launch Interactive applications using the pi command, such as "pi m
 Here are some services that we have considered but not gotten around to implement:
 
 * Networking either through a *bsdsocket.library* implementation that forwards socket operations to the RPi and executes those operations there (high degree of offloading), or a *Sana II* driver used with a full network stack (lesser, but still offloading).
-
-* An mp3 player that lets the RPi stream audio samples directly to the shared chip memory, from where Paula would play those samples.
 
 * Your ideas?
 
