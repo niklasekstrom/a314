@@ -1189,7 +1189,7 @@ BOOL task_start()
 		return FALSE;
 	}
 
-	task = CreateTask(device_name, 0, (void *)task_main, 1024);
+	task = CreateTask(device_name, 80, (void *)task_main, 1024);
 	if (task == NULL)
 	{
 		debug_printf("Unable to create task\n");
