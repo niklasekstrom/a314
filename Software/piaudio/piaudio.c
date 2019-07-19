@@ -48,8 +48,8 @@ BOOL stream_open = FALSE;
 BOOL pending_a314_write = FALSE;
 
 ULONG socket;
-
 int back_index = 0;
+char awbuf[8];
 
 void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWORD cmd, char *buffer, int length)
 {
@@ -120,8 +120,6 @@ void submit_async_audio_req(int index)
 
 int main()
 {
-	int i;
-
 	SetTaskPri(FindTask(NULL), 50);
 
 	sync_mp = CreatePort(NULL, 0);
@@ -177,6 +175,7 @@ int main()
 		goto cleanup;
 	}
 
+	int i;
 	for (i = 0; i < 4; i++)
 	{
 		async_audio_req[i] = AllocMem(sizeof(struct IOAudio), MEMF_PUBLIC);
@@ -206,7 +205,6 @@ int main()
 	audio_device_open = TRUE;
 
 	allocated_channels = (ULONG)sync_audio_req->ioa_Request.io_Unit;
-	printf("Allocated channels: %lu\n", allocated_channels);
 
 	for (i = 0; i < 4; i++)
 		memcpy(async_audio_req[i], sync_audio_req, sizeof(struct IOAudio));
@@ -219,14 +217,16 @@ int main()
 
 	stream_open = TRUE;
 
-	ULONG buf_ptrs[2];
+	ULONG *buf_ptrs = (ULONG *)awbuf;
 	buf_ptrs[0] = (ULONG)audio_buffers[0] - a314_membase;
 	buf_ptrs[1] = (ULONG)audio_buffers[2] - a314_membase;
-	if (a314_write((char *)&buf_ptrs[0], 8) != A314_WRITE_OK)
+	if (a314_write(awbuf, 8) != A314_WRITE_OK)
 	{
 		printf("Unable to write buffer pointers\n");
 		goto cleanup;
 	}
+
+	printf("PiAudio started, allocated channels: %lu\n", allocated_channels);
 
 	sync_audio_req->ioa_Request.io_Command = CMD_STOP;
 	DoIO((struct IORequest *)sync_audio_req);
@@ -245,17 +245,17 @@ int main()
 	{
 		if (pending_audio_reqs <= 2)
 		{
-			pending_audio_reqs += 2;
-
 			back_index ^= 2;
 
 			submit_async_audio_req(back_index + LEFT);
 			submit_async_audio_req(back_index + RIGHT);
 
+			pending_audio_reqs += 2;
+
 			if (!pending_a314_write)
 			{
-				char buf = back_index == 0 ? 0 : 1;
-				start_a314_write(&buf, 1);
+				awbuf[0] = back_index == 0 ? 0 : 1;
+				start_a314_write(awbuf, 1);
 			}
 		}
 
