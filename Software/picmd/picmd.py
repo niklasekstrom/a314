@@ -222,6 +222,8 @@ class PiCmdSession(object):
                     if component_count != 0 and components[0] in volume_paths:
                         path = volume_paths[components[0]]
                         os.chdir(os.path.join(path, *components[1:]))
+                    else:
+                        os.chdir(os.getenv('HOME', '/'))
                     os.execvp(args[0], args)
 
                 self.first_packet = False
