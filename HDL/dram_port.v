@@ -14,7 +14,7 @@ module dram_port(
     input               ack,
 
     output              read,
-    output      [17:0]  address,
+    output      [18:0]  address,
     output              lb,
     output              ub,
 
@@ -24,9 +24,11 @@ module dram_port(
 
     //assign DR_XMEM = 1'b0;
 
-    wire ras = !DR_RAS1_n;
+    wire ras0 = !DR_RAS0_n;
+    wire ras1 = !DR_RAS1_n;
     wire casl = !DR_CASL_n;
     wire casu = !DR_CASU_n;
+    wire ras = ras0 || ras1;
     wire cas = casl || casu;
     wire rascas = ras && cas;
 
@@ -43,7 +45,7 @@ module dram_port(
     wire rascas_strobe = rascas_sync[1] && !rascas_sync[2];
 
     reg dram_read = 1'b0;
-    reg [17:0] dram_address = 18'd0;
+    reg [18:0] dram_address = 19'd0;
     reg dram_lb = 1'b0;
     reg dram_ub = 1'b0;
 
@@ -62,6 +64,7 @@ module dram_port(
         begin
             dram_address[15:8] <= DR_A[7:0];
             dram_address[16] <= DR_A[8];
+            dram_address[18] <= DR_RAS1_n;
             dram_read <= DR_WE_n;
         end
 

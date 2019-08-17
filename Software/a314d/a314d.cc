@@ -48,10 +48,12 @@
 #define logger_error(...) do { if (LOGGER_ERROR) fprintf(stderr, __VA_ARGS__); } while (0)
 
 // SPI commands.
-#define READ_SRAM_CMD           0x00
-#define WRITE_SRAM_CMD          0x80
-#define READ_CMEM_CMD           0xc0
-#define WRITE_CMEM_CMD          0xe0
+#define READ_SRAM_CMD           0
+#define WRITE_SRAM_CMD          1
+#define READ_CMEM_CMD           2
+#define WRITE_CMEM_CMD          3
+
+#define READ_SRAM_HDR_LEN       4
 
 // Addresses to variables in CMEM.
 #define R_EVENTS_ADDRESS        12
@@ -313,20 +315,21 @@ static void spi_read_mem(unsigned int address, unsigned int length)
 {
     logger_trace("SPI read mem address = %d length = %d\n", address, length);
 
-    unsigned int header = (READ_SRAM_CMD << 16) | ((address & 0x7ffff) << 4);
+    unsigned int header = (READ_SRAM_CMD << 20) | (address & 0xfffff);
 
     tx_buf[0] = (uint8_t)((header >> 16) & 0xff);
     tx_buf[1] = (uint8_t)((header >> 8) & 0xff);
     tx_buf[2] = (uint8_t)(header & 0xff);
+	tx_buf[3] = 0;
 
-    transfer(length + 3);
+    transfer(length + 4);
 }
 
 static void spi_write_mem(unsigned int address, uint8_t *buf, unsigned int length)
 {
     logger_trace("SPI write mem address = %d length = %d\n", address, length);
 
-    unsigned int header = (WRITE_SRAM_CMD << 16) | ((address & 0x7ffff) << 2);
+    unsigned int header = (WRITE_SRAM_CMD << 20) | (address & 0xfffff);
 
     tx_buf[0] = (uint8_t)((header >> 16) & 0xff);
     tx_buf[1] = (uint8_t)((header >> 8) & 0xff);
@@ -338,7 +341,7 @@ static void spi_write_mem(unsigned int address, uint8_t *buf, unsigned int lengt
 
 static uint8_t spi_read_cmem(unsigned int address)
 {
-    tx_buf[0] = (uint8_t)(READ_CMEM_CMD | ((address & 0xf) << 1));
+    tx_buf[0] = (uint8_t)((READ_CMEM_CMD << 4) | (address & 0xf));
     tx_buf[1] = 0;
     transfer(2);
     logger_trace("SPI read cmem, address = %d, returned = %d\n", address, rx_buf[1]);
@@ -349,7 +352,7 @@ static void spi_write_cmem(unsigned int address, unsigned int data)
 {
     logger_trace("SPI write cmem, address = %d, data = %d\n", address, data);
 
-    tx_buf[0] = (uint8_t)(WRITE_CMEM_CMD | ((address & 0xf) << 1));
+    tx_buf[0] = (uint8_t)((WRITE_CMEM_CMD << 4) | (address & 0xf));
     tx_buf[1] = (uint8_t)(data & 0xf);
     transfer(2);
 }
@@ -621,7 +624,7 @@ static void handle_msg_read_mem_req(ClientConnection *cc)
 
     spi_read_mem(address, length);
 
-    create_and_send_msg(cc, MSG_READ_MEM_RES, 0, &rx_buf[3], length);
+    create_and_send_msg(cc, MSG_READ_MEM_RES, 0, &rx_buf[READ_SRAM_HDR_LEN], length);
 }
 
 static void handle_msg_write_mem_req(ClientConnection *cc)
@@ -1035,17 +1038,17 @@ static bool receive_from_a2r()
     if (head < tail)
     {
         spi_read_mem(base_address + 4 + head, tail - head);
-        memcpy(recv_buf, &rx_buf[3], len);
+        memcpy(recv_buf, &rx_buf[READ_SRAM_HDR_LEN], len);
     }
     else
     {
         spi_read_mem(base_address + 4 + head, 256 - head);
-        memcpy(recv_buf, &rx_buf[3], 256 - head);
+        memcpy(recv_buf, &rx_buf[READ_SRAM_HDR_LEN], 256 - head);
 
         if (tail != 0)
         {
             spi_read_mem(base_address + 4, tail);
-            memcpy(&recv_buf[len - tail], &rx_buf[3], tail);
+            memcpy(&recv_buf[len - tail], &rx_buf[READ_SRAM_HDR_LEN], tail);
         }
     }
 
@@ -1151,7 +1154,7 @@ static void read_channel_status()
     spi_read_mem(base_address, 4);
 
     for (int i = 0; i < 4; i++)
-        channel_status[i] = rx_buf[3 + i];
+        channel_status[i] = rx_buf[READ_SRAM_HDR_LEN + i];
 
     channel_status_updated = 0;
 }

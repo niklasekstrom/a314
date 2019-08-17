@@ -33,7 +33,6 @@ struct A314_IORequest *sync_a314_req = NULL;
 struct A314_IORequest *write_a314_req = NULL;
 
 struct Library *A314Base;
-ULONG a314_membase;
 
 char *audio_buffers[4] = { NULL, NULL, NULL, NULL };
 
@@ -153,7 +152,6 @@ int main()
 	a314_device_open = TRUE;
 
 	A314Base = &(sync_a314_req->a314_Request.io_Device->dd_Library);
-	a314_membase = GetA314MemBase();
 
 	memcpy(write_a314_req, sync_a314_req, sizeof(struct A314_IORequest));
 
@@ -218,8 +216,8 @@ int main()
 	stream_open = TRUE;
 
 	ULONG *buf_ptrs = (ULONG *)awbuf;
-	buf_ptrs[0] = (ULONG)audio_buffers[0] - a314_membase;
-	buf_ptrs[1] = (ULONG)audio_buffers[2] - a314_membase;
+	buf_ptrs[0] = TranslateAddressA314(audio_buffers[0]);
+	buf_ptrs[1] = TranslateAddressA314(audio_buffers[2]);
 	if (a314_write(awbuf, 8) != A314_WRITE_OK)
 	{
 		printf("Unable to write buffer pointers\n");

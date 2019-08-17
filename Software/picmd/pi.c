@@ -32,7 +32,6 @@ struct A314_IORequest *read_ior;
 struct A314_IORequest *sync_ior;
 
 struct Library *A314Base;
-ULONG a314_membase;
 
 struct FileHandle *con;
 
@@ -274,7 +273,7 @@ UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, ch
 		p += n;
 	}
 
-	ULONG buf_desc[2] = {(ULONG)buffer - a314_membase, buf_len};
+	ULONG buf_desc[2] = {TranslateAddressA314(buffer), buf_len};
 	a314_write((char *)buf_desc, sizeof(buf_desc));
 
 	*buffer_len = buf_len;
@@ -330,7 +329,6 @@ int main(int argc, char **argv)
 	memcpy(read_ior, sync_ior, sizeof(struct A314_IORequest));
 
 	A314Base = &(sync_ior->a314_Request.io_Device->dd_Library);
-	a314_membase = GetA314MemBase();
 
 	if (a314_connect(PICMD_SERVICE_NAME) != A314_CONNECT_OK)
 	{

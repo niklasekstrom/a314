@@ -72,7 +72,13 @@ struct ExecBase *SysBase;
 
 
 
-ULONG a314_membase = 0;
+#define MAPPING_TYPE_512K	1
+#define MAPPING_TYPE_1M		2
+
+short mapping_type = 0;
+ULONG mapping_base = 0;
+
+ULONG translate_address_a314(__reg("a6") struct MyDevice *dev, __reg("a0") void *address);
 
 struct MemChunkList
 {
@@ -109,7 +115,9 @@ BOOL fix_memory()
 		mh = (struct MemHeader *)node;
 		if (mh->mh_Attributes & MEMF_A314)
 		{
-			a314_membase = (ULONG)(mh->mh_Lower) & ~(512*1024 - 1);
+			ULONG lower = (ULONG)(mh->mh_Lower) & ~(512*1024 - 1);
+			mapping_type = lower == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
+			mapping_base = lower;
 			Permit();
 			return TRUE;
 		}
@@ -124,7 +132,8 @@ BOOL fix_memory()
 			mh->mh_Node.ln_Pri = -20;
 			mh->mh_Attributes |= MEMF_A314;
 			AddTail(memlist, (struct Node*)mh);
-			a314_membase = 0xc00000;
+			mapping_type = MAPPING_TYPE_512K;
+			mapping_base = 0xc00000;
 			Permit();
 			return TRUE;
 		}
@@ -135,7 +144,7 @@ BOOL fix_memory()
 	for (node = memlist->lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
 	{
 		mh = (struct MemHeader *)node;
-		if (overlap(mh, 0x0, 0x100000))
+		if (overlap(mh, 0x0, 0x200000))
 		{
 			chip_mh = mh;
 			break;
@@ -148,10 +157,8 @@ BOOL fix_memory()
 		return FALSE;
 	}
 
-	if ((ULONG)(chip_mh->mh_Upper) > 0x100000)
-		a314_membase = 0x100000;
-	else
-		a314_membase = 0x80000;
+	// Split chip memory region into motherboard and A314 memory regions.
+	ULONG split_at = (ULONG)(chip_mh->mh_Upper) > 0x100000 ? 0x100000 : 0x80000;
 
 	mh = (struct MemHeader *)AllocMem(sizeof(struct MemHeader), MEMF_PUBLIC | MEMF_CLEAR);
 
@@ -168,18 +175,18 @@ BOOL fix_memory()
 		ULONG lower = (ULONG)mc;
 		ULONG upper = lower + mc->mc_Bytes;
 
-		if (upper <= a314_membase)
+		if (upper <= split_at)
 			add_chunk(&ol, mc);
-		else if (a314_membase <= lower)
+		else if (split_at <= lower)
 			add_chunk(&nl, mc);
 		else
 		{
-			mc->mc_Bytes = a314_membase - lower;
+			mc->mc_Bytes = split_at - lower;
 			add_chunk(&ol, mc);
 
-			struct MemChunk *new_chunk = (struct MemChunk *)a314_membase;
+			struct MemChunk *new_chunk = (struct MemChunk *)split_at;
 			new_chunk->mc_Next = NULL;
-			new_chunk->mc_Bytes = upper - a314_membase;
+			new_chunk->mc_Bytes = upper - split_at;
 			add_chunk(&nl, new_chunk);
 		}
 		mc = next_chunk;
@@ -193,14 +200,17 @@ BOOL fix_memory()
 	chip_mh->mh_First = ol.first;
 	mh->mh_First = nl.first;
 
-	mh->mh_Lower = (APTR)a314_membase;
+	mh->mh_Lower = (APTR)split_at;
 	mh->mh_Upper = chip_mh->mh_Upper;
-	chip_mh->mh_Upper = (APTR)a314_membase;
+	chip_mh->mh_Upper = (APTR)split_at;
 
 	chip_mh->mh_Free = ol.free;
 	mh->mh_Free = nl.free;
 
 	AddTail(memlist, (struct Node*)mh);
+
+	mapping_type = split_at == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
+	mapping_base = split_at;
 
 	Permit();
 	return TRUE;
@@ -293,7 +303,7 @@ UBYTE read_cp_nibble(int index)
 
 void write_base_address(void *p)
 {
-	ULONG ba = (ULONG)p - a314_membase;
+	ULONG ba = translate_address_a314(NULL, p);
 	ba |= 1;
 
 	Disable();
@@ -346,8 +356,8 @@ void fix_address_mapping()
 #define R_EVENT_BASE_ADDRESS	4
 
 // Events that are communicated from Raspberry to Amiga.
-#define A_EVENT_R2A_TAIL        1
-#define A_EVENT_A2R_HEAD        2
+#define A_EVENT_R2A_TAIL	1
+#define A_EVENT_A2R_HEAD	2
 
 void set_rasp_irq(UBYTE events)
 {
@@ -1295,9 +1305,24 @@ ULONG abort_io(__reg("a6") struct MyDevice *dev, __reg("a1") struct A314_IOReque
 	return IOERR_NOCMD;
 }
 
-ULONG get_a314_membase(__reg("a6") struct MyDevice *dev)
+ULONG translate_address_a314(__reg("a6") struct MyDevice *dev, __reg("a0") void *address)
 {
-	return a314_membase;
+	if (mapping_type == MAPPING_TYPE_512K)
+	{
+		ULONG offset = (ULONG)address - mapping_base;
+		if (offset >= 512 * 1024)
+			return -1;
+		return offset;
+	}
+	else if (mapping_type == MAPPING_TYPE_1M)
+	{
+		ULONG offset = (ULONG)address - mapping_base;
+		if (offset >= 1024 * 1024)
+			return -1;
+		return offset;
+	}
+	else
+		return -1;
 }
 
 ULONG device_vectors[] =
@@ -1308,7 +1333,7 @@ ULONG device_vectors[] =
 	0,
 	(ULONG)begin_io,
 	(ULONG)abort_io,
-	(ULONG)get_a314_membase,
+	(ULONG)translate_address_a314,
 	-1,
 };
 

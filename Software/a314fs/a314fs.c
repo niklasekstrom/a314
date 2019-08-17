@@ -47,7 +47,6 @@ struct MsgPort *a314_mp;
 struct A314_IORequest *a314_ior;
 
 struct Library *A314Base;
-ULONG a314_membase;
 
 long socket;
 
@@ -338,7 +337,6 @@ void startup_fs_handler(struct DosPacket *dp)
 	}
 
 	A314Base = &(a314_ior->a314_Request.io_Device->dd_Library);
-	a314_membase = GetA314MemBase();
 
 	if (a314_connect("a314fs") != A314_CONNECT_OK)
 	{
@@ -382,7 +380,7 @@ void wait_for_response()
 
 void write_req_and_wait_for_res(int len)
 {
-	ULONG buf[2] = {(ULONG)request_buffer - a314_membase, len};
+	ULONG buf[2] = {TranslateAddressA314(request_buffer), len};
 	a314_write((char *)&buf[0], 8);
 	//wait_for_response();
 	a314_read((char *)&buf[0], 8);
@@ -743,7 +741,7 @@ void action_read(struct DosPacket *dp)
 		req->has_response = 0;
 		req->type = dp->dp_Type;
 		req->arg1 = arg1;
-		req->address = (ULONG)data_buffer - a314_membase;
+		req->address = TranslateAddressA314(data_buffer);
 		req->length = to_read;
 
 		write_req_and_wait_for_res(sizeof(struct ReadRequest));
@@ -797,7 +795,7 @@ void action_write(struct DosPacket *dp)
 		req->has_response = 0;
 		req->type = dp->dp_Type;
 		req->arg1 = arg1;
-		req->address = (ULONG)data_buffer - a314_membase;
+		req->address = TranslateAddressA314(data_buffer);
 		req->length = to_write;
 
 		write_req_and_wait_for_res(sizeof(struct WriteRequest));

@@ -497,9 +497,6 @@ l97
 l98
 	move.l	_a314_ior,a0
 	move.l	(20,a0),_A314Base
-	move.l	_A314Base,a6
-	jsr	-42(a6)
-	move.l	d0,_a314_membase
 	pea	l103
 	jsr	_a314_connect
 	addq.w	#4,a7
@@ -881,10 +878,10 @@ _write_req_and_wait_for_res
 	subq.w	#8,a7
 	movem.l	l123,-(a7)
 	move.l	(12+l125,a7),d2
-	move.l	_request_buffer,d0
-	move.l	d0,d1
-	sub.l	_a314_membase,d1
-	move.l	d1,(0+l125,a7)
+	move.l	_request_buffer,a0
+	move.l	_A314Base,a6
+	jsr	-42(a6)
+	move.l	d0,(0+l125,a7)
 	move.l	d2,(4+l125,a7)
 	move.l	#8,-(a7)
 	lea	(4+l125,a7),a0
@@ -896,9 +893,9 @@ _write_req_and_wait_for_res
 	jsr	_a314_read
 	add.w	#16,a7
 l121
-l123	reg	d2
-	movem.l	(a7)+,d2
-l125	equ	4
+l123	reg	a6/d2
+	movem.l	(a7)+,a6/d2
+l125	equ	8
 	addq.w	#8,a7
 	rts
 	opt	0
@@ -2427,8 +2424,9 @@ l268
 	move.w	(10,a4),d0
 	move.w	d0,(2,a3)
 	move.l	d6,(4,a3)
-	move.l	_data_buffer,d0
-	sub.l	_a314_membase,d0
+	move.l	_data_buffer,a0
+	move.l	_A314Base,a6
+	jsr	-42(a6)
 	move.l	d0,(8,a3)
 	move.l	d3,(12,a3)
 	move.l	#16,-(a7)
@@ -2518,9 +2516,9 @@ l266
 	jsr	_reply_packet
 	addq.w	#4,a7
 l257
-l276	reg	a2/a3/a4/a5/d2/d3/d4/d5/d6
-	movem.l	(a7)+,a2/a3/a4/a5/d2/d3/d4/d5/d6
-l278	equ	36
+l276	reg	a2/a3/a4/a5/a6/d2/d3/d4/d5/d6
+	movem.l	(a7)+,a2/a3/a4/a5/a6/d2/d3/d4/d5/d6
+l278	equ	40
 	rts
 	cnop	0,4
 l271
@@ -2669,8 +2667,9 @@ l288
 	move.w	(10,a4),d0
 	move.w	d0,(2,a3)
 	move.l	d6,(4,a3)
-	move.l	_data_buffer,d0
-	sub.l	_a314_membase,d0
+	move.l	_data_buffer,a0
+	move.l	_A314Base,a6
+	jsr	-42(a6)
 	move.l	d0,(8,a3)
 	move.l	d3,(12,a3)
 	move.l	#16,-(a7)
@@ -2719,9 +2718,9 @@ l286
 	jsr	_reply_packet
 	addq.w	#4,a7
 l279
-l296	reg	a2/a3/a4/a5/d2/d3/d4/d5/d6
-	movem.l	(a7)+,a2/a3/a4/a5/d2/d3/d4/d5/d6
-l298	equ	36
+l296	reg	a2/a3/a4/a5/a6/d2/d3/d4/d5/d6
+	movem.l	(a7)+,a2/a3/a4/a5/a6/d2/d3/d4/d5/d6
+l298	equ	40
 	rts
 	cnop	0,4
 l291
@@ -4695,10 +4694,6 @@ _a314_mp
 	public	_a314_ior
 	cnop	0,4
 _a314_ior
-	ds.b	4
-	public	_a314_membase
-	cnop	0,4
-_a314_membase
 	ds.b	4
 	public	_socket
 	cnop	0,4

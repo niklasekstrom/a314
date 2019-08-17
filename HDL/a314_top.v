@@ -58,7 +58,7 @@ module a314_top(
     wire spi_req;
     wire spi_ack;
     wire spi_read_sram;
-    wire [17:0] spi_address_sram;
+    wire [18:0] spi_address_sram;
     wire spi_ub;
     wire [7:0] spi_out_sram_in;
     wire [15:0] spi_in_sram_out;
@@ -93,7 +93,7 @@ module a314_top(
     wire dram_req;
     wire dram_ack;
     wire dram_read;
-    wire [17:0] dram_address;
+    wire [18:0] dram_address;
     wire dram_lb;
     wire dram_ub;
     wire [15:0] dram_out_sram_in;
@@ -104,7 +104,7 @@ module a314_top(
 
         //.DR_XMEM(DR_XMEM),
         .DR_WE_n(DR_WE_n),
-        .DR_RAS0_n(DR_RAS0_n),
+        .DR_RAS0_n(1'b1), // Change to DR_RAS0_n(DR_RAS0_n) for rev 8 (A500+)
         .DR_RAS1_n(DR_RAS1_n),
         .DR_CASL_n(DR_CASL_n),
         .DR_CASU_n(DR_CASU_n),

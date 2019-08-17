@@ -32,7 +32,6 @@ struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
 
 struct Library *A314Base = NULL;
-ULONG a314_membase;
 
 UBYTE *bpl_ptr1;
 UBYTE *bpl_ptr2;
@@ -296,7 +295,6 @@ int main()
 	}
 
 	A314Base = &(cmsg->a314_Request.io_Device->dd_Library);
-	a314_membase = GetA314MemBase();
 
 	wmsg = (struct A314_IORequest *)CreateExtIO(mp, sizeof(struct A314_IORequest));
 	rmsg = (struct A314_IORequest *)CreateExtIO(mp, sizeof(struct A314_IORequest));
@@ -338,8 +336,8 @@ int main()
 		return 0;
 	}
 
-	*((ULONG *)&awbuf[0]) = (ULONG)bpl_ptr1 - a314_membase;
-	*((ULONG *)&awbuf[4]) = (ULONG)bpl_ptr2 - a314_membase;
+	*((ULONG *)&awbuf[0]) = TranslateAddressA314(bpl_ptr1);
+	*((ULONG *)&awbuf[4]) = TranslateAddressA314(bpl_ptr2);
 
 	sync_a314_write(8);
 

@@ -38,7 +38,6 @@ struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
 
 struct Library *A314Base = NULL;
-ULONG a314_membase;
 
 struct MsgPort *mp;
 
@@ -381,7 +380,6 @@ int main()
 	}
 
 	A314Base = &(cmsg->a314_Request.io_Device->dd_Library);
-	a314_membase = GetA314MemBase();
 
 	wmsg = (struct A314_IORequest *)CreateExtIO(mp, sizeof(struct A314_IORequest));
 	rmsg = (struct A314_IORequest *)CreateExtIO(mp, sizeof(struct A314_IORequest));
@@ -449,8 +447,9 @@ int main()
 	append_uword(bm->Depth);
 	append_uword(bm->BytesPerRow);
 
-	ULONG ptr = (ULONG)bm->Planes[0];
-	if (!(ptr >= a314_membase && ptr < a314_membase + 512 * 1024))
+	ULONG ptr = TranslateAddressA314(bm->Planes[0]);
+
+	if (ptr == -1)
 	{
 		int depth = bm->Depth;
 		int size = 80 * 256;
@@ -492,7 +491,7 @@ int main()
 			for (int i = 0; i < depth; i++)
 				FreeMem(old_planes[i], size);
 
-			ptr = (ULONG)bm->Planes[0];
+			ptr = TranslateAddressA314(bm->Planes[0]);
 		}
 		else if (bm->BytesPerRow == 240)
 		{
@@ -507,11 +506,11 @@ int main()
 
 			FreeMem(old_ptr, size * depth);
 
-			ptr = (ULONG)bm->Planes[0];
+			ptr = TranslateAddressA314(bm->Planes[0]);
 		}
 	}
 
-	append_ulong(ptr - a314_membase);
+	append_ulong(ptr);
 
 	struct ColorMap *cm = screen->ViewPort.ColorMap;
 	append_uword(cm->Count);
