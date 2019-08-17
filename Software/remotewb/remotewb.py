@@ -293,12 +293,15 @@ async def create_websockets_server():
     ws_server = await websockets.serve(browser_handler, '0.0.0.0', 6789, loop = loop)
     print('Websocket server created')
 
-idx = sys.argv.index('-ondemand')
+try:
+    idx = sys.argv.index('-ondemand')
+except ValueError:
+    idx = -1
 
 if idx != -1:
     fd = int(sys.argv[idx + 1])
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0, fd)
-    asyncio.ensure_future(loop.create_unix_connection(lambda: MyProtocol(), sock = sock))
+    asyncio.ensure_future(loop.create_unix_connection(lambda: MyProtocol(), path = None, sock = sock))
 else:
     asyncio.ensure_future(loop.create_connection(lambda: MyProtocol(), 'localhost', 7110))
 
