@@ -49,3 +49,5 @@ The Verilog source code used to generate a programming object file (.pof) for th
 The source code for the software that runs on the Amiga and on the RPi is available in the [Software](Software) directory.
 
 If you have an idea about something cool to make using the A314, but you don't have the means to build a PCB on your own, then we have a small number of pre-built boards that we plan to hand out, given the idea sounds interesting enough. Send a message to Eriond on EAB and describe what you would like to make, and perhaps you can get one.
+
+There is an #a314 IRC channel on [EFNet](http://www.efnet.org/?module=servers) where you can hopefully get answers to any questions related to A314.
