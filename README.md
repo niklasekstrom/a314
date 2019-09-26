@@ -42,7 +42,7 @@ Here are some services that we have considered but not gotten around to implemen
 
 If this sounds interesting, you'll probably want an A314 of your own to play with. We have released all the information needed to make a board, freely available in this GitHub repository.
 
-In the [Hardware](Hardware) directory there are [schematics](Hardware/Beta-2/Schematics/A314B2.pdf) and [Gerber files](Hardware/Beta-2/Gerbers) that can be used to produce a PCB.
+In the [Hardware](Hardware) directory there are [schematics](Hardware/v1.1/Schematics/A314v1.1.pdf) and [Gerber files](Hardware/v1.1/Gerbers) that can be used to produce a PCB.
 
 The Verilog source code used to generate a programming object file (.pof) for the Intel MAX 10 FPGA is available in the [HDL](HDL) directory. You'll need a USB-Blaster download cable (or a clone) to connect to the JTAG connector on the A314 board. You can compile the design using the [Quartus Prime Lite Edition](http://fpgasoftware.intel.com/?edition=lite).
 
