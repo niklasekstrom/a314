@@ -20,8 +20,13 @@
 #define BUFFER_LEN_MS 50
 #define SAMPLES (FREQ * BUFFER_LEN_MS / 1000)
 
-#define LEFT_CHAN_MASK	(4 | 2)
-#define RIGHT_CHAN_MASK	(8 | 1)
+#define R0		1
+#define L0		2
+#define L1		4
+#define R1		8
+
+#define LEFT_CHAN_MASK	(L0 | L1)
+#define RIGHT_CHAN_MASK	(R0 | R1)
 
 #define LEFT 0
 #define RIGHT 1
@@ -155,11 +160,11 @@ int main()
 
 	memcpy(write_a314_req, sync_a314_req, sizeof(struct A314_IORequest));
 
-	audio_buffers[0] = AllocMem(SAMPLES * 2, MEMF_A314 | MEMF_CLEAR);
-	audio_buffers[2] = AllocMem(SAMPLES * 2, MEMF_A314 | MEMF_CLEAR);
+	audio_buffers[0] = AllocMem(SAMPLES * 2, MEMF_A314 | MEMF_CHIP | MEMF_CLEAR);
+	audio_buffers[2] = AllocMem(SAMPLES * 2, MEMF_A314 | MEMF_CHIP | MEMF_CLEAR);
 	if (!audio_buffers[0] || !audio_buffers[2])
 	{
-		printf("Unable to allocate audio buffers in MEMF_A314 memory\n");
+		printf("Unable to allocate audio buffers in A314 chip memory\n");
 		goto cleanup;
 	}
 
@@ -184,7 +189,7 @@ int main()
 		}
 	}
 
-	UBYTE which_channels[] = { 3, 5, 10, 12 };
+	UBYTE which_channels[] = { L0 | R0, L0 | R1, L1 | R0, L1 | R1 };
 
 	sync_audio_req->ioa_Request.io_Message.mn_ReplyPort = sync_mp;
 	sync_audio_req->ioa_Request.io_Message.mn_Node.ln_Pri = 127;
@@ -224,7 +229,9 @@ int main()
 		goto cleanup;
 	}
 
-	printf("PiAudio started, allocated channels: %lu\n", allocated_channels);
+	printf("PiAudio started, allocated channels: L%d, R%d\n",
+		(allocated_channels & LEFT_CHAN_MASK) == L0 ? 0 : 1,
+		(allocated_channels & RIGHT_CHAN_MASK) == R0 ? 0 : 1);
 
 	sync_audio_req->ioa_Request.io_Command = CMD_STOP;
 	DoIO((struct IORequest *)sync_audio_req);
@@ -238,6 +245,8 @@ int main()
 	int pending_audio_reqs = 2;
 
 	ULONG portsig = 1L << async_mp->mp_SigBit;
+
+	printf("Press ctrl-c to exit...\n");
 
 	while (TRUE)
 	{

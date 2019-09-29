@@ -49,13 +49,9 @@ UBYTE arbuf[256];
 struct A314_IORequest *wmsg;
 UBYTE awbuf[256];
 
-struct StandardPacket sp;
-UBYTE rbuf[128];
-
 BOOL pending_a314_read = FALSE;
 BOOL pending_a314_write = FALSE;
 BOOL pending_a314_reset = FALSE;
-BOOL pending_con_read = FALSE;
 
 BOOL stream_closed = FALSE;
 
@@ -72,27 +68,6 @@ struct VBlankData
 struct VBlankData vblank_data;
 extern void VBlankServer();
 struct Interrupt vblank_interrupt;
-
-struct Process *proc;
-struct FileHandle *cis;
-
-void start_con_read()
-{
-	sp.sp_Msg.mn_Node.ln_Type = NT_MESSAGE;
-	sp.sp_Msg.mn_Node.ln_Pri = 0;
-	sp.sp_Msg.mn_Node.ln_Name = (char *)&(sp.sp_Pkt);
-	sp.sp_Msg.mn_Length = sizeof(struct StandardPacket);
-	sp.sp_Msg.mn_ReplyPort = mp;
-	sp.sp_Pkt.dp_Link = &(sp.sp_Msg);
-	sp.sp_Pkt.dp_Port = mp;
-	sp.sp_Pkt.dp_Type = ACTION_READ;
-	sp.sp_Pkt.dp_Arg1 = cis->fh_Arg1;
-	sp.sp_Pkt.dp_Arg2 = (LONG)&rbuf[0];
-	sp.sp_Pkt.dp_Arg3 = 127;
-	PutMsg(cis->fh_Type, &(sp.sp_Msg));
-
-	pending_con_read = TRUE;
-}
 
 void start_a314_cmd(struct A314_IORequest *msg, UWORD command, char *buffer, int length)
 {
@@ -332,26 +307,6 @@ void handle_a314_read_completed()
 		stream_closed = TRUE;
 }
 
-void handle_con_read_completed()
-{
-	pending_con_read = FALSE;
-
-	if (stream_closed)
-		return;
-
-	int len = sp.sp_Pkt.dp_Res1;
-	rbuf[len] = 0;
-
-	if (strncmp(rbuf, "exit", 4) == 0)
-	{
-		start_a314_reset();
-		stream_closed = TRUE;
-	}
-
-	if (!stream_closed)
-		start_con_read();
-}
-
 void handle_vblank_signal()
 {
 	blen = 0;
@@ -364,19 +319,13 @@ void handle_vblank_signal()
 
 int main()
 {
-	proc = (struct Process *)FindTask(NULL);
-	cis = (struct FileHandle *)BADDR(proc->pr_CIS);
-
 	mp = CreatePort(NULL, 0);
 	cmsg = (struct A314_IORequest *)CreateExtIO(mp, sizeof(struct A314_IORequest));
 
 	if (OpenDevice(A314_NAME, 0, (struct IORequest *)cmsg, 0) != 0)
 	{
 		printf("Unable to open a314.device\n");
-
-		DeleteExtIO((struct IORequest *)cmsg);
-		DeletePort(mp);
-		return 0;
+		goto fail_out1;
 	}
 
 	A314Base = &(cmsg->a314_Request.io_Device->dd_Library);
@@ -389,13 +338,7 @@ int main()
 	if (a314_connect("remotewb") != A314_CONNECT_OK)
 	{
 		printf("Unable to connect to remotewb service\n");
-
-		CloseDevice((struct IORequest *)cmsg);
-		DeleteExtIO((struct IORequest *)rmsg);
-		DeleteExtIO((struct IORequest *)wmsg);
-		DeleteExtIO((struct IORequest *)cmsg);
-		DeletePort(mp);
-		return 0;
+		goto fail_out2;
 	}
 
 	IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 0);
@@ -407,19 +350,9 @@ int main()
 	if (!screen)
 	{
 		Permit();
-
 		printf("Unable to find workbench screen\n");
-
 		sync_a314_reset();
-
-		CloseLibrary((struct Library *)GfxBase);
-		CloseLibrary((struct Library *)IntuitionBase);
-		CloseDevice((struct IORequest *)cmsg);
-		DeleteExtIO((struct IORequest *)rmsg);
-		DeleteExtIO((struct IORequest *)wmsg);
-		DeleteExtIO((struct IORequest *)cmsg);
-		DeletePort(mp);
-		return 0;
+		goto fail_out3;
 	}
 
 	struct BitMap *bm = &(screen->BitMap);
@@ -427,19 +360,9 @@ int main()
 	if (screen->Width != 640 || screen->Height != 256 || bm->Depth != 3 || (bm->BytesPerRow != 80 && bm->BytesPerRow != 240))
 	{
 		Permit();
-
 		printf("Wrong screen resolution; it is %hdx%hdx%hhu but must be 640x256x3\n", screen->Width, screen->Height, bm->Depth);
-
 		sync_a314_reset();
-
-		CloseLibrary((struct Library *)GfxBase);
-		CloseLibrary((struct Library *)IntuitionBase);
-		CloseDevice((struct IORequest *)cmsg);
-		DeleteExtIO((struct IORequest *)rmsg);
-		DeleteExtIO((struct IORequest *)wmsg);
-		DeleteExtIO((struct IORequest *)cmsg);
-		DeletePort(mp);
-		return 0;
+		goto fail_out3;
 	}
 
 	append_uword(screen->Width);
@@ -454,23 +377,13 @@ int main()
 		int depth = bm->Depth;
 		int size = 80 * 256;
 
-		UBYTE *p = AllocMem(size * depth, MEMF_A314);
+		UBYTE *p = AllocMem(size * depth, MEMF_A314 | MEMF_CHIP);
 		if (!p)
 		{
 			Permit();
-
-			printf("Unable to allocate enough A314 memory\n");
-
+			printf("Unable to allocate enough A314 chip memory\n");
 			sync_a314_reset();
-
-			CloseLibrary((struct Library *)GfxBase);
-			CloseLibrary((struct Library *)IntuitionBase);
-			CloseDevice((struct IORequest *)cmsg);
-			DeleteExtIO((struct IORequest *)rmsg);
-			DeleteExtIO((struct IORequest *)wmsg);
-			DeleteExtIO((struct IORequest *)cmsg);
-			DeletePort(mp);
-			return 0;
+			goto fail_out3;
 		}
 
 		if (bm->BytesPerRow == 80)
@@ -525,7 +438,6 @@ int main()
 	id_req = (struct IOStdReq *)CreateExtIO(id_mp, sizeof(struct IOStdReq));
 	OpenDevice("input.device", 0, (struct IORequest *)id_req, 0);
 
-	start_con_read();
 	start_a314_read();
 
 	BYTE vblank_sigbit = AllocSignal(-1);
@@ -543,8 +455,8 @@ int main()
 	vblank_interrupt.is_Code = VBlankServer;
 
 	AddIntServer(INTB_VERTB, &vblank_interrupt);
-	
-	BOOL asked_to_pak = FALSE;
+
+	printf("Press ctrl-c to exit...\n");
 
 	while (TRUE)
 	{
@@ -559,9 +471,7 @@ int main()
 			struct Message *msg;
 			while (msg = GetMsg(mp))
 			{
-				if (msg == (struct Message *)&sp)
-					handle_con_read_completed();
-				else if (msg == (struct Message *)rmsg)
+				if (msg == (struct Message *)rmsg)
 					handle_a314_read_completed();
 				else if (msg == (struct Message *)wmsg)
 					pending_a314_write = FALSE;
@@ -577,16 +487,7 @@ int main()
 		}
 
 		if (stream_closed && !pending_a314_read && !pending_a314_write && !pending_a314_reset)
-		{
-			if (!pending_con_read)
-				break;
-			else if (!asked_to_pak)
-			{
-				fputs("*** Connection closed. Press enter to exit...\n", stdout);
-				fflush(stdout);
-				asked_to_pak = TRUE;
-			}
-		}
+			break;
 	}
 
 	RemIntServer(INTB_VERTB, &vblank_interrupt);
@@ -595,11 +496,14 @@ int main()
 	CloseDevice((struct IORequest *)id_req);
 	DeleteExtIO((struct IORequest *)id_req);
 	DeletePort(id_mp);
+fail_out3:
 	CloseLibrary((struct Library *)GfxBase);
 	CloseLibrary((struct Library *)IntuitionBase);;
+fail_out2:
 	CloseDevice((struct IORequest *)cmsg);
 	DeleteExtIO((struct IORequest *)rmsg);
 	DeleteExtIO((struct IORequest *)wmsg);
+fail_out1:
 	DeleteExtIO((struct IORequest *)cmsg);
 	DeletePort(mp);
 	return 0;
