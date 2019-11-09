@@ -2,6 +2,8 @@
 
 ## How to install
 
+**Note** that there are additional instructions in the [wiki](https://github.com/niklasekstrom/a314/wiki/Installation-instructions) that you should also follow. These instructions are for building and installing the software in this repo, but there are additional steps that should be taken.
+
 On the Raspberry Pi do the following:
 - Install Raspbian: https://www.raspberrypi.org/downloads/raspbian/
 - Install Docker: ```curl -sSL https://get.docker.com | sh```
