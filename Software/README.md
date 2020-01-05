@@ -10,6 +10,7 @@ On the Raspberry Pi do the following:
 - Allow user pi to run Docker: ```sudo usermod -aG docker pi```
 - Clone the a314 repo: ```git clone https://github.com/niklasekstrom/a314.git```
 - ```cd a314/Software```
+- Set the build script as executable: ```sudo chmod +x rpi_docker_build.sh```
 - Build software for both the Amiga and Pi: ```./rpi_docker_build.sh```
 - Install software for Pi: ```sudo make install```
 - Enable and start a314d:
