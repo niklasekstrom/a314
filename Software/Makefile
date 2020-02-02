@@ -3,7 +3,7 @@
 CPP=g++
 VC=vc
 
-all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/piaudio bin/remotewb bin/videoplayer
+all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/piaudio bin/remotewb bin/videoplayer bin/diag
 
 bin_dir:
 	mkdir -p bin
@@ -32,6 +32,9 @@ bin/remotewb: a314device/a314.h a314device/proto_a314.h remotewb/remotewb.c remo
 
 bin/videoplayer: a314device/a314.h a314device/proto_a314.h videoplayer/videoplayer.c videoplayer/vblank_server.asm
 	${VC} videoplayer/videoplayer.c videoplayer/vblank_server.asm -lamiga -o bin/videoplayer
+
+bin/diag: diag/diag.c
+	${VC} diag/diag.c -o bin/diag
 
 install: all
 	mkdir -p /opt/a314
