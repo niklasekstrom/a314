@@ -326,6 +326,7 @@ def process_examine_object(key):
         size = 0
         type_ = ST_USERDIR
 
+    size = min(size, 2 ** 31 - 1)
     return struct.pack('>HHHhIIIIIB', 1, 0, 666, type_, size, 0, days, mins, ticks, len(fn)) + fn
 
 def process_examine_next(key, disk_key):
@@ -359,6 +360,7 @@ def process_examine_next(key, disk_key):
         size = 0
         type_ = ST_USERDIR
 
+    size = min(size, 2 ** 31 - 1)
     return struct.pack('>HHHhIIIIIB', 1, 0, disk_key, type_, size, 0, days, mins, ticks, len(fn)) + fn
 
 next_fp = 1
