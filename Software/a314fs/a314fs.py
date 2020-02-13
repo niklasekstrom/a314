@@ -303,6 +303,7 @@ def mtime_to_dmt(mtime):
     secs = left - mins * 60
     ticks = secs * 50
     days -= 2922 # Days between 1970-01-01 and 1978-01-01
+    days = max(0, days) # If days are before Amiga epoc
     return (days, mins, ticks)
 
 def process_examine_object(key):
