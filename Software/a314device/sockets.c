@@ -74,8 +74,9 @@ void delete_socket(struct Socket *s)
 	FreeMem(s, sizeof(struct Socket));
 }
 
-void add_to_send_queue(struct Socket *s)
+void add_to_send_queue(struct Socket *s, UWORD required_length)
 {
+	s->send_queue_required_length = required_length;
 	s->next_in_send_queue = NULL;
 
 	if (send_queue_head == NULL)

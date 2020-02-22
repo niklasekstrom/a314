@@ -53,5 +53,5 @@ extern void delete_socket(struct Socket *s);
 extern struct Socket *find_socket(void *sig_task, ULONG socket);
 extern struct Socket *find_socket_by_stream_id(UBYTE stream_id);
 
-extern void add_to_send_queue(struct Socket *s);
+extern void add_to_send_queue(struct Socket *s, UWORD required_length);
 extern void remove_from_send_queue(struct Socket *s);

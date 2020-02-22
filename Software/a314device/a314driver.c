@@ -118,8 +118,7 @@ void close_socket(struct Socket *s, BOOL should_send_reset)
 		else
 		{
 			s->flags |= SOCKET_SHOULD_SEND_RESET;
-			s->send_queue_required_length = 0;
-			add_to_send_queue(s);
+			add_to_send_queue(s, 0);
 			should_delete_socket = FALSE;
 		}
 	}
@@ -365,8 +364,7 @@ static void handle_app_connect(struct A314_IORequest *ior, struct Socket *s)
 		}
 		else
 		{
-			s->send_queue_required_length = len;
-			add_to_send_queue(s);
+			add_to_send_queue(s, len);
 		}
 	}
 }
@@ -467,8 +465,7 @@ static void handle_app_write(struct A314_IORequest *ior, struct Socket *s)
 			else
 			{
 				s->pending_write = ior;
-				s->send_queue_required_length = len;
-				add_to_send_queue(s);
+				add_to_send_queue(s, len);
 			}
 		}
 	}
@@ -512,8 +509,7 @@ static void handle_app_eos(struct A314_IORequest *ior, struct Socket *s)
 			else
 			{
 				s->pending_write = ior;
-				s->send_queue_required_length = 0;
-				add_to_send_queue(s);
+				add_to_send_queue(s, 0);
 			}
 		}
 	}
