@@ -33,7 +33,7 @@ void NewList(struct List *l)
 	l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
-struct Task *CreateTask(char *name, long priority, char *initialPC, unsigned long stacksize)
+static struct Task *create_task(char *name, long priority, char *initialPC, unsigned long stacksize)
 {
 	char *stack = AllocMem(stacksize, MEMF_CLEAR);
 	if (stack == NULL)
@@ -57,7 +57,7 @@ struct Task *CreateTask(char *name, long priority, char *initialPC, unsigned lon
 	return tc;
 }
 
-void init_message_port()
+static void init_message_port()
 {
 	task_mp.mp_Node.ln_Name = device_name;
 	task_mp.mp_Node.ln_Pri = 0;
@@ -68,7 +68,26 @@ void init_message_port()
 	NewList(&(task_mp.mp_MsgList));
 }
 
-void fix_address_mapping()
+static void add_interrupt_handlers()
+{
+	vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	vertb_interrupt.is_Node.ln_Pri = -60;
+	vertb_interrupt.is_Node.ln_Name = device_name;
+	vertb_interrupt.is_Data = (APTR)task;
+	vertb_interrupt.is_Code = IntServer;
+
+	AddIntServer(INTB_VERTB, &vertb_interrupt);
+
+	ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	ports_interrupt.is_Node.ln_Pri = 0;
+	ports_interrupt.is_Node.ln_Name = device_name;
+	ports_interrupt.is_Data = (APTR)task;
+	ports_interrupt.is_Code = IntServer;
+
+	AddIntServer(INTB_PORTS, &ports_interrupt);
+}
+
+static void detect_and_write_address_swap()
 {
 	// Only looking at VPOSR Agnus identification at this point.
 	// Could add more dynamic identification of address mapping.
@@ -86,7 +105,7 @@ BOOL task_start()
 	if (!fix_memory())
 		return FALSE;
 
-	fix_address_mapping();
+	detect_and_write_address_swap();
 
 	ca = (struct ComArea *)AllocMem(sizeof(struct ComArea), MEMF_A314 | MEMF_CLEAR);
 	if (ca == NULL)
@@ -95,7 +114,7 @@ BOOL task_start()
 		return FALSE;
 	}
 
-	task = CreateTask(device_name, TASK_PRIORITY, (void *)task_main, TASK_STACK_SIZE);
+	task = create_task(device_name, TASK_PRIORITY, (void *)task_main, TASK_STACK_SIZE);
 	if (task == NULL)
 	{
 		debug_printf("Unable to create task\n");
@@ -113,21 +132,7 @@ BOOL task_start()
 
 	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
 
-	vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	vertb_interrupt.is_Node.ln_Pri = -60;
-	vertb_interrupt.is_Node.ln_Name = device_name;
-	vertb_interrupt.is_Data = (APTR)task;
-	vertb_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_VERTB, &vertb_interrupt);
-
-	ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	ports_interrupt.is_Node.ln_Pri = 0;
-	ports_interrupt.is_Node.ln_Name = device_name;
-	ports_interrupt.is_Data = (APTR)task;
-	ports_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_PORTS, &ports_interrupt);
+	add_interrupt_handlers();
 
 	write_cmem_safe(A_ENABLE_ADDRESS, A_EVENT_R2A_TAIL);
 
