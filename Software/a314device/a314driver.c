@@ -133,7 +133,102 @@ void close_socket(struct Socket *s, BOOL should_send_reset)
 // This is somewhat inefficient, so may want to change that to read from R2A directly.
 UBYTE received_packet[256];
 
-void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
+static void handle_pkt_connect_response(UBYTE length, struct Socket *s)
+{
+	debug_printf("Received a CONNECT RESPONSE packet from rpi\n");
+
+	if (s->pending_connect == NULL)
+	{
+		debug_printf("SERIOUS ERROR: received a CONNECT RESPONSE even though no connect was pending\n");
+		// Should reset stream?
+	}
+	else if (length != 1)
+	{
+		debug_printf("SERIOUS ERROR: received a CONNECT RESPONSE whose length was not 1\n");
+		// Should reset stream?
+	}
+	else
+	{
+		UBYTE result = received_packet[0];
+		if (result == 0)
+		{
+			struct A314_IORequest *ior = s->pending_connect;
+			ior->a314_Request.io_Error = A314_CONNECT_OK;
+			ReplyMsg((struct Message *)ior);
+
+			s->pending_connect = NULL;
+		}
+		else
+		{
+			struct A314_IORequest *ior = s->pending_connect;
+			ior->a314_Request.io_Error = A314_CONNECT_UNKNOWN_SERVICE;
+			ReplyMsg((struct Message *)ior);
+
+			s->pending_connect = NULL;
+
+			close_socket(s, FALSE);
+		}
+	}
+}
+
+static void handle_pkt_data(UBYTE length, struct Socket *s)
+{
+	debug_printf("Received a DATA packet from rpi\n");
+
+	if (s->pending_read != NULL)
+	{
+		struct A314_IORequest *ior = s->pending_read;
+
+		if (ior->a314_Length < length)
+			close_socket(s, TRUE);
+		else
+		{
+			memcpy(ior->a314_Buffer, received_packet, length);
+			ior->a314_Length = length;
+			ior->a314_Request.io_Error = A314_READ_OK;
+			ReplyMsg((struct Message *)ior);
+
+			s->pending_read = NULL;
+		}
+	}
+	else
+	{
+		struct QueuedData *qd = (struct QueuedData *)AllocMem(sizeof(struct QueuedData) + length, 0);
+		qd->next = NULL,
+		qd->length = length;
+		memcpy(qd->data, received_packet, length);
+
+		if (s->rq_head == NULL)
+			s->rq_head = qd;
+		else
+			s->rq_tail->next = qd;
+		s->rq_tail = qd;
+	}
+}
+
+static void handle_pkt_eos(struct Socket *s)
+{
+	debug_printf("Received a EOS packet from rpi\n");
+
+	s->flags |= SOCKET_RCVD_EOS_FROM_RPI;
+
+	if (s->pending_read != NULL)
+	{
+		struct A314_IORequest *ior = s->pending_read;
+		ior->a314_Length = 0;
+		ior->a314_Request.io_Error = A314_READ_EOS;
+		ReplyMsg((struct Message *)ior);
+
+		s->pending_read = NULL;
+
+		s->flags |= SOCKET_SENT_EOS_TO_APP;
+
+		if (s->flags & SOCKET_SENT_EOS_TO_RPI)
+			close_socket(s, FALSE);
+	}
+}
+
+static void handle_r2a_packet(UBYTE type, UBYTE stream_id, UBYTE length)
 {
 	struct Socket *s = find_socket_by_stream_id(stream_id);
 
@@ -153,89 +248,15 @@ void handle_received_packet_r2a(UBYTE type, UBYTE stream_id, UBYTE length)
 
 	if (type == PKT_CONNECT_RESPONSE)
 	{
-		debug_printf("Received a CONNECT RESPONSE packet from rpi\n");
-
-		if (s->pending_connect == NULL)
-			debug_printf("SERIOUS ERROR: received a CONNECT RESPONSE even though no connect was pending\n");
-		else if (length != 1)
-			debug_printf("SERIOUS ERROR: received a CONNECT RESPONSE whose length was not 1\n");
-		else
-		{
-			UBYTE result = received_packet[0];
-			if (result == 0)
-			{
-				struct A314_IORequest *ior = s->pending_connect;
-				ior->a314_Request.io_Error = A314_CONNECT_OK;
-				ReplyMsg((struct Message *)ior);
-
-				s->pending_connect = NULL;
-			}
-			else
-			{
-				struct A314_IORequest *ior = s->pending_connect;
-				ior->a314_Request.io_Error = A314_CONNECT_UNKNOWN_SERVICE;
-				ReplyMsg((struct Message *)ior);
-
-				s->pending_connect = NULL;
-
-				close_socket(s, FALSE);
-			}
-		}
+		handle_pkt_connect_response(length, s);
 	}
 	else if (type == PKT_DATA)
 	{
-		debug_printf("Received a DATA packet from rasp\n");
-
-		if (s->pending_read != NULL)
-		{
-			struct A314_IORequest *ior = s->pending_read;
-
-			if (ior->a314_Length < length)
-				close_socket(s, TRUE);
-			else
-			{
-				memcpy(ior->a314_Buffer, received_packet, length);
-				ior->a314_Length = length;
-				ior->a314_Request.io_Error = A314_READ_OK;
-				ReplyMsg((struct Message *)ior);
-
-				s->pending_read = NULL;
-			}
-		}
-		else
-		{
-			struct QueuedData *qd = (struct QueuedData *)AllocMem(sizeof(struct QueuedData) + length, 0);
-			qd->next = NULL,
-			qd->length = length;
-			memcpy(qd->data, received_packet, length);
-
-			if (s->rq_head == NULL)
-				s->rq_head = qd;
-			else
-				s->rq_tail->next = qd;
-			s->rq_tail = qd;
-		}
+		handle_pkt_data(length, s);
 	}
 	else if (type == PKT_EOS)
 	{
-		debug_printf("Received a EOS packet from rpi\n");
-
-		s->flags |= SOCKET_RCVD_EOS_FROM_RPI;
-
-		if (s->pending_read != NULL)
-		{
-			struct A314_IORequest *ior = s->pending_read;
-			ior->a314_Length = 0;
-			ior->a314_Request.io_Error = A314_READ_EOS;
-			ReplyMsg((struct Message *)ior);
-
-			s->pending_read = NULL;
-
-			s->flags |= SOCKET_SENT_EOS_TO_APP;
-
-			if (s->flags & SOCKET_SENT_EOS_TO_RPI)
-				close_socket(s, FALSE);
-		}
+		handle_pkt_eos(s);
 	}
 }
 
@@ -254,7 +275,7 @@ void handle_packets_received_r2a()
 
 		ca->r2a_head = index;
 
-		handle_received_packet_r2a(type, stream_id, len);
+		handle_r2a_packet(type, stream_id, len);
 	}
 }
 
