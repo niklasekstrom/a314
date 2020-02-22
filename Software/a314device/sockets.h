@@ -42,8 +42,8 @@ struct Socket
 	struct QueuedData *rq_tail;
 };
 
-extern struct Socket *sq_head;
-extern struct Socket *sq_tail;
+extern struct Socket *send_queue_head;
+extern struct Socket *send_queue_tail;
 
 extern void init_sockets();
 

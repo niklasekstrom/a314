@@ -113,7 +113,7 @@ void close_socket(struct Socket *s, BOOL should_send_reset)
 
 	if (should_send_reset)
 	{
-		if (sq_head == NULL && room_in_a2r(0))
+		if (send_queue_head == NULL && room_in_a2r(0))
 		{
 			append_a2r_packet(PKT_RESET, s->stream_id, 0, NULL);
 		}
@@ -262,9 +262,9 @@ void handle_packets_received_r2a()
 
 void handle_room_in_a2r()
 {
-	while (sq_head != NULL)
+	while (send_queue_head != NULL)
 	{
-		struct Socket *s = sq_head;
+		struct Socket *s = send_queue_head;
 
 		if (!room_in_a2r(s->send_queue_required_length))
 			break;
@@ -345,7 +345,7 @@ void handle_received_app_request(struct A314_IORequest *ior)
 			s->flags = 0;
 
 			int len = ior->a314_Length;
-			if (sq_head == NULL && room_in_a2r(len))
+			if (send_queue_head == NULL && room_in_a2r(len))
 			{
 				append_a2r_packet(PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 			}
@@ -446,7 +446,7 @@ void handle_received_app_request(struct A314_IORequest *ior)
 			}
 			else
 			{
-				if (sq_head == NULL && room_in_a2r(len))
+				if (send_queue_head == NULL && room_in_a2r(len))
 				{
 					append_a2r_packet(PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
@@ -487,7 +487,7 @@ void handle_received_app_request(struct A314_IORequest *ior)
 			{
 				s->flags |= SOCKET_RCVD_EOS_FROM_APP;
 
-				if (sq_head == NULL && room_in_a2r(0))
+				if (send_queue_head == NULL && room_in_a2r(0))
 				{
 					append_a2r_packet(PKT_EOS, s->stream_id, 0, NULL);
 
@@ -603,9 +603,9 @@ void task_main()
 
 			if (ca->r2a_head == ca->r2a_tail)
 			{
-				if (sq_head == NULL)
+				if (send_queue_head == NULL)
 					a_enable = A_EVENT_R2A_TAIL;
-				else if (!room_in_a2r(sq_head->send_queue_required_length))
+				else if (!room_in_a2r(send_queue_head->send_queue_required_length))
 					a_enable = A_EVENT_R2A_TAIL | A_EVENT_A2R_HEAD;
 
 				if (a_enable != 0)

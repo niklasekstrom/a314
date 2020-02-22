@@ -4,8 +4,8 @@
 
 struct List active_sockets;
 
-struct Socket *sq_head = NULL;
-struct Socket *sq_tail = NULL;
+struct Socket *send_queue_head = NULL;
+struct Socket *send_queue_tail = NULL;
 
 static UBYTE next_stream_id = 1;
 
@@ -78,11 +78,11 @@ void add_to_send_queue(struct Socket *s)
 {
 	s->next_in_send_queue = NULL;
 
-	if (sq_head == NULL)
-		sq_head = s;
+	if (send_queue_head == NULL)
+		send_queue_head = s;
 	else
-		sq_tail->next_in_send_queue = s;
-	sq_tail = s;
+		send_queue_tail->next_in_send_queue = s;
+	send_queue_tail = s;
 
 	s->flags |= SOCKET_IN_SEND_QUEUE;
 }
@@ -91,21 +91,21 @@ void remove_from_send_queue(struct Socket *s)
 {
 	if (s->flags & SOCKET_IN_SEND_QUEUE)
 	{
-		if (sq_head == s)
+		if (send_queue_head == s)
 		{
-			sq_head = s->next_in_send_queue;
-			if (sq_head == NULL)
-				sq_tail = NULL;
+			send_queue_head = s->next_in_send_queue;
+			if (send_queue_head == NULL)
+				send_queue_tail = NULL;
 		}
 		else
 		{
-			struct Socket *curr = sq_head;
+			struct Socket *curr = send_queue_head;
 			while (curr->next_in_send_queue != s)
 				curr = curr->next_in_send_queue;
 
 			curr->next_in_send_queue = s->next_in_send_queue;
-			if (sq_tail == s)
-				sq_tail = curr;
+			if (send_queue_tail == s)
+				send_queue_tail = curr;
 		}
 
 		s->next_in_send_queue = NULL;
