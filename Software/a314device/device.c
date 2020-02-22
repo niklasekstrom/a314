@@ -23,8 +23,8 @@ struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") B
 	SysBase = *(struct ExecBase **)4;
 	saved_seg_list = seg_list;
 
-	// Vi anropas från InitResident i initializers.asm.
-	// Innan vi har kommit hit så har MakeLibrary körts.
+	// We are being called from InitResident() in initializers.asm.
+	// MakeLibrary() was executed before we got here.
 
 	dev->lib_Node.ln_Type = NT_DEVICE;
 	dev->lib_Node.ln_Name = device_name;
@@ -33,13 +33,14 @@ struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") B
 	dev->lib_Revision = 0;
 	dev->lib_IdString = (APTR)id_string;
 
-	// Efter vi returnerar så körs AddDevice.
+	// AddDevice() is executed after we return.
 	return dev;
 }
 
 BPTR expunge(__reg("a6") struct Library *dev)
 {
-	// Det finns inget sätt att ladda ur a314.device för närvarande.
+	// There is currently no support for unloading a314.device.
+
 	if (TRUE) //dev->lib_OpenCnt != 0)
 	{
 		dev->lib_Flags |= LIBF_DELEXP;
@@ -95,7 +96,7 @@ void begin_io(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest
 
 ULONG abort_io(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior)
 {
-	// No-operation.
+	// There is currently no support for aborting an IORequest.
 	return IOERR_NOCMD;
 }
 
