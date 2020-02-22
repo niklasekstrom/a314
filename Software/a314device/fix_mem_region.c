@@ -12,28 +12,6 @@
 short mapping_type = 0;
 ULONG mapping_base = 0;
 
-extern struct ExecBase *SysBase;
-
-ULONG translate_address_a314(__reg("a0") void *address)
-{
-	if (mapping_type == MAPPING_TYPE_512K)
-	{
-		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= 512 * 1024)
-			return -1;
-		return offset;
-	}
-	else if (mapping_type == MAPPING_TYPE_1M)
-	{
-		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= 1024 * 1024)
-			return -1;
-		return offset;
-	}
-	else
-		return -1;
-}
-
 struct MemChunkList
 {
 	struct MemChunk *first;
@@ -168,4 +146,24 @@ BOOL fix_memory()
 
 	Permit();
 	return TRUE;
+}
+
+ULONG translate_address_a314(__reg("a0") void *address)
+{
+	if (mapping_type == MAPPING_TYPE_512K)
+	{
+		ULONG offset = (ULONG)address - mapping_base;
+		if (offset >= 512 * 1024)
+			return -1;
+		return offset;
+	}
+	else if (mapping_type == MAPPING_TYPE_1M)
+	{
+		ULONG offset = (ULONG)address - mapping_base;
+		if (offset >= 1024 * 1024)
+			return -1;
+		return offset;
+	}
+	else
+		return -1;
 }
