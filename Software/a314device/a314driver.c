@@ -339,12 +339,7 @@ void handle_received_app_request(struct A314_IORequest *ior)
 		}
 		else
 		{
-			s = (struct Socket *)AllocMem(sizeof(struct Socket), MEMF_CLEAR);
-			s->sig_task = ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask;
-			s->socket = ior->a314_Socket;
-
-			s->stream_id = allocate_stream_id();
-			AddTail(&active_sockets, (struct Node *)s);
+			s = create_socket(ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
 
 			s->pending_connect = ior;
 			s->flags = 0;

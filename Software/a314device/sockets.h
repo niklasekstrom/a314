@@ -42,18 +42,16 @@ struct Socket
 	struct QueuedData *rq_tail;
 };
 
-extern struct List active_sockets;
-
 extern struct Socket *sq_head;
 extern struct Socket *sq_tail;
 
+extern void init_sockets();
+
+extern struct Socket *create_socket(struct Task *task, ULONG id);
+extern void delete_socket(struct Socket *s);
+
 extern struct Socket *find_socket(void *sig_task, ULONG socket);
 extern struct Socket *find_socket_by_stream_id(UBYTE stream_id);
-
-extern UBYTE allocate_stream_id();
-extern void free_stream_id(UBYTE stream_id);
-
-extern void delete_socket(struct Socket *s);
 
 extern void add_to_send_queue(struct Socket *s);
 extern void remove_from_send_queue(struct Socket *s);

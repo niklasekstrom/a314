@@ -9,6 +9,13 @@ struct Socket *sq_tail = NULL;
 
 static UBYTE next_stream_id = 1;
 
+extern void NewList(struct List *l);
+
+void init_sockets()
+{
+	NewList(&active_sockets);
+}
+
 struct Socket *find_socket(void *sig_task, ULONG socket)
 {
 	for (struct Node *node = active_sockets.lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
@@ -31,7 +38,7 @@ struct Socket *find_socket_by_stream_id(UBYTE stream_id)
 	return NULL;
 }
 
-UBYTE allocate_stream_id()
+static UBYTE allocate_stream_id()
 {
 	// Bug: If all stream ids are allocated then this loop won't terminate.
 
@@ -44,10 +51,20 @@ UBYTE allocate_stream_id()
 	}
 }
 
-void free_stream_id(UBYTE stream_id)
+static void free_stream_id(UBYTE stream_id)
 {
 	// Currently do nothing.
 	// Could speed up allocate_stream_id using a bitmap?
+}
+
+struct Socket *create_socket(struct Task *task, ULONG id)
+{
+	struct Socket *s = (struct Socket *)AllocMem(sizeof(struct Socket), MEMF_CLEAR);
+	s->sig_task = task;
+	s->socket = id;
+	s->stream_id = allocate_stream_id();
+	AddTail(&active_sockets, (struct Node *)s);
+	return s;
 }
 
 void delete_socket(struct Socket *s)

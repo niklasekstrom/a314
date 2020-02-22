@@ -16,7 +16,7 @@ struct Task *task;
 struct ComArea *ca;
 
 extern void task_main();
-extern struct List active_sockets;
+extern void init_sockets();
 
 void NewList(struct List *l)
 {
@@ -93,7 +93,7 @@ BOOL task_start()
 
 	NewList(&(task_mp.mp_MsgList));
 
-	NewList(&active_sockets);
+	init_sockets();
 
 	return TRUE;
 }
