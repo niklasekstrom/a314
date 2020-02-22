@@ -316,219 +316,241 @@ void handle_room_in_a2r()
 	}
 }
 
-void handle_received_app_request(struct A314_IORequest *ior)
+static void handle_app_connect(struct A314_IORequest *ior, struct Socket *s)
 {
-	struct Socket *s = find_socket(ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
-
-	if (ior->a314_Request.io_Command == A314_CONNECT)
+	debug_printf("Received a CONNECT request from application\n");
+	if (s != NULL)
 	{
-		debug_printf("Received a CONNECT request from application\n");
-		if (s != NULL)
+		ior->a314_Request.io_Error = A314_CONNECT_SOCKET_IN_USE;
+		ReplyMsg((struct Message *)ior);
+		debug_printf("Reply request 10\n");
+	}
+	else if (ior->a314_Length + 3 > 255)
+	{
+		ior->a314_Request.io_Error = A314_CONNECT_RESET;
+		ReplyMsg((struct Message *)ior);
+		debug_printf("Reply request 11\n");
+	}
+	else
+	{
+		s = create_socket(ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
+
+		s->pending_connect = ior;
+		s->flags = 0;
+
+		int len = ior->a314_Length;
+		if (send_queue_head == NULL && room_in_a2r(len))
 		{
-			ior->a314_Request.io_Error = A314_CONNECT_SOCKET_IN_USE;
-			ReplyMsg((struct Message *)ior);
-			debug_printf("Reply request 10\n");
-		}
-		else if (ior->a314_Length + 3 > 255)
-		{
-			ior->a314_Request.io_Error = A314_CONNECT_RESET;
-			ReplyMsg((struct Message *)ior);
-			debug_printf("Reply request 11\n");
+			append_a2r_packet(PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else
 		{
-			s = create_socket(ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
+			s->send_queue_required_length = len;
+			add_to_send_queue(s);
+		}
+	}
+}
 
-			s->pending_connect = ior;
-			s->flags = 0;
+static void handle_app_read(struct A314_IORequest *ior, struct Socket *s)
+{
+	debug_printf("Received a READ request from application\n");
+	if (s == NULL || (s->flags & SOCKET_CLOSED))
+	{
+		ior->a314_Length = 0;
+		ior->a314_Request.io_Error = A314_READ_RESET;
+		ReplyMsg((struct Message *)ior);
+		debug_printf("Reply request 12\n");
+	}
+	else
+	{
+		if (s->pending_connect != NULL || s->pending_read != NULL)
+		{
+			ior->a314_Length = 0;
+			ior->a314_Request.io_Error = A314_READ_RESET;
+			ReplyMsg((struct Message *)ior);
+			debug_printf("Reply request 13\n");
 
-			int len = ior->a314_Length;
-			if (send_queue_head == NULL && room_in_a2r(len))
+			close_socket(s, TRUE);
+		}
+		else if (s->rq_head != NULL)
+		{
+			struct QueuedData *qd = s->rq_head;
+			int len = qd->length;
+
+			if (ior->a314_Length < len)
 			{
-				append_a2r_packet(PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				ior->a314_Length = 0;
+				ior->a314_Request.io_Error = A314_READ_RESET;
+				ReplyMsg((struct Message *)ior);
+				debug_printf("Reply request 14\n");
+
+				close_socket(s, TRUE);
 			}
 			else
 			{
+				s->rq_head = qd->next;
+				if (s->rq_head == NULL)
+					s->rq_tail = NULL;
+
+				memcpy(ior->a314_Buffer, qd->data, len);
+				FreeMem(qd, sizeof(struct QueuedData) + len);
+
+				ior->a314_Length = len;
+				ior->a314_Request.io_Error = A314_READ_OK;
+				ReplyMsg((struct Message *)ior);
+				debug_printf("Reply request 15\n");
+			}
+		}
+		else if (s->flags & SOCKET_RCVD_EOS_FROM_RPI)
+		{
+			ior->a314_Length = 0;
+			ior->a314_Request.io_Error = A314_READ_EOS;
+			ReplyMsg((struct Message *)ior);
+			debug_printf("Reply request 16\n");
+
+			s->flags |= SOCKET_SENT_EOS_TO_APP;
+
+			if (s->flags & SOCKET_SENT_EOS_TO_RPI)
+				close_socket(s, FALSE);
+		}
+		else
+			s->pending_read = ior;
+	}
+}
+
+static void handle_app_write(struct A314_IORequest *ior, struct Socket *s)
+{
+	debug_printf("Received a WRITE request from application\n");
+	if (s == NULL || (s->flags & SOCKET_CLOSED))
+	{
+		ior->a314_Length = 0;
+		ior->a314_Request.io_Error = A314_WRITE_RESET;
+		ReplyMsg((struct Message *)ior);
+		debug_printf("Reply request 17\n");
+	}
+	else
+	{
+		int len = ior->a314_Length;
+		if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_RCVD_EOS_FROM_APP) || len + 3 > 255)
+		{
+			ior->a314_Length = 0;
+			ior->a314_Request.io_Error = A314_WRITE_RESET;
+			ReplyMsg((struct Message *)ior);
+			debug_printf("Reply request 18\n");
+
+			close_socket(s, TRUE);
+		}
+		else
+		{
+			if (send_queue_head == NULL && room_in_a2r(len))
+			{
+				append_a2r_packet(PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+
+				ior->a314_Request.io_Error = A314_WRITE_OK;
+				ReplyMsg((struct Message *)ior);
+				debug_printf("Reply request 19\n");
+			}
+			else
+			{
+				s->pending_write = ior;
 				s->send_queue_required_length = len;
 				add_to_send_queue(s);
 			}
 		}
 	}
-	else if (ior->a314_Request.io_Command == A314_READ)
+}
+
+static void handle_app_eos(struct A314_IORequest *ior, struct Socket *s)
+{
+	debug_printf("Received an EOS request from application\n");
+	if (s == NULL || (s->flags & SOCKET_CLOSED))
 	{
-		debug_printf("Received a READ request from application\n");
-		if (s == NULL || (s->flags & SOCKET_CLOSED))
-		{
-			ior->a314_Length = 0;
-			ior->a314_Request.io_Error = A314_READ_RESET;
-			ReplyMsg((struct Message *)ior);
-			debug_printf("Reply request 12\n");
-		}
-		else
-		{
-			if (s->pending_connect != NULL || s->pending_read != NULL)
-			{
-				ior->a314_Length = 0;
-				ior->a314_Request.io_Error = A314_READ_RESET;
-				ReplyMsg((struct Message *)ior);
-				debug_printf("Reply request 13\n");
-
-				close_socket(s, TRUE);
-			}
-			else if (s->rq_head != NULL)
-			{
-				struct QueuedData *qd = s->rq_head;
-				int len = qd->length;
-
-				if (ior->a314_Length < len)
-				{
-					ior->a314_Length = 0;
-					ior->a314_Request.io_Error = A314_READ_RESET;
-					ReplyMsg((struct Message *)ior);
-					debug_printf("Reply request 14\n");
-
-					close_socket(s, TRUE);
-				}
-				else
-				{
-					s->rq_head = qd->next;
-					if (s->rq_head == NULL)
-						s->rq_tail = NULL;
-
-					memcpy(ior->a314_Buffer, qd->data, len);
-					FreeMem(qd, sizeof(struct QueuedData) + len);
-
-					ior->a314_Length = len;
-					ior->a314_Request.io_Error = A314_READ_OK;
-					ReplyMsg((struct Message *)ior);
-					debug_printf("Reply request 15\n");
-				}
-			}
-			else if (s->flags & SOCKET_RCVD_EOS_FROM_RPI)
-			{
-				ior->a314_Length = 0;
-				ior->a314_Request.io_Error = A314_READ_EOS;
-				ReplyMsg((struct Message *)ior);
-				debug_printf("Reply request 16\n");
-
-				s->flags |= SOCKET_SENT_EOS_TO_APP;
-
-				if (s->flags & SOCKET_SENT_EOS_TO_RPI)
-					close_socket(s, FALSE);
-			}
-			else
-				s->pending_read = ior;
-		}
-	}
-	else if (ior->a314_Request.io_Command == A314_WRITE)
-	{
-		debug_printf("Received a WRITE request from application\n");
-		if (s == NULL || (s->flags & SOCKET_CLOSED))
-		{
-			ior->a314_Length = 0;
-			ior->a314_Request.io_Error = A314_WRITE_RESET;
-			ReplyMsg((struct Message *)ior);
-			debug_printf("Reply request 17\n");
-		}
-		else
-		{
-			int len = ior->a314_Length;
-			if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_RCVD_EOS_FROM_APP) || len + 3 > 255)
-			{
-				ior->a314_Length = 0;
-				ior->a314_Request.io_Error = A314_WRITE_RESET;
-				ReplyMsg((struct Message *)ior);
-				debug_printf("Reply request 18\n");
-
-				close_socket(s, TRUE);
-			}
-			else
-			{
-				if (send_queue_head == NULL && room_in_a2r(len))
-				{
-					append_a2r_packet(PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
-
-					ior->a314_Request.io_Error = A314_WRITE_OK;
-					ReplyMsg((struct Message *)ior);
-					debug_printf("Reply request 19\n");
-				}
-				else
-				{
-					s->pending_write = ior;
-					s->send_queue_required_length = len;
-					add_to_send_queue(s);
-				}
-			}
-		}
-	}
-	else if (ior->a314_Request.io_Command == A314_EOS)
-	{
-		debug_printf("Received an EOS request from application\n");
-		if (s == NULL || (s->flags & SOCKET_CLOSED))
-		{
-			ior->a314_Request.io_Error = A314_EOS_RESET;
-			ReplyMsg((struct Message *)ior);
-			debug_printf("Reply request 20\n");
-		}
-		else
-		{
-			if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_RCVD_EOS_FROM_APP))
-			{
-				ior->a314_Length = 0;
-				ior->a314_Request.io_Error = A314_EOS_RESET;
-				ReplyMsg((struct Message *)ior);
-				debug_printf("Reply request 21\n");
-
-				close_socket(s, TRUE);
-			}
-			else
-			{
-				s->flags |= SOCKET_RCVD_EOS_FROM_APP;
-
-				if (send_queue_head == NULL && room_in_a2r(0))
-				{
-					append_a2r_packet(PKT_EOS, s->stream_id, 0, NULL);
-
-					ior->a314_Request.io_Error = A314_EOS_OK;
-					ReplyMsg((struct Message *)ior);
-					debug_printf("Reply request 22\n");
-
-					s->flags |= SOCKET_SENT_EOS_TO_RPI;
-
-					if (s->flags & SOCKET_SENT_EOS_TO_APP)
-						close_socket(s, FALSE);
-				}
-				else
-				{
-					s->pending_write = ior;
-					s->send_queue_required_length = 0;
-					add_to_send_queue(s);
-				}
-			}
-		}
-	}
-	else if (ior->a314_Request.io_Command == A314_RESET)
-	{
-		debug_printf("Received a RESET request from application\n");
-		if (s == NULL || (s->flags & SOCKET_CLOSED))
-		{
-			ior->a314_Request.io_Error = A314_RESET_OK;
-			ReplyMsg((struct Message *)ior);
-			debug_printf("Reply request 23\n");
-		}
-		else
-		{
-			ior->a314_Request.io_Error = A314_RESET_OK;
-			ReplyMsg((struct Message *)ior);
-			debug_printf("Reply request 24\n");
-
-			close_socket(s, TRUE);
-		}
+		ior->a314_Request.io_Error = A314_EOS_RESET;
+		ReplyMsg((struct Message *)ior);
+		debug_printf("Reply request 20\n");
 	}
 	else
 	{
+		if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_RCVD_EOS_FROM_APP))
+		{
+			ior->a314_Length = 0;
+			ior->a314_Request.io_Error = A314_EOS_RESET;
+			ReplyMsg((struct Message *)ior);
+			debug_printf("Reply request 21\n");
+
+			close_socket(s, TRUE);
+		}
+		else
+		{
+			s->flags |= SOCKET_RCVD_EOS_FROM_APP;
+
+			if (send_queue_head == NULL && room_in_a2r(0))
+			{
+				append_a2r_packet(PKT_EOS, s->stream_id, 0, NULL);
+
+				ior->a314_Request.io_Error = A314_EOS_OK;
+				ReplyMsg((struct Message *)ior);
+				debug_printf("Reply request 22\n");
+
+				s->flags |= SOCKET_SENT_EOS_TO_RPI;
+
+				if (s->flags & SOCKET_SENT_EOS_TO_APP)
+					close_socket(s, FALSE);
+			}
+			else
+			{
+				s->pending_write = ior;
+				s->send_queue_required_length = 0;
+				add_to_send_queue(s);
+			}
+		}
+	}
+}
+
+static void handle_app_reset(struct A314_IORequest *ior, struct Socket *s)
+{
+	debug_printf("Received a RESET request from application\n");
+	if (s == NULL || (s->flags & SOCKET_CLOSED))
+	{
+		ior->a314_Request.io_Error = A314_RESET_OK;
+		ReplyMsg((struct Message *)ior);
+		debug_printf("Reply request 23\n");
+	}
+	else
+	{
+		ior->a314_Request.io_Error = A314_RESET_OK;
+		ReplyMsg((struct Message *)ior);
+		debug_printf("Reply request 24\n");
+
+		close_socket(s, TRUE);
+	}
+}
+
+static void handle_app_request(struct A314_IORequest *ior)
+{
+	struct Socket *s = find_socket(ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
+
+	switch (ior->a314_Request.io_Command)
+	{
+	case A314_CONNECT:
+		handle_app_connect(ior, s);
+		break;
+	case A314_READ:
+		handle_app_read(ior, s);
+		break;
+	case A314_WRITE:
+		handle_app_write(ior, s);
+		break;
+	case A314_EOS:
+		handle_app_eos(ior, s);
+		break;
+	case A314_RESET:
+		handle_app_reset(ior, s);
+		break;
+	default:
 		ior->a314_Request.io_Error = IOERR_NOCMD;
 		ReplyMsg((struct Message *)ior);
+		break;
 	}
 }
 
@@ -549,7 +571,7 @@ void task_main()
 
 			struct Message *msg;
 			while (msg = GetMsg(&task_mp))
-				handle_received_app_request((struct A314_IORequest *)msg);
+				handle_app_request((struct A314_IORequest *)msg);
 		}
 
 		UBYTE a_enable = 0;
