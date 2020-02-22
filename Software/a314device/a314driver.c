@@ -14,8 +14,6 @@
 #include <exec/devices.h>
 #include <exec/execbase.h>
 
-#include <hardware/intbits.h>
-
 #include <libraries/dos.h>
 
 #include <proto/exec.h>
@@ -534,39 +532,9 @@ void handle_received_app_request(struct A314_IORequest *ior)
 	}
 }
 
-extern void IntServer();
-struct Interrupt vertb_interrupt;
-struct Interrupt ports_interrupt;
-
 void task_main()
 {
-	write_cmem_safe(A_ENABLE_ADDRESS, 0);
-	read_cmem_safe(A_EVENTS_ADDRESS);
-
-	write_base_address(translate_address_a314(ca));
-
-	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
-
-	vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	vertb_interrupt.is_Node.ln_Pri = -60;
-	vertb_interrupt.is_Node.ln_Name = device_name;
-	vertb_interrupt.is_Data = (APTR)task;
-	vertb_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_VERTB, &vertb_interrupt);
-
-
-	ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	ports_interrupt.is_Node.ln_Pri = 0;
-	ports_interrupt.is_Node.ln_Name = device_name;
-	ports_interrupt.is_Data = (APTR)task;
-	ports_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_PORTS, &ports_interrupt);
-
-	write_cmem_safe(A_ENABLE_ADDRESS, A_EVENT_R2A_TAIL);
-
-	while (1)
+	while (TRUE)
 	{
 		debug_printf("Waiting for signal\n");
 
@@ -621,11 +589,13 @@ void task_main()
 		}
 	}
 
-	debug_printf("Shutting down\n");
+	// There is currently no way to unload a314.device.
 
-	RemIntServer(INTB_PORTS, &ports_interrupt);
-	RemIntServer(INTB_VERTB, &vertb_interrupt);
-	FreeMem(ca, sizeof(struct ComArea));
+	//debug_printf("Shutting down\n");
+
+	//RemIntServer(INTB_PORTS, &ports_interrupt);
+	//RemIntServer(INTB_VERTB, &vertb_interrupt);
+	//FreeMem(ca, sizeof(struct ComArea));
 
 	// Stack and task structure should be reclaimed.
 }

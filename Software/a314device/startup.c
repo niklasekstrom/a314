@@ -1,6 +1,7 @@
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <exec/tasks.h>
+#include <hardware/intbits.h>
 #include <proto/exec.h>
 
 #include "a314.h"
@@ -15,8 +16,12 @@ struct MsgPort task_mp;
 struct Task *task;
 struct ComArea *ca;
 
+struct Interrupt vertb_interrupt;
+struct Interrupt ports_interrupt;
+
 extern void task_main();
 extern void init_sockets();
+extern void IntServer();
 
 void NewList(struct List *l)
 {
@@ -47,6 +52,17 @@ struct Task *CreateTask(char *name, long priority, char *initialPC, unsigned lon
 
 	AddTask(tc, initialPC, 0);
 	return tc;
+}
+
+void init_message_port()
+{
+	task_mp.mp_Node.ln_Name = device_name;
+	task_mp.mp_Node.ln_Pri = 0;
+	task_mp.mp_Node.ln_Type = NT_MSGPORT;
+	task_mp.mp_Flags = PA_SIGNAL;
+	task_mp.mp_SigBit = SIGB_MSGPORT;
+	task_mp.mp_SigTask = task;
+	NewList(&(task_mp.mp_MsgList));
 }
 
 void fix_address_mapping()
@@ -84,16 +100,33 @@ BOOL task_start()
 		return FALSE;
 	}
 
-	task_mp.mp_Node.ln_Name = device_name;
-	task_mp.mp_Node.ln_Pri = 0;
-	task_mp.mp_Node.ln_Type = NT_MSGPORT;
-	task_mp.mp_Flags = PA_SIGNAL;
-	task_mp.mp_SigBit = SIGB_MSGPORT;
-	task_mp.mp_SigTask = task;
-
-	NewList(&(task_mp.mp_MsgList));
-
+	init_message_port();
 	init_sockets();
+
+	write_cmem_safe(A_ENABLE_ADDRESS, 0);
+	read_cmem_safe(A_EVENTS_ADDRESS);
+
+	write_base_address(translate_address_a314(ca));
+
+	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
+
+	vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	vertb_interrupt.is_Node.ln_Pri = -60;
+	vertb_interrupt.is_Node.ln_Name = device_name;
+	vertb_interrupt.is_Data = (APTR)task;
+	vertb_interrupt.is_Code = IntServer;
+
+	AddIntServer(INTB_VERTB, &vertb_interrupt);
+
+	ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	ports_interrupt.is_Node.ln_Pri = 0;
+	ports_interrupt.is_Node.ln_Name = device_name;
+	ports_interrupt.is_Data = (APTR)task;
+	ports_interrupt.is_Code = IntServer;
+
+	AddIntServer(INTB_PORTS, &ports_interrupt);
+
+	write_cmem_safe(A_ENABLE_ADDRESS, A_EVENT_R2A_TAIL);
 
 	return TRUE;
 }
