@@ -1,6 +1,7 @@
 #include <exec/types.h>
 
 // Addresses to variables in CMEM.
+#define CMEM_CFG_ADDRESS        11
 #define R_EVENTS_ADDRESS	12
 #define R_ENABLE_ADDRESS	13
 #define A_EVENTS_ADDRESS	14

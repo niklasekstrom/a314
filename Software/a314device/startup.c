@@ -59,7 +59,7 @@ void fix_address_mapping()
 
 	UBYTE swap = (agnus == 0x00 || agnus == 0x10) ? 0x1 : 0x0;
 
-	write_cmem_safe(11, swap);
+	write_cmem_safe(CMEM_CFG_ADDRESS, swap);
 }
 
 BOOL task_start()
