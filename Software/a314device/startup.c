@@ -12,6 +12,9 @@
 #include "cmem.h"
 #include "debug.h"
 
+#define TASK_PRIORITY 80
+#define TASK_STACK_SIZE 1024
+
 struct MsgPort task_mp;
 struct Task *task;
 struct ComArea *ca;
@@ -92,7 +95,7 @@ BOOL task_start()
 		return FALSE;
 	}
 
-	task = CreateTask(device_name, 80, (void *)task_main, 1024);
+	task = CreateTask(device_name, TASK_PRIORITY, (void *)task_main, TASK_STACK_SIZE);
 	if (task == NULL)
 	{
 		debug_printf("Unable to create task\n");
