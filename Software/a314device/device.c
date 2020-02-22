@@ -18,7 +18,7 @@ struct ExecBase *SysBase;
 BPTR saved_seg_list;
 BOOL running = FALSE;
 
-struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") BPTR seg_list, __reg("d0") struct Library *dev)
+static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") BPTR seg_list, __reg("d0") struct Library *dev)
 {
 	SysBase = *(struct ExecBase **)4;
 	saved_seg_list = seg_list;
@@ -37,7 +37,7 @@ struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") B
 	return dev;
 }
 
-BPTR expunge(__reg("a6") struct Library *dev)
+static BPTR expunge(__reg("a6") struct Library *dev)
 {
 	// There is currently no support for unloading a314.device.
 
@@ -55,7 +55,7 @@ BPTR expunge(__reg("a6") struct Library *dev)
 	*/
 }
 
-void open(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior, __reg("d0") ULONG unitnum, __reg("d1") ULONG flags)
+static void open(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior, __reg("d0") ULONG unitnum, __reg("d1") ULONG flags)
 {
 	dev->lib_OpenCnt++;
 
@@ -75,7 +75,7 @@ void open(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *io
 	ior->a314_Request.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
 }
 
-BPTR close(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior)
+static BPTR close(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior)
 {
 	ior->a314_Request.io_Device = NULL;
 	ior->a314_Request.io_Unit = NULL;
@@ -88,19 +88,19 @@ BPTR close(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *i
 	return 0;
 }
 
-void begin_io(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior)
+static void begin_io(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior)
 {
 	PutMsg(&task_mp, (struct Message *)ior);
 	ior->a314_Request.io_Flags &= ~IOF_QUICK;
 }
 
-ULONG abort_io(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior)
+static ULONG abort_io(__reg("a6") struct Library *dev, __reg("a1") struct A314_IORequest *ior)
 {
 	// There is currently no support for aborting an IORequest.
 	return IOERR_NOCMD;
 }
 
-ULONG device_vectors[] =
+static ULONG device_vectors[] =
 {
 	(ULONG)open,
 	(ULONG)close,
