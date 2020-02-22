@@ -25,7 +25,7 @@ FS_CFG_FILE = '/etc/opt/a314/a314fs.conf'
 PICMD_CFG_FILE = '/etc/opt/a314/picmd.conf'
 
 volume_paths = {}
-search_path = ""
+search_path = ''
 env_vars = {}
 sgr_map = {}
 
@@ -52,26 +52,26 @@ def load_cfg():
 
         if 'sgr_map' in cfg:
             for key, val in cfg['sgr_map'].items():
-                sgr_map[str(key)] = str(val)
-            
+                sgr_map[key] = str(val)
+
 load_cfg()
 
-MSG_REGISTER_REQ		= 1
-MSG_REGISTER_RES		= 2
-MSG_DEREGISTER_REQ		= 3
-MSG_DEREGISTER_RES		= 4
-MSG_READ_MEM_REQ		= 5
-MSG_READ_MEM_RES		= 6
-MSG_WRITE_MEM_REQ		= 7
-MSG_WRITE_MEM_RES		= 8
-MSG_CONNECT		    	= 9
-MSG_CONNECT_RESPONSE	        = 10
-MSG_DATA		    	= 11
-MSG_EOS			    	= 12
-MSG_RESET		    	= 13
+MSG_REGISTER_REQ        = 1
+MSG_REGISTER_RES        = 2
+MSG_DEREGISTER_REQ      = 3
+MSG_DEREGISTER_RES      = 4
+MSG_READ_MEM_REQ        = 5
+MSG_READ_MEM_RES        = 6
+MSG_WRITE_MEM_REQ       = 7
+MSG_WRITE_MEM_RES       = 8
+MSG_CONNECT             = 9
+MSG_CONNECT_RESPONSE    = 10
+MSG_DATA                = 11
+MSG_EOS                 = 12
+MSG_RESET               = 13
 
 def wait_for_msg():
-    header = ''
+    header = b''
     while len(header) < 9:
         data = drv.recv(9 - len(header))
         if not data:
@@ -79,7 +79,7 @@ def wait_for_msg():
             exit(-1)
         header += data
     (plen, stream_id, ptype) = struct.unpack('=IIB', header)
-    payload = ''
+    payload = b''
     while len(payload) < plen:
         data = drv.recv(plen - len(payload))
         if not data:
@@ -149,6 +149,7 @@ class PiCmdSession(object):
         self.amiga_holding = ''
 
     def process_amiga_ansi(self, data):
+        data = data.decode('latin-1')
         out = ''
         for c in data:
             if not self.amiga_in_cs:
@@ -170,13 +171,13 @@ class PiCmdSession(object):
                         # Input Event Report
                         # ESC[12;0;0;x;x;x;x;x|
                         # Window resized
-                        send_data(self.stream_id, '\x9b' + '0 q')
+                        send_data(self.stream_id, b'\x9b' + b'0 q')
                     else:
                         out += self.amiga_holding
                     self.amiga_holding = ''
                     self.amiga_in_cs = False
         if len(out) != 0:
-            os.write(self.fd, out)
+            os.write(self.fd, out.encode('utf-8'))
 
     def process_msg_data(self, data):
         if self.first_packet:
@@ -191,24 +192,24 @@ class PiCmdSession(object):
                 rows, cols = struct.unpack('>HH', buf[ind:ind+4])
                 ind += 4
 
-                component_count = ord(buf[ind])
+                component_count = buf[ind]
                 ind += 1
 
                 components = []
                 for _ in range(component_count):
-                    n = ord(buf[ind])
+                    n = buf[ind]
                     ind += 1
-                    components.append(buf[ind:ind+n])
+                    components.append(buf[ind:ind+n].decode('latin-1'))
                     ind += n
 
-                arg_count = ord(buf[ind])
+                arg_count = buf[ind]
                 ind += 1
 
                 args = []
                 for _ in range(arg_count):
-                    n = ord(buf[ind])
+                    n = buf[ind]
                     ind += 1
-                    args.append(buf[ind:ind+n])
+                    args.append(buf[ind:ind+n].decode('latin-1'))
                     ind += n
 
                 if arg_count == 0:
@@ -242,6 +243,7 @@ class PiCmdSession(object):
         del sessions[self.stream_id]
 
     def process_rasp_ansi(self, text):
+        text = text.decode('utf-8')
         out = ''
         for c in text:
             if not self.rasp_in_cs:
@@ -274,7 +276,7 @@ class PiCmdSession(object):
                         out += self.rasp_holding
                     self.rasp_holding = ''
                     self.rasp_in_cs = False
-        return out
+        return out.encode('latin-1', 'replace')
 
     def handle_text(self):
         try:
@@ -301,7 +303,7 @@ class PiCmdSession(object):
 
 def process_drv_msg(stream_id, ptype, payload):
     if ptype == MSG_CONNECT:
-        if payload == 'picmd':
+        if payload == b'picmd':
             s = PiCmdSession(stream_id)
             sessions[stream_id] = s
             send_connect_response(stream_id, 0)
@@ -328,22 +330,20 @@ except ValueError:
 
 if idx != -1:
     fd = int(sys.argv[idx + 1])
-    sockobj = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_STREAM)
-    drv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0, _sock = sockobj)
-    os.close(fd)
+    drv = socket.socket(fileno=fd)
 else:
     drv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     drv.connect(('localhost', 7110))
     drv.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-    send_register_req('picmd')
+    send_register_req(b'picmd')
     _, _, payload = wait_for_msg()
-    if payload[0] != '\x01':
+    if payload[0] != 1:
         logger.error('Unable to register picmd with driver, shutting down')
         drv.close()
         done = True
 
-rbuf = ''
+rbuf = b''
 
 if not done:
     logger.info('picmd server is running')
