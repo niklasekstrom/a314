@@ -1,7 +1,7 @@
 #ifndef DEVICES_A314_H
 #define DEVICES_A314_H
 
-#include "exec/io.h"
+#include <exec/io.h>
 
 #define	A314_NAME			"a314.device"
 

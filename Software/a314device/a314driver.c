@@ -23,235 +23,13 @@
 #include <string.h>
 
 #include "a314.h"
-
-void NewList(struct List *l)
-{
-	l->lh_Head = (struct Node *)&(l->lh_Tail);
-	l->lh_Tail = NULL;
-	l->lh_TailPred = (struct Node *)&(l->lh_Head);
-}
-
-struct Task *CreateTask(char *name, long priority, char *initialPC, unsigned long stacksize)
-{
-	char *stack = AllocMem(stacksize, MEMF_CLEAR);
-	if (stack == NULL)
-		return NULL;
-
-	struct Task *tc = AllocMem(sizeof(struct Task), MEMF_CLEAR | MEMF_PUBLIC);
-	if (tc == NULL)
-	{
-		FreeMem(stack, stacksize);
-		return NULL;
-	}
-
-	tc->tc_Node.ln_Type = NT_TASK;
-	tc->tc_Node.ln_Pri = priority;
-	tc->tc_Node.ln_Name = name;
-	tc->tc_SPLower = (APTR)stack;
-	tc->tc_SPUpper = (APTR)(stack + stacksize);
-	tc->tc_SPReg = (APTR)(stack + stacksize);
-
-	AddTask(tc, initialPC, 0);
-	return tc;
-}
-
-#define DEBUG 0
-//#define debug_printf(...) do { if (DEBUG) fprintf(stdout, __VA_ARGS__); } while (0)
-#define debug_printf(...)
-
-char device_name[] = A314_NAME;
-char id_string[] = A314_NAME " 1.0 (25 Aug 2018)";
-
-struct MyDevice
-{
-	struct Library md_Lib;
-	BPTR md_SegList;
-};
-
-struct ExecBase *SysBase;
-
-
-
-#define MAPPING_TYPE_512K	1
-#define MAPPING_TYPE_1M		2
-
-short mapping_type = 0;
-ULONG mapping_base = 0;
-
-ULONG translate_address_a314(__reg("a6") struct MyDevice *dev, __reg("a0") void *address);
-
-struct MemChunkList
-{
-	struct MemChunk *first;
-	struct MemChunk *last;
-	ULONG free;
-};
-
-void add_chunk(struct MemChunkList *l, struct MemChunk *mc)
-{
-	if (l->first == NULL)
-		l->first = mc;
-	else
-		l->last->mc_Next = mc;
-	l->last = mc;
-	l->free += mc->mc_Bytes;
-}
-
-BOOL overlap(struct MemHeader *mh, ULONG lower, ULONG upper)
-{
-	return lower < (ULONG)(mh->mh_Upper) && (ULONG)(mh->mh_Lower) < upper;
-}
-
-BOOL fix_memory()
-{
-	Forbid();
-
-	struct List *memlist = &(SysBase->MemList);
-	struct Node *node;
-	struct MemHeader *mh;
-
-	for (node = memlist->lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
-	{
-		mh = (struct MemHeader *)node;
-		if (mh->mh_Attributes & MEMF_A314)
-		{
-			ULONG lower = (ULONG)(mh->mh_Lower) & ~(512*1024 - 1);
-			mapping_type = lower == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
-			mapping_base = lower;
-			Permit();
-			return TRUE;
-		}
-	}
-
-	for (node = memlist->lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
-	{
-		mh = (struct MemHeader *)node;
-		if (overlap(mh, 0xc00000, 0xc80000))
-		{
-			Remove((struct Node *)mh);
-			mh->mh_Node.ln_Pri = -20;
-			mh->mh_Attributes |= MEMF_A314;
-			AddTail(memlist, (struct Node*)mh);
-			mapping_type = MAPPING_TYPE_512K;
-			mapping_base = 0xc00000;
-			Permit();
-			return TRUE;
-		}
-	}
-
-	struct MemHeader *chip_mh = NULL;
-
-	for (node = memlist->lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
-	{
-		mh = (struct MemHeader *)node;
-		if (overlap(mh, 0x0, 0x200000))
-		{
-			chip_mh = mh;
-			break;
-		}
-	}
-
-	if (chip_mh == NULL || (ULONG)(chip_mh->mh_Upper) <= 0x80000)
-	{
-		Permit();
-		return FALSE;
-	}
-
-	// Split chip memory region into motherboard and A314 memory regions.
-	ULONG split_at = (ULONG)(chip_mh->mh_Upper) > 0x100000 ? 0x100000 : 0x80000;
-
-	mh = (struct MemHeader *)AllocMem(sizeof(struct MemHeader), MEMF_PUBLIC | MEMF_CLEAR);
-
-	struct MemChunk *mc = chip_mh->mh_First;
-
-	struct MemChunkList ol = {NULL, NULL, 0};
-	struct MemChunkList nl = {NULL, NULL, 0};
-
-	while (mc != NULL)
-	{
-		struct MemChunk *next_chunk = mc->mc_Next;
-		mc->mc_Next = NULL;
-
-		ULONG lower = (ULONG)mc;
-		ULONG upper = lower + mc->mc_Bytes;
-
-		if (upper <= split_at)
-			add_chunk(&ol, mc);
-		else if (split_at <= lower)
-			add_chunk(&nl, mc);
-		else
-		{
-			mc->mc_Bytes = split_at - lower;
-			add_chunk(&ol, mc);
-
-			struct MemChunk *new_chunk = (struct MemChunk *)split_at;
-			new_chunk->mc_Next = NULL;
-			new_chunk->mc_Bytes = upper - split_at;
-			add_chunk(&nl, new_chunk);
-		}
-		mc = next_chunk;
-	}
-
-	mh->mh_Node.ln_Type = NT_MEMORY;
-	mh->mh_Node.ln_Pri = -20;
-	mh->mh_Node.ln_Name = chip_mh->mh_Node.ln_Name; // Use a custom name?
-	mh->mh_Attributes = chip_mh->mh_Attributes | MEMF_A314;
-
-	chip_mh->mh_First = ol.first;
-	mh->mh_First = nl.first;
-
-	mh->mh_Lower = (APTR)split_at;
-	mh->mh_Upper = chip_mh->mh_Upper;
-	chip_mh->mh_Upper = (APTR)split_at;
-
-	chip_mh->mh_Free = ol.free;
-	mh->mh_Free = nl.free;
-
-	AddTail(memlist, (struct Node*)mh);
-
-	mapping_type = split_at == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
-	mapping_base = split_at;
-
-	Permit();
-	return TRUE;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Packet types that are sent across the physical channel.
-#define PKT_DRIVER_STARTED		1
-#define PKT_DRIVER_SHUTTING_DOWN	2
-#define PKT_SETTINGS			3
-#define PKT_CONNECT			4
-#define PKT_CONNECT_RESPONSE		5
-#define PKT_DATA			6
-#define PKT_EOS				7
-#define PKT_RESET			8
-
-
-
-// The communication area, used to create the physical channel.
-struct ComArea
-{
-	volatile UBYTE a2r_tail;
-	volatile UBYTE r2a_head;
-	volatile UBYTE r2a_tail;
-	volatile UBYTE a2r_head;
-	UBYTE a2r_buffer[256];
-	UBYTE r2a_buffer[256];
-};
-
-struct ComArea *ca;
+#include "debug.h"
+#include "cmem.h"
+#include "device.h"
+#include "protocol.h"
+#include "sockets.h"
+#include "fix_mem_region.h"
+#include "startup.h"
 
 int used_in_r2a()
 {
@@ -278,291 +56,6 @@ void append_a2r_packet(UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
 		ca->a2r_buffer[index++] = *data++;
 	ca->a2r_tail = index;
 }
-
-
-
-
-
-
-
-#define CLOCK_PORT_ADDRESS	0xdc0000
-
-void write_cp_nibble(int index, UBYTE value)
-{
-	volatile UBYTE *p = (UBYTE *)CLOCK_PORT_ADDRESS;
-	p += 4 * index + 3;
-	*p = value & 0xf;
-}
-
-UBYTE read_cp_nibble(int index)
-{
-	volatile UBYTE *p = (UBYTE *)CLOCK_PORT_ADDRESS;
-	p += 4 * index + 3;
-	return *p & 0xf;
-}
-
-void write_base_address(void *p)
-{
-	ULONG ba = translate_address_a314(NULL, p);
-	ba |= 1;
-
-	Disable();
-	UBYTE prev_regd = read_cp_nibble(13);
-	write_cp_nibble(13, prev_regd | 8);
-
-	write_cp_nibble(0, 0);
-
-	for (int i = 4; i >= 0; i--)
-	{
-		ULONG v = (ba >> (i * 4)) & 0xf;
-		write_cp_nibble(i, (UBYTE)v);
-	}
-
-	write_cp_nibble(13, prev_regd);
-	Enable();
-}
-
-
-void fix_address_mapping()
-{
-	// Only looking at VPOSR Agnus identification at this point.
-	// Could add more dynamic identification of address mapping.
-
-	UWORD vposr = *(UWORD *)0xdff004;
-	UWORD agnus = (vposr & 0x7f00) >> 8;
-
-	UBYTE swap = (agnus == 0x00 || agnus == 0x10) ? 0x1 : 0x0;
-
-	Disable();
-	UBYTE prev_regd = read_cp_nibble(13);
-	write_cp_nibble(13, prev_regd | 8);
-	write_cp_nibble(11, swap);
-	write_cp_nibble(13, prev_regd);
-	Enable();
-}
-
-
-
-
-// Addresses to variables in CMEM.
-#define R_EVENTS_ADDRESS	12
-#define R_ENABLE_ADDRESS	13
-#define A_EVENTS_ADDRESS	14
-#define A_ENABLE_ADDRESS	15
-
-// Events that are communicated via IRQ from Amiga to Raspberry.
-#define R_EVENT_A2R_TAIL	1
-#define R_EVENT_R2A_HEAD	2
-#define R_EVENT_BASE_ADDRESS	4
-
-// Events that are communicated from Raspberry to Amiga.
-#define A_EVENT_R2A_TAIL	1
-#define A_EVENT_A2R_HEAD	2
-
-void set_rasp_irq(UBYTE events)
-{
-	Disable();
-	UBYTE prev_regd = read_cp_nibble(13);
-	write_cp_nibble(13, prev_regd | 8);
-	write_cp_nibble(R_EVENTS_ADDRESS, events);
-	write_cp_nibble(13, prev_regd);
-	Enable();
-}
-
-UBYTE read_a_events()
-{
-	Disable();
-	UBYTE prev_regd = read_cp_nibble(13);
-	write_cp_nibble(13, prev_regd | 8);
-	UBYTE events = read_cp_nibble(A_EVENTS_ADDRESS);
-	write_cp_nibble(13, prev_regd);
-	Enable();
-	return events;
-}
-
-void write_a_enable(UBYTE enable)
-{
-	Disable();
-	UBYTE prev_regd = read_cp_nibble(13);
-	write_cp_nibble(13, prev_regd | 8);
-	write_cp_nibble(A_ENABLE_ADDRESS, enable);
-	write_cp_nibble(13, prev_regd);
-	Enable();
-}
-
-
-extern void IntServer();
-struct Interrupt vertb_interrupt;
-struct Interrupt ports_interrupt;
-
-
-
-
-// Used to store received data until application asks for it using a A314_READ.
-struct QueuedData
-{
-	struct QueuedData *next;
-	UWORD length;
-	UBYTE data[];
-};
-
-// Socket flags, these are bit masks, can have many of them.
-#define SOCKET_RCVD_EOS_FROM_APP	0x0004
-#define SOCKET_RCVD_EOS_FROM_RPI	0x0008
-#define SOCKET_SENT_EOS_TO_APP		0x0010
-#define SOCKET_SENT_EOS_TO_RPI		0x0020
-#define SOCKET_CLOSED			0x0040
-#define SOCKET_SHOULD_SEND_RESET	0x0080
-#define SOCKET_IN_SEND_QUEUE		0x0100
-
-struct Socket
-{
-	struct MinNode node;
-
-	void *sig_task;
-	ULONG socket;
-
-	UBYTE stream_id;
-	UBYTE pad1;
-
-	UWORD flags;
-
-	struct A314_IORequest *pending_connect;
-	struct A314_IORequest *pending_read;
-	struct A314_IORequest *pending_write;
-
-	struct Socket *next_in_send_queue;
-	UWORD send_queue_required_length;
-
-	// Data that is received on the stream, but the application didn't read yet.
-	struct QueuedData *rq_head;
-	struct QueuedData *rq_tail;
-};
-
-struct List active_sockets;
-
-
-
-
-
-
-
-
-struct Socket *find_socket(void *sig_task, ULONG socket)
-{
-	for (struct Node *node = active_sockets.lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
-	{
-		struct Socket *s = (struct Socket *)node;
-		if (s->sig_task == sig_task && s->socket == socket)
-			return s;
-	}
-	return NULL;
-}
-
-struct Socket *find_socket_by_stream_id(UBYTE stream_id)
-{
-	for (struct Node *node = active_sockets.lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
-	{
-		struct Socket *s = (struct Socket *)node;
-		if (s->stream_id == stream_id)
-			return s;
-	}
-	return NULL;
-}
-
-
-
-
-
-UBYTE next_stream_id = 1;
-
-UBYTE allocate_stream_id()
-{
-	// Bug: If all stream ids are allocated then this loop won't terminate.
-
-	while (1)
-	{
-		UBYTE stream_id = next_stream_id;
-		next_stream_id += 2;
-		if (find_socket_by_stream_id(stream_id) == NULL)
-			return stream_id;
-	}
-}
-
-void free_stream_id(UBYTE stream_id)
-{
-	// Currently do nothing.
-	// Could speed up allocate_stream_id using a bitmap?
-}
-
-
-
-void delete_socket(struct Socket *s)
-{
-	Remove((struct Node *)s);
-	free_stream_id(s->stream_id);
-	FreeMem(s, sizeof(struct Socket));
-}
-
-
-
-
-struct Socket *sq_head = NULL;
-struct Socket *sq_tail = NULL;
-
-void add_to_send_queue(struct Socket *s)
-{
-	s->next_in_send_queue = NULL;
-
-	if (sq_head == NULL)
-		sq_head = s;
-	else
-		sq_tail->next_in_send_queue = s;
-	sq_tail = s;
-
-	s->flags |= SOCKET_IN_SEND_QUEUE;
-}
-
-void remove_from_send_queue(struct Socket *s)
-{
-	if (s->flags & SOCKET_IN_SEND_QUEUE)
-	{
-		if (sq_head == s)
-		{
-			sq_head = s->next_in_send_queue;
-			if (sq_head == NULL)
-				sq_tail = NULL;
-		}
-		else
-		{
-			struct Socket *curr = sq_head;
-			while (curr->next_in_send_queue != s)
-				curr = curr->next_in_send_queue;
-
-			curr->next_in_send_queue = s->next_in_send_queue;
-			if (sq_tail == s)
-				sq_tail = curr;
-		}
-
-		s->next_in_send_queue = NULL;
-		s->flags &= ~SOCKET_IN_SEND_QUEUE;
-	}
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 void close_socket(struct Socket *s, BOOL should_send_reset)
 {
@@ -636,18 +129,6 @@ void close_socket(struct Socket *s, BOOL should_send_reset)
 	if (should_delete_socket)
 		delete_socket(s);
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 // When a message is received on R2A it is written to this buffer,
 // to avoid dealing with the issue that R2A is a circular buffer.
@@ -779,14 +260,6 @@ void handle_packets_received_r2a()
 	}
 }
 
-
-
-
-
-
-
-
-
 void handle_room_in_a2r()
 {
 	while (sq_head != NULL)
@@ -844,21 +317,6 @@ void handle_room_in_a2r()
 		}
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 void handle_received_app_request(struct A314_IORequest *ior)
 {
@@ -1081,25 +539,18 @@ void handle_received_app_request(struct A314_IORequest *ior)
 	}
 }
 
-
-#define SIGB_INT SIGBREAKB_CTRL_E
-#define SIGB_MSGPORT SIGBREAKB_CTRL_F
-
-#define SIGF_INT SIGBREAKF_CTRL_E
-#define SIGF_MSGPORT SIGBREAKF_CTRL_F
-
-struct MsgPort task_mp;
-struct Task *task;
+extern void IntServer();
+struct Interrupt vertb_interrupt;
+struct Interrupt ports_interrupt;
 
 void task_main()
 {
-	write_a_enable(0);
-	read_a_events();
+	write_cmem_safe(A_ENABLE_ADDRESS, 0);
+	read_cmem_safe(A_EVENTS_ADDRESS);
 
-	write_base_address(ca);
+	write_base_address(translate_address_a314(ca));
 
-	set_rasp_irq(R_EVENT_BASE_ADDRESS);
-
+	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
 
 	vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
 	vertb_interrupt.is_Node.ln_Pri = -60;
@@ -1118,8 +569,7 @@ void task_main()
 
 	AddIntServer(INTB_PORTS, &ports_interrupt);
 
-
-	write_a_enable(A_EVENT_R2A_TAIL);
+	write_cmem_safe(A_ENABLE_ADDRESS, A_EVENT_R2A_TAIL);
 
 	while (1)
 	{
@@ -1132,7 +582,7 @@ void task_main()
 
 		if (signal & SIGF_MSGPORT)
 		{
-			write_a_enable(0);
+			write_cmem_safe(A_ENABLE_ADDRESS, 0);
 
 			struct Message *msg;
 			while (msg = GetMsg(&task_mp))
@@ -1184,163 +634,3 @@ void task_main()
 
 	// Stack and task structure should be reclaimed.
 }
-
-BOOL task_start()
-{
-	if (!fix_memory())
-		return FALSE;
-
-	fix_address_mapping();
-
-	ca = (struct ComArea *)AllocMem(sizeof(struct ComArea), MEMF_A314 | MEMF_CLEAR);
-	if (ca == NULL)
-	{
-		debug_printf("Unable to allocate A314 memory for com area\n");
-		return FALSE;
-	}
-
-	task = CreateTask(device_name, 80, (void *)task_main, 1024);
-	if (task == NULL)
-	{
-		debug_printf("Unable to create task\n");
-		FreeMem(ca, sizeof(struct ComArea));
-		return FALSE;
-	}
-
-	task_mp.mp_Node.ln_Name = device_name;
-	task_mp.mp_Node.ln_Pri = 0;
-	task_mp.mp_Node.ln_Type = NT_MSGPORT;
-	task_mp.mp_Flags = PA_SIGNAL;
-	task_mp.mp_SigBit = SIGB_MSGPORT;
-	task_mp.mp_SigTask = task;
-
-	NewList(&(task_mp.mp_MsgList));
-
-	NewList(&active_sockets);
-
-	return TRUE;
-}
-
-struct MyDevice *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") BPTR seg_list, __reg("d0") struct MyDevice *dev)
-{
-	SysBase = *(struct ExecBase **)4;
-
-	// Vi anropas från InitResident i initializers.asm.
-	// Innan vi har kommit hit så har MakeLibrary körts.
-
-	dev->md_Lib.lib_Node.ln_Type = NT_DEVICE;
-	dev->md_Lib.lib_Node.ln_Name = device_name;
-	dev->md_Lib.lib_Flags = LIBF_SUMUSED | LIBF_CHANGED;
-	dev->md_Lib.lib_Version = 1;
-	dev->md_Lib.lib_Revision = 0;
-	dev->md_Lib.lib_IdString = (APTR)id_string;
-
-	dev->md_SegList = seg_list;
-
-	// Efter vi returnerar så körs AddDevice.
-	return dev;
-}
-
-BPTR expunge(__reg("a6") struct MyDevice *dev)
-{
-	// Det finns inget sätt att ladda ur a314.device för närvarande.
-	if (TRUE) //dev->md_Lib.lib_OpenCnt != 0)
-	{
-		dev->md_Lib.lib_Flags |= LIBF_DELEXP;
-		return 0;
-	}
-
-	/*
-	BPTR seg_list = dev->md_SegList;
-	Remove(&dev->md_Lib.lib_Node);
-	FreeMem((char *)dev - dev->md_Lib.lib_NegSize, dev->md_Lib.lib_NegSize + dev->md_Lib.lib_PosSize);
-	return seg_list;
-	*/
-}
-
-BOOL running = FALSE;
-
-void open(__reg("a6") struct MyDevice *dev, __reg("a1") struct A314_IORequest *ior, __reg("d0") ULONG unitnum, __reg("d1") ULONG flags)
-{
-	dev->md_Lib.lib_OpenCnt++;
-
-	if (dev->md_Lib.lib_OpenCnt == 1 && !running)
-	{
-		if (!task_start())
-		{
-			ior->a314_Request.io_Error = IOERR_OPENFAIL;
-			ior->a314_Request.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
-			dev->md_Lib.lib_OpenCnt--;
-			return;
-		}
-		running = TRUE;
-	}
-
-	ior->a314_Request.io_Error = 0;
-	ior->a314_Request.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
-}
-
-BPTR close(__reg("a6") struct MyDevice *dev, __reg("a1") struct A314_IORequest *ior)
-{
-	ior->a314_Request.io_Device = NULL;
-	ior->a314_Request.io_Unit = NULL;
-
-	dev->md_Lib.lib_OpenCnt--;
-
-	if (dev->md_Lib.lib_OpenCnt == 0 && (dev->md_Lib.lib_Flags & LIBF_DELEXP))
-		return expunge(dev);
-
-	return 0;
-}
-
-void begin_io(__reg("a6") struct MyDevice *dev, __reg("a1") struct A314_IORequest *ior)
-{
-	PutMsg(&task_mp, (struct Message *)ior);
-	ior->a314_Request.io_Flags &= ~IOF_QUICK;
-}
-
-ULONG abort_io(__reg("a6") struct MyDevice *dev, __reg("a1") struct A314_IORequest *ior)
-{
-	// No-operation.
-	return IOERR_NOCMD;
-}
-
-ULONG translate_address_a314(__reg("a6") struct MyDevice *dev, __reg("a0") void *address)
-{
-	if (mapping_type == MAPPING_TYPE_512K)
-	{
-		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= 512 * 1024)
-			return -1;
-		return offset;
-	}
-	else if (mapping_type == MAPPING_TYPE_1M)
-	{
-		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= 1024 * 1024)
-			return -1;
-		return offset;
-	}
-	else
-		return -1;
-}
-
-ULONG device_vectors[] =
-{
-	(ULONG)open,
-	(ULONG)close,
-	(ULONG)expunge,
-	0,
-	(ULONG)begin_io,
-	(ULONG)abort_io,
-	(ULONG)translate_address_a314,
-	-1,
-};
-
-ULONG auto_init_tables[] =
-{
-	sizeof(struct MyDevice),
-	(ULONG)device_vectors,
-	0,
-	(ULONG)init_device,
-};
