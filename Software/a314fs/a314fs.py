@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
 # Copyright (c) 2018 Niklas Ekström
@@ -21,28 +21,28 @@ CONFIG_FILE_PATH = '/etc/opt/a314/a314fs.conf'
 
 SHARED_DIRECTORY = '/home/pi/a314shared'
 
-with open(CONFIG_FILE_PATH, 'rb') as f:
+with open(CONFIG_FILE_PATH, encoding='utf-8') as f:
     cfg = json.load(f)
     devs = cfg['devices']
     dev = devs['PI0']
     SHARED_DIRECTORY = dev['path']
 
-MSG_REGISTER_REQ		= 1
-MSG_REGISTER_RES		= 2
-MSG_DEREGISTER_REQ		= 3
-MSG_DEREGISTER_RES		= 4
-MSG_READ_MEM_REQ		= 5
-MSG_READ_MEM_RES		= 6
-MSG_WRITE_MEM_REQ		= 7
-MSG_WRITE_MEM_RES		= 8
-MSG_CONNECT		    	= 9
-MSG_CONNECT_RESPONSE	        = 10
-MSG_DATA		    	= 11
-MSG_EOS			    	= 12
-MSG_RESET		    	= 13
+MSG_REGISTER_REQ        = 1
+MSG_REGISTER_RES        = 2
+MSG_DEREGISTER_REQ      = 3
+MSG_DEREGISTER_RES      = 4
+MSG_READ_MEM_REQ        = 5
+MSG_READ_MEM_RES        = 6
+MSG_WRITE_MEM_REQ       = 7
+MSG_WRITE_MEM_RES       = 8
+MSG_CONNECT             = 9
+MSG_CONNECT_RESPONSE    = 10
+MSG_DATA                = 11
+MSG_EOS                 = 12
+MSG_RESET               = 13
 
 def wait_for_msg():
-    header = ''
+    header = b''
     while len(header) < 9:
         data = drv.recv(9 - len(header))
         if not data:
@@ -50,7 +50,7 @@ def wait_for_msg():
             exit(-1)
         header += data
     (plen, stream_id, ptype) = struct.unpack('=IIB', header)
-    payload = ''
+    payload = b''
     while len(payload) < plen:
         data = drv.recv(plen - len(payload))
         if not data:
@@ -143,37 +143,37 @@ ACTION_SEEK             = 1008
 ACTION_TRUNCATE         = 1022
 ACTION_WRITE_PROTECT    = 1023
 
-ERROR_NO_FREE_STORE		= 103
-ERROR_TASK_TABLE_FULL		= 105
-ERROR_LINE_TOO_LONG		= 120
-ERROR_FILE_NOT_OBJECT		= 121
-ERROR_INVALID_RESIDENT_LIBRARY	= 122
-ERROR_NO_DEFAULT_DIR		= 201
-ERROR_OBJECT_IN_USE		= 202
-ERROR_OBJECT_EXISTS		= 203
-ERROR_DIR_NOT_FOUND		= 204
-ERROR_OBJECT_NOT_FOUND		= 205
-ERROR_BAD_STREAM_NAME		= 206
-ERROR_OBJECT_TOO_LARGE		= 207
-ERROR_ACTION_NOT_KNOWN		= 209
-ERROR_INVALID_COMPONENT_NAME	= 210
-ERROR_INVALID_LOCK		= 211
-ERROR_OBJECT_WRONG_TYPE		= 212
-ERROR_DISK_NOT_VALIDATED	= 213
-ERROR_DISK_WRITE_PROTECTED	= 214
-ERROR_RENAME_ACROSS_DEVICES	= 215
-ERROR_DIRECTORY_NOT_EMPTY	= 216
-ERROR_TOO_MANY_LEVELS		= 217
-ERROR_DEVICE_NOT_MOUNTED	= 218
-ERROR_SEEK_ERROR		= 219
-ERROR_COMMENT_TOO_BIG		= 220
-ERROR_DISK_FULL			= 221
-ERROR_DELETE_PROTECTED		= 222
-ERROR_WRITE_PROTECTED		= 223
-ERROR_READ_PROTECTED		= 224
-ERROR_NOT_A_DOS_DISK		= 225
-ERROR_NO_DISK			= 226
-ERROR_NO_MORE_ENTRIES		= 232
+ERROR_NO_FREE_STORE             = 103
+ERROR_TASK_TABLE_FULL           = 105
+ERROR_LINE_TOO_LONG             = 120
+ERROR_FILE_NOT_OBJECT           = 121
+ERROR_INVALID_RESIDENT_LIBRARY  = 122
+ERROR_NO_DEFAULT_DIR            = 201
+ERROR_OBJECT_IN_USE             = 202
+ERROR_OBJECT_EXISTS             = 203
+ERROR_DIR_NOT_FOUND             = 204
+ERROR_OBJECT_NOT_FOUND          = 205
+ERROR_BAD_STREAM_NAME           = 206
+ERROR_OBJECT_TOO_LARGE          = 207
+ERROR_ACTION_NOT_KNOWN          = 209
+ERROR_INVALID_COMPONENT_NAME    = 210
+ERROR_INVALID_LOCK              = 211
+ERROR_OBJECT_WRONG_TYPE         = 212
+ERROR_DISK_NOT_VALIDATED        = 213
+ERROR_DISK_WRITE_PROTECTED      = 214
+ERROR_RENAME_ACROSS_DEVICES     = 215
+ERROR_DIRECTORY_NOT_EMPTY       = 216
+ERROR_TOO_MANY_LEVELS           = 217
+ERROR_DEVICE_NOT_MOUNTED        = 218
+ERROR_SEEK_ERROR                = 219
+ERROR_COMMENT_TOO_BIG           = 220
+ERROR_DISK_FULL                 = 221
+ERROR_DELETE_PROTECTED          = 222
+ERROR_WRITE_PROTECTED           = 223
+ERROR_READ_PROTECTED            = 224
+ERROR_NOT_A_DOS_DISK            = 225
+ERROR_NO_DISK                   = 226
+ERROR_NO_MORE_ENTRIES           = 232
 
 SHARED_LOCK         = -2
 EXCLUSIVE_LOCK      = -1
@@ -188,7 +188,7 @@ OFFSET_END          = 1     # relative to End Of File.
 
 ST_ROOT             = 1
 ST_USERDIR          = 2
-ST_SOFTLINK         = 3	    # looks like dir, but may point to a file!
+ST_SOFTLINK         = 3     # looks like dir, but may point to a file!
 ST_LINKDIR          = 4     # hard link to dir
 ST_FILE             = -3    # must be negative for FIB!
 ST_LINKFILE         = -4    # hard link to file
@@ -297,9 +297,9 @@ def process_parent(prev_key):
 
 def mtime_to_dmt(mtime):
     mtime = int(mtime)
-    days = mtime / 86400
+    days = mtime // 86400
     left = mtime - days * 86400
-    mins = left / 60
+    mins = left // 60
     secs = left - mins * 60
     ticks = secs * 50
     days -= 2922 # Days between 1970-01-01 and 1978-01-01
@@ -327,6 +327,7 @@ def process_examine_object(key):
         type_ = ST_USERDIR
 
     size = min(size, 2 ** 31 - 1)
+    fn = fn.encode('latin-1', 'ignore')
     return struct.pack('>HHHhIIIIIB', 1, 0, 666, type_, size, 0, days, mins, ticks, len(fn)) + fn
 
 def process_examine_next(key, disk_key):
@@ -361,6 +362,7 @@ def process_examine_next(key, disk_key):
         type_ = ST_USERDIR
 
     size = min(size, 2 ** 31 - 1)
+    fn = fn.encode('latin-1', 'ignore')
     return struct.pack('>HHHhIIIIIB', 1, 0, disk_key, type_, size, 0, days, mins, ticks, len(fn)) + fn
 
 next_fp = 1
@@ -541,13 +543,13 @@ def process_set_comment(key, name, comment):
     return struct.pack('>HH', 1, 0)
 
 def process_request(req):
-    #print 'len(req):', len(req), 'req: ', map(ord, req)
+    #logger.debug('len(req): %s, req: %s', len(req), list(req))
 
     (rtype,) = struct.unpack('>H', req[:2])
 
     if rtype == ACTION_LOCATE_OBJECT:
         key, mode, nlen = struct.unpack('>IHB', req[2:9])
-        name = req[9:9+nlen]
+        name = req[9:9+nlen].decode('latin-1')
         return process_locate_object(key, mode, name)
     elif rtype == ACTION_FREE_LOCK:
         (key,) = struct.unpack('>I', req[2:6])
@@ -566,7 +568,7 @@ def process_request(req):
         return process_examine_next(key, disk_key)
     elif rtype == ACTION_FINDINPUT or rtype == ACTION_FINDOUTPUT or rtype == ACTION_FINDUPDATE:
         key, nlen = struct.unpack('>IB', req[2:7])
-        name = req[7:7+nlen]
+        name = req[7:7+nlen].decode('latin-1')
         return process_findxxx(rtype, key, name)
     elif rtype == ACTION_READ:
         arg1, address, length = struct.unpack('>III', req[2:14])
@@ -582,45 +584,46 @@ def process_request(req):
         return process_end(arg1)
     elif rtype == ACTION_DELETE_OBJECT:
         key, nlen = struct.unpack('>IB', req[2:7])
-        name = req[7:7+nlen]
+        name = req[7:7+nlen].decode('latin-1')
         return process_delete_object(key, name)
     elif rtype == ACTION_RENAME_OBJECT:
         key, target_dir, nlen, nnlen = struct.unpack('>IIBB', req[2:12])
-        name = req[12:12+nlen]
-        new_name = req[12+nlen:12+nlen+nnlen]
+        name = req[12:12+nlen].decode('latin-1')
+        new_name = req[12+nlen:12+nlen+nnlen].decode('latin-1')
         return process_rename_object(key, name, target_dir, new_name)
     elif rtype == ACTION_CREATE_DIR:
         key, nlen = struct.unpack('>IB', req[2:7])
-        name = req[7:7+nlen]
+        name = req[7:7+nlen].decode('latin-1')
         return process_create_dir(key, name)
     elif rtype == ACTION_SET_PROTECT:
         key, mask, nlen = struct.unpack('>IIB', req[2:11])
-        name = req[11:11+nlen]
+        name = req[11:11+nlen].decode('latin-1')
         return process_set_protect(key, name, mask)
     elif rtype == ACTION_SET_COMMENT:
         key, nlen, clen = struct.unpack('>IBB', req[2:8])
-        name = req[8:8+nlen]
-        comment = req[8+nlen:8+nlen+clen]
+        name = req[8:8+nlen].decode('latin-1')
+        comment = req[8+nlen:8+nlen+clen].decode('latin-1')
         return process_set_comment(key, name, comment)
     else:
         return struct.pack('>HH', 0, ERROR_ACTION_NOT_KNOWN)
 
 done = False
 
-idx = sys.argv.index('-ondemand')
+try:
+    idx = sys.argv.index('-ondemand')
+except ValueError:
+    idx = -1
 
 if idx != -1:
     fd = int(sys.argv[idx + 1])
-    sockobj = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_STREAM)
-    drv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0, _sock = sockobj)
-    os.close(fd)
+    drv = socket.socket(fileno=fd)
 else:
     drv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     drv.connect(('localhost', 7110))
 
-    send_register_req('a314fs')
+    send_register_req(b'a314fs')
     stream_id, ptype, payload = wait_for_msg()
-    if payload[0] != '\x01':
+    if payload[0] != 1:
         logger.error('Unable to register service a314fs, shutting down')
         drv.close()
         done = True
@@ -633,7 +636,7 @@ while not done:
     stream_id, ptype, payload = wait_for_msg()
 
     if ptype == MSG_CONNECT:
-        if payload == 'a314fs':
+        if payload == b'a314fs':
             if current_stream_id is not None:
                 send_reset(current_stream_id)
             current_stream_id = stream_id
@@ -642,12 +645,12 @@ while not done:
             send_connect_response(stream_id, 3)
     elif ptype == MSG_DATA:
         address, length = struct.unpack('>II', payload)
-        #print "address:", address, "length:", length
+        #logger.debug('address: %s, length: %s', address, length)
         req = read_mem(address + 2, length - 2)
         res = process_request(req)
         write_mem(address + 2, res)
-        #write_mem(address, '\xff\xff')
-        send_data(stream_id, '\xff\xff')
+        #write_mem(address, b'\xff\xff')
+        send_data(stream_id, b'\xff\xff')
     elif ptype == MSG_EOS:
         if stream_id == current_stream_id:
             logger.debug('Got EOS, stream closed')
