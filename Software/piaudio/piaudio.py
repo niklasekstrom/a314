@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
 # Copyright (c) 2019 Niklas Ekström
@@ -32,7 +32,7 @@ MSG_EOS                 = 12
 MSG_RESET               = 13
 
 def wait_for_msg():
-    header = ''
+    header = b''
     while len(header) < 9:
         data = drv.recv(9 - len(header))
         if not data:
@@ -40,7 +40,7 @@ def wait_for_msg():
             exit(-1)
         header += data
     (plen, stream_id, ptype) = struct.unpack('=IIB', header)
-    payload = ''
+    payload = b''
     while len(payload) < plen:
         data = drv.recv(plen - len(payload))
         if not data:
@@ -94,7 +94,7 @@ def send_reset(stream_id):
 
 current_stream_id = None
 first_msg = True
-raw_received = ''
+raw_received = b''
 is_empty = [True, True]
 
 def process_msg_data(payload):
@@ -106,11 +106,11 @@ def process_msg_data(payload):
         first_msg = False
         return
 
-    buf_index = ord(payload[0])
+    buf_index = payload[0]
 
     if len(raw_received) < 900*2:
         if not is_empty[buf_index]:
-            data = '\x00' * (900*2)
+            data = b'\x00' * (900*2)
             send_write_mem_req(ptrs[buf_index], data)
             is_empty[buf_index] = True
     else:
@@ -125,7 +125,7 @@ def process_drv_msg(stream_id, ptype, payload):
     global current_stream_id, first_msg
 
     if ptype == MSG_CONNECT:
-        if payload == 'piaudio' and current_stream_id is None:
+        if payload == b'piaudio' and current_stream_id is None:
             logger.info('Amiga connected')
             current_stream_id = stream_id
             first_msg = True
@@ -150,22 +150,20 @@ except ValueError:
 
 if idx != -1:
     fd = int(sys.argv[idx + 1])
-    sockobj = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_STREAM)
-    drv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0, _sock = sockobj)
-    os.close(fd)
+    drv = socket.socket(fileno=fd)
 else:
     drv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     drv.connect(('localhost', 7110))
     drv.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-    send_register_req('piaudio')
+    send_register_req(b'piaudio')
     _, _, payload = wait_for_msg()
-    if payload[0] != '\x01':
+    if payload[0] != 1:
         logger.error('Unable to register piaudio with driver, shutting down')
         drv.close()
         done = True
 
-rbuf = ''
+rbuf = b''
 
 PIPE_NAME = '/tmp/piaudio_pipe'
 
@@ -246,7 +244,7 @@ while not done:
                 l = len(raw_received)
                 c = l // (900*2)
                 if c * 900*2 < l:
-                    raw_received += '\x00' * ((c + 1) * 900*2 - l)
+                    raw_received += b'\x00' * ((c + 1) * 900*2 - l)
 
                 pipe_fd = os.open(PIPE_NAME, os.O_RDONLY | os.O_NONBLOCK)
                 fcntl.fcntl(pipe_fd, fcntl.F_SETPIPE_SZ, 4096)

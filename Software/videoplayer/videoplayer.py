@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
 # Copyright (c) 2018 Niklas Ekström
@@ -11,27 +11,27 @@ import socket
 import sys
 import time
 
-MSG_REGISTER_REQ		= 1
-MSG_REGISTER_RES		= 2
-MSG_DEREGISTER_REQ		= 3
-MSG_DEREGISTER_RES		= 4
-MSG_READ_MEM_REQ		= 5
-MSG_READ_MEM_RES		= 6
-MSG_WRITE_MEM_REQ		= 7
-MSG_WRITE_MEM_RES		= 8
-MSG_CONNECT		    	= 9
-MSG_CONNECT_RESPONSE	        = 10
-MSG_DATA		    	= 11
-MSG_EOS			    	= 12
-MSG_RESET		    	= 13
+MSG_REGISTER_REQ        = 1
+MSG_REGISTER_RES        = 2
+MSG_DEREGISTER_REQ      = 3
+MSG_DEREGISTER_RES      = 4
+MSG_READ_MEM_REQ        = 5
+MSG_READ_MEM_RES        = 6
+MSG_WRITE_MEM_REQ       = 7
+MSG_WRITE_MEM_RES       = 8
+MSG_CONNECT             = 9
+MSG_CONNECT_RESPONSE    = 10
+MSG_DATA                = 11
+MSG_EOS                 = 12
+MSG_RESET               = 13
 
 def wait_for_msg():
-    header = ''
+    header = b''
     while len(header) < 9:
         data = drv.recv(9 - len(header))
         header += data
     (plen, pstream, ptype) = struct.unpack('=IIB', header)
-    payload = ''
+    payload = b''
     while len(payload) < plen:
         data = drv.recv(plen - len(payload))
         payload += data
@@ -91,7 +91,7 @@ class VideoPlayerSession(object):
         del sessions[self.stream_id]
 
     def massage_pal(self):
-        new_pal = ''
+        new_pal = b''
         for i in range(16):
             creg, col = struct.unpack('>HH', self.pal[4*i:4*(i+1)])
             new_pal += struct.pack('>H', col)
@@ -114,7 +114,7 @@ class VideoPlayerSession(object):
             self.addresses = struct.unpack('>II', data)
             self.received_bpl_ptrs = True
         else:
-            self.next_bpl = ord(data[0])
+            self.next_bpl = data[0]
             if self.bpl_data is None:
                 send_data(self.stream_id, struct.pack('>H', 0))
             else:
@@ -150,7 +150,7 @@ def process_drv_write_mem_res(payload):
 
 def process_drv_msg(stream_id, ptype, payload):
     if ptype == MSG_CONNECT:
-        if payload == 'videoplayer':
+        if payload == b'videoplayer':
             s = VideoPlayerSession(stream_id)
             sessions[stream_id] = s
             s.start()
@@ -179,25 +179,23 @@ except ValueError:
 
 if idx != -1:
     fd = int(sys.argv[idx + 1])
-    sockobj = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_STREAM)
-    drv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0, _sock = sockobj)
-    os.close(fd)
+    drv = socket.socket(fileno=fd)
 else:
     drv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     drv.connect(('localhost', 7110))
     drv.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-    send_register('videoplayer')
+    send_register(b'videoplayer')
     header, payload = wait_for_msg()
-    if payload[0] != '\x01':
-        print 'Unable to register videoplayer with driver'
+    if payload[0] != 1:
+        print('Unable to register videoplayer with driver')
         drv.close()
         done = True
 
-rbuf = ''
+rbuf = b''
 
 if not done:
-    print 'Video player server is running'
+    print('Video player server is running')
     
 while not done:
     sel_fds = [drv]
