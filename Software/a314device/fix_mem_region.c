@@ -6,6 +6,9 @@
 #include "a314.h"
 #include "fix_mem_region.h"
 
+#define HALF_MB (512*1024)
+#define ONE_MB (1024*1024)
+
 #define MAPPING_TYPE_512K	1
 #define MAPPING_TYPE_1M		2
 
@@ -99,7 +102,7 @@ BOOL fix_memory()
 		mh = (struct MemHeader *)node;
 		if (mh->mh_Attributes & MEMF_A314)
 		{
-			ULONG lower = (ULONG)(mh->mh_Lower) & ~(512*1024 - 1);
+			ULONG lower = (ULONG)(mh->mh_Lower) & ~(HALF_MB - 1);
 			mapping_type = lower == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
 			mapping_base = lower;
 			Permit();
@@ -163,14 +166,14 @@ ULONG translate_address_a314(__reg("a0") void *address)
 	if (mapping_type == MAPPING_TYPE_512K)
 	{
 		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= 512 * 1024)
+		if (offset >= HALF_MB)
 			return -1;
 		return offset;
 	}
 	else if (mapping_type == MAPPING_TYPE_1M)
 	{
 		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= 1024 * 1024)
+		if (offset >= ONE_MB)
 			return -1;
 		return offset;
 	}
