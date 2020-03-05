@@ -29,6 +29,58 @@ void add_chunk(struct MemChunkList *l, struct MemChunk *mc)
 	l->free += mc->mc_Bytes;
 }
 
+struct MemHeader *split_region(struct MemHeader *lower, ULONG split_at)
+{
+	struct MemHeader *upper = (struct MemHeader *)AllocMem(sizeof(struct MemHeader), MEMF_PUBLIC | MEMF_CLEAR);
+
+	struct MemChunkList ll = {NULL, NULL, 0};
+	struct MemChunkList ul = {NULL, NULL, 0};
+
+	struct MemChunk *mc = lower->mh_First;
+
+	while (mc != NULL)
+	{
+		struct MemChunk *next_chunk = mc->mc_Next;
+		mc->mc_Next = NULL;
+
+		ULONG start = (ULONG)mc;
+		ULONG end = start + mc->mc_Bytes;
+
+		if (end <= split_at)
+			add_chunk(&ll, mc);
+		else if (split_at <= start)
+			add_chunk(&ul, mc);
+		else
+		{
+			mc->mc_Bytes = split_at - start;
+			add_chunk(&ll, mc);
+
+			struct MemChunk *new_chunk = (struct MemChunk *)split_at;
+			new_chunk->mc_Next = NULL;
+			new_chunk->mc_Bytes = end - split_at;
+			add_chunk(&ul, new_chunk);
+		}
+		mc = next_chunk;
+	}
+
+	upper->mh_Node.ln_Type = NT_MEMORY;
+	upper->mh_Node.ln_Pri = lower->mh_Node.ln_Pri;
+	upper->mh_Node.ln_Name = lower->mh_Node.ln_Name; // Use a custom name?
+	upper->mh_Attributes = lower->mh_Attributes;
+
+	lower->mh_First = ll.first;
+	upper->mh_First = ul.first;
+
+	upper->mh_Lower = (APTR)split_at;
+	upper->mh_Upper = lower->mh_Upper;
+	lower->mh_Upper = (APTR)split_at;
+
+	lower->mh_Free = ll.free;
+	upper->mh_Free = ul.free;
+
+	return upper;
+}
+
 BOOL overlap(struct MemHeader *mh, ULONG lower, ULONG upper)
 {
 	return lower < (ULONG)(mh->mh_Upper) && (ULONG)(mh->mh_Lower) < upper;
@@ -63,9 +115,11 @@ BOOL fix_memory()
 			Remove((struct Node *)mh);
 			mh->mh_Node.ln_Pri = -20;
 			mh->mh_Attributes |= MEMF_A314;
-			AddTail(memlist, (struct Node*)mh);
+			Enqueue(memlist, (struct Node*)mh);
+
 			mapping_type = MAPPING_TYPE_512K;
 			mapping_base = 0xc00000;
+
 			Permit();
 			return TRUE;
 		}
@@ -92,54 +146,10 @@ BOOL fix_memory()
 	// Split chip memory region into motherboard and A314 memory regions.
 	ULONG split_at = (ULONG)(chip_mh->mh_Upper) > 0x100000 ? 0x100000 : 0x80000;
 
-	mh = (struct MemHeader *)AllocMem(sizeof(struct MemHeader), MEMF_PUBLIC | MEMF_CLEAR);
-
-	struct MemChunk *mc = chip_mh->mh_First;
-
-	struct MemChunkList ol = {NULL, NULL, 0};
-	struct MemChunkList nl = {NULL, NULL, 0};
-
-	while (mc != NULL)
-	{
-		struct MemChunk *next_chunk = mc->mc_Next;
-		mc->mc_Next = NULL;
-
-		ULONG lower = (ULONG)mc;
-		ULONG upper = lower + mc->mc_Bytes;
-
-		if (upper <= split_at)
-			add_chunk(&ol, mc);
-		else if (split_at <= lower)
-			add_chunk(&nl, mc);
-		else
-		{
-			mc->mc_Bytes = split_at - lower;
-			add_chunk(&ol, mc);
-
-			struct MemChunk *new_chunk = (struct MemChunk *)split_at;
-			new_chunk->mc_Next = NULL;
-			new_chunk->mc_Bytes = upper - split_at;
-			add_chunk(&nl, new_chunk);
-		}
-		mc = next_chunk;
-	}
-
-	mh->mh_Node.ln_Type = NT_MEMORY;
+	mh = split_region(chip_mh, split_at);
 	mh->mh_Node.ln_Pri = -20;
-	mh->mh_Node.ln_Name = chip_mh->mh_Node.ln_Name; // Use a custom name?
-	mh->mh_Attributes = chip_mh->mh_Attributes | MEMF_A314;
-
-	chip_mh->mh_First = ol.first;
-	mh->mh_First = nl.first;
-
-	mh->mh_Lower = (APTR)split_at;
-	mh->mh_Upper = chip_mh->mh_Upper;
-	chip_mh->mh_Upper = (APTR)split_at;
-
-	chip_mh->mh_Free = ol.free;
-	mh->mh_Free = nl.free;
-
-	AddTail(memlist, (struct Node*)mh);
+	mh->mh_Attributes |= MEMF_A314;
+	Enqueue(memlist, (struct Node*)mh);
 
 	mapping_type = split_at == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
 	mapping_base = split_at;
