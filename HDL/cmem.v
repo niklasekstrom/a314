@@ -40,10 +40,11 @@ module cmem(
     Address map:
     
     reg0-5 - BA0-5
+    regA   - firmware version
     regB   - swap
-    regC   - r-events   - SPI läser ska också clear'a
-    regD   - r-enable   - SPI skriver kan trigga IRQ toggle
-    regE   - a-events   - SPI skriver ska synkroniseras med CP läsning
+    regC   - r-events
+    regD   - r-enable
+    regE   - a-events
     regF   - a-enable
     */
 
@@ -62,6 +63,8 @@ module cmem(
 
     wire a_should_drive = ((wr_a_events ? (a_events | spi_out_cmem_in) : a_events) & (wr_a_enable ? cp_out_cmem_in : a_enable)) != 4'd0 && !a_block;
 
+    reg [1:0] version_nibble = 2'd0;
+
     always @(posedge clk200)
     begin
         if (spi_read)
@@ -74,11 +77,24 @@ module cmem(
 
         if (cp_read)
             case (cp_address)
+            4'd10:
+                case (version_nibble)
+                    2'd0: cp_in_cmem_out <= 4'd0; // Version 0.
+                    default: cp_in_cmem_out <= 4'd0;
+                endcase
             4'd12, 4'd13: cp_in_cmem_out <= 4'd0;
             4'd14: cp_in_cmem_out <= wr_a_events ? (a_events | spi_out_cmem_in) : a_events;
             4'd15: cp_in_cmem_out <= a_enable;
             default: cp_in_cmem_out <= data[cp_address];
             endcase
+
+        if (cp_address == 4'd10)
+        begin
+            if (cp_write)
+                version_nibble <= 2'd0;
+            else if (cp_read)
+                version_nibble <= version_nibble + 2'd1;
+        end
 
         if (cp_write && cp_address <= 4'd11)
             data[cp_address] <= cp_out_cmem_in;

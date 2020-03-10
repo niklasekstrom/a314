@@ -15,6 +15,8 @@
 #define TASK_PRIORITY 80
 #define TASK_STACK_SIZE 1024
 
+UWORD fw_version;
+
 struct MsgPort task_mp;
 struct Task *task;
 struct ComArea *ca;
@@ -102,6 +104,8 @@ static void detect_and_write_address_swap()
 
 BOOL task_start()
 {
+	fw_version = read_fw_version();
+
 	if (!fix_memory())
 		return FALSE;
 

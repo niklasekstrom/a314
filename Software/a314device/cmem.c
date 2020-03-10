@@ -58,3 +58,21 @@ void write_base_address(ULONG ba)
 	write_cp_nibble(13, prev_regd);
 	Enable();
 }
+
+UWORD read_fw_version()
+{
+	Disable();
+	UBYTE prev_regd = read_cp_nibble(13);
+	write_cp_nibble(13, prev_regd | 8);
+
+	write_cp_nibble(10, 0);
+
+	UWORD ver = 0;
+	for (int i = 0; i < 4; i++)
+		ver |= ((UWORD)read_cp_nibble(10)) << (4 * i);
+
+	write_cp_nibble(13, prev_regd);
+	Enable();
+
+	return ver;
+}
