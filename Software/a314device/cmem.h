@@ -23,3 +23,5 @@ extern void write_cmem_safe(int index, UBYTE value);
 extern UBYTE read_cmem_safe(int index);
 
 extern void write_base_address(ULONG ba);
+
+extern UWORD read_fw_version();
