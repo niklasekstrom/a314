@@ -9,11 +9,8 @@
 #define HALF_MB (512*1024)
 #define ONE_MB (1024*1024)
 
-#define MAPPING_TYPE_512K	1
-#define MAPPING_TYPE_1M		2
-
-short mapping_type = 0;
-ULONG mapping_base = 0;
+ULONG lower_bank_address = -1;
+ULONG upper_bank_address = -1;
 
 struct MemChunkList
 {
@@ -102,9 +99,10 @@ BOOL fix_memory()
 		mh = (struct MemHeader *)node;
 		if (mh->mh_Attributes & MEMF_A314)
 		{
-			ULONG lower = (ULONG)(mh->mh_Lower) & ~(HALF_MB - 1);
-			mapping_type = lower == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
-			mapping_base = lower;
+			lower_bank_address = (ULONG)(mh->mh_Lower) & ~(HALF_MB - 1);
+			if (lower_bank_address == ONE_MB)
+				upper_bank_address = lower_bank_address + HALF_MB;
+
 			Permit();
 			return TRUE;
 		}
@@ -120,8 +118,7 @@ BOOL fix_memory()
 			mh->mh_Attributes |= MEMF_A314;
 			Enqueue(memlist, (struct Node*)mh);
 
-			mapping_type = MAPPING_TYPE_512K;
-			mapping_base = 0xc00000;
+			lower_bank_address = 0xc00000;
 
 			Permit();
 			return TRUE;
@@ -147,15 +144,16 @@ BOOL fix_memory()
 	}
 
 	// Split chip memory region into motherboard and A314 memory regions.
-	ULONG split_at = (ULONG)(chip_mh->mh_Upper) > 0x100000 ? 0x100000 : 0x80000;
+	ULONG split_at = (ULONG)(chip_mh->mh_Upper) > ONE_MB ? ONE_MB : HALF_MB;
 
 	mh = split_region(chip_mh, split_at);
 	mh->mh_Node.ln_Pri = -20;
 	mh->mh_Attributes |= MEMF_A314;
 	Enqueue(memlist, (struct Node*)mh);
 
-	mapping_type = split_at == 0x100000 ? MAPPING_TYPE_1M : MAPPING_TYPE_512K;
-	mapping_base = split_at;
+	lower_bank_address = split_at;
+	if (split_at == ONE_MB)
+		upper_bank_address = lower_bank_address + HALF_MB;
 
 	Permit();
 	return TRUE;
@@ -163,20 +161,19 @@ BOOL fix_memory()
 
 ULONG translate_address_a314(__reg("a0") void *address)
 {
-	if (mapping_type == MAPPING_TYPE_512K)
+	if (lower_bank_address != -1)
 	{
-		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= HALF_MB)
-			return -1;
-		return offset;
+		ULONG offset = (ULONG)address - lower_bank_address;
+		if (offset < HALF_MB)
+			return offset;
 	}
-	else if (mapping_type == MAPPING_TYPE_1M)
+
+	if (upper_bank_address != -1)
 	{
-		ULONG offset = (ULONG)address - mapping_base;
-		if (offset >= ONE_MB)
-			return -1;
-		return offset;
+		ULONG offset = (ULONG)address - upper_bank_address;
+		if (offset < HALF_MB)
+			return HALF_MB + offset;
 	}
-	else
-		return -1;
+
+	return -1;
 }
