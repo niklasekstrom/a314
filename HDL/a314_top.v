@@ -206,6 +206,10 @@ module a314_top(
         .cp_out_cmem_in(cp_data_out),
         .cp_in_cmem_out(cp_in_cmem_out),
 
+        .dram_req(dram_req),
+        .dram_read(dram_read),
+        .dram_address(dram_address),
+
         .swap_address_mapping(swap_address_mapping)
         );
 

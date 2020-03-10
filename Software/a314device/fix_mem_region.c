@@ -2,9 +2,15 @@
 #include <exec/execbase.h>
 #include <exec/memory.h>
 #include <proto/exec.h>
+#include <proto/graphics.h>
 
 #include "a314.h"
 #include "fix_mem_region.h"
+#include "cmem.h"
+
+extern UWORD fw_version;
+
+extern ULONG check_a314_mapping(__reg("a0") void *address);
 
 #define HALF_MB (512*1024)
 #define ONE_MB (1024*1024)
@@ -118,6 +124,53 @@ void mark_region_a314(ULONG address, ULONG size)
 	}
 }
 
+void detect_block_mapping(ULONG present_blocks)
+{
+	Disable();
+	WaitBlit();
+
+	UBYTE prev_regd = read_cp_nibble(13);
+	write_cp_nibble(13, prev_regd | 8);
+
+	for (ULONG block = 0; block < 32; block++)
+	{
+		if (present_blocks & (1UL << block))
+		{
+			ULONG address = block << 19;
+			ULONG sram_address = check_a314_mapping((void *)address);
+
+			if (sram_address == 0)
+			{
+				if (lower_bank_address != -1)
+				{
+					// This is not the first address that maps to this A314 block.
+					// I currently don't understand how this could happen.
+					// This should be logged, so that it can be investigated further.
+				}
+				lower_bank_address = address;
+			}
+			else if (sram_address == HALF_MB)
+			{
+				if (upper_bank_address != -1)
+				{
+					// This is not the first address that maps to this A314 block.
+					// I currently don't understand how this could happen.
+					// This should be logged, so that it can be investigated further.
+				}
+				upper_bank_address = address;
+			}
+			else if (sram_address != 0xfffff)
+			{
+				// I currently don't understand how this could happen.
+				// This should be logged, so that it can be investigated further.
+			}
+		}
+	}
+
+	write_cp_nibble(13, prev_regd);
+	Enable();
+}
+
 void detect_block_mapping_heuristically(ULONG present_blocks)
 {
 	if ((present_blocks & 0xc) == 0xc)
@@ -160,7 +213,10 @@ BOOL fix_memory()
 	// Only test blocks in chip mem and slow mem ranges.
 	present_blocks &= 0x0700000f; // 0b00000111000000000000000000001111
 
-	detect_block_mapping_heuristically(present_blocks);
+	if (fw_version == 0)
+		detect_block_mapping_heuristically(present_blocks);
+	else
+		detect_block_mapping(present_blocks);
 
 	if (lower_bank_address == -1 && upper_bank_address == -1)
 	{

@@ -11,8 +11,8 @@ bin_dir:
 bin/a314d: a314d/a314d.cc
 	${CPP} a314d/a314d.cc -O3 -o bin/a314d
 
-bin/a314.device: a314device/a314.h a314device/cmem.h a314device/debug.h a314device/device.h a314device/fix_mem_region.h a314device/protocol.h a314device/proto_a314.h a314device/sockets.h a314device/startup.h a314device/romtag.asm a314device/a314driver.c a314device/device.c a314device/startup.c a314device/fix_mem_region.c a314device/cmem.c a314device/sockets.c a314device/int_server.asm
-	${VC} a314device/romtag.asm a314device/a314driver.c a314device/device.c a314device/startup.c a314device/fix_mem_region.c a314device/cmem.c a314device/sockets.c a314device/int_server.asm -O3 -nostdlib -o bin/a314.device
+bin/a314.device: a314device/a314.h a314device/cmem.h a314device/debug.h a314device/device.h a314device/fix_mem_region.h a314device/protocol.h a314device/proto_a314.h a314device/sockets.h a314device/startup.h a314device/romtag.asm a314device/a314driver.c a314device/device.c a314device/startup.c a314device/fix_mem_region.c a314device/cmem.c a314device/sockets.c a314device/int_server.asm a314device/check_a314_mapping.asm
+	${VC} a314device/romtag.asm a314device/a314driver.c a314device/device.c a314device/startup.c a314device/fix_mem_region.c a314device/cmem.c a314device/sockets.c a314device/int_server.asm a314device/check_a314_mapping.asm -O3 -nostdlib -o bin/a314.device
 
 bin/a314fs: a314device/a314.h a314device/proto_a314.h a314fs/messages.h a314fs/a314fs.c a314fs/bcpl_start.asm a314fs/bcpl_end.asm
 	${VC} a314fs/a314fs.c -S -o bin/a314fs.asm
