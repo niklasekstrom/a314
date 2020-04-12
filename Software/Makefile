@@ -30,6 +30,9 @@ bin/piaudio: a314device/a314.h a314device/proto_a314.h piaudio/piaudio.c
 bin/remotewb: a314device/a314.h a314device/proto_a314.h remotewb/remotewb.c remotewb/vblank_server.asm
 	${VC} remotewb/remotewb.c remotewb/vblank_server.asm -lamiga -o bin/remotewb
 
+bin/remote-mouse: a314device/a314.h remote-mouse/remote-mouse.c
+	${VC} remote-mouse/remote-mouse.c -lamiga -o bin/remote-mouse
+
 bin/videoplayer: a314device/a314.h a314device/proto_a314.h videoplayer/videoplayer.c videoplayer/vblank_server.asm
 	${VC} videoplayer/videoplayer.c videoplayer/vblank_server.asm -lamiga -o bin/videoplayer
 
@@ -43,6 +46,7 @@ install: all
 	cp picmd/picmd.py /opt/a314
 	cp piaudio/piaudio.py /opt/a314
 	cp remotewb/remotewb.py /opt/a314
+	cp remote-mouse/remote-mouse.py /opt/a314
 	cp videoplayer/videoplayer.py /opt/a314
 	mkdir -p /etc/opt/a314
 	cp a314d/a314d.conf /etc/opt/a314
