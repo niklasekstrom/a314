@@ -3,7 +3,7 @@
 CPP=g++
 VC=vc
 
-all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/piaudio bin/remotewb bin/videoplayer bin/diag
+all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/piaudio bin/remotewb bin/remote-mouse bin/videoplayer bin/diag
 
 bin_dir:
 	mkdir -p bin
