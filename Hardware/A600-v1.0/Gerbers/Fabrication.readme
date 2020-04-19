@@ -1,0 +1,4 @@
+The provided files follow a naming convention set up by AllPCB.
+Do note that the gerbers contain a narrow 1mm slotting for the optional break-away LED board.
+Not all board houses are willing to accomodate such narrow slots.
+(AllPCB do, which is why the files are adapted to their requirements)
