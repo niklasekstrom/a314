@@ -53,4 +53,5 @@ install: all
 	cp a314fs/a314fs.conf /etc/opt/a314
 	cp picmd/picmd.conf /etc/opt/a314
 	cd bpls2gif ; python3 setup.py install
+	pip3 install websockets
 	cp a314d/a314d.service /lib/systemd/system
