@@ -9,6 +9,7 @@ import select
 import socket
 import struct
 import sys
+import time
 
 logging.basicConfig(format = '%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s')
 logger = logging.getLogger(__name__)
@@ -94,8 +95,13 @@ done = False
 rbuf = b''
 DEV_NAME = '/dev/input/mice'
 
+last_buttons = 0
+next_send = time.time()
+buffered_movement = None
+MIN_SEND_INTERVAL = 0.02 # 20 ms.
+
 def process_drv_msg(stream_id, ptype, payload):
-    global current_stream_id
+    global current_stream_id, buffered_movement
 
     if ptype == MSG_CONNECT:
         if payload == b'remote-mouse' and current_stream_id is None:
@@ -111,6 +117,7 @@ def process_drv_msg(stream_id, ptype, payload):
             pass
         elif ptype == MSG_RESET:
             current_stream_id = None
+            buffered_movement = None
             logger.info('Amiga disconnected')
 
 try:
@@ -149,7 +156,18 @@ while not done:
     if idx == -1:
         sel_fds.append(sys.stdin)
 
-    rfd, wfd, xfd = select.select(sel_fds, [], [], 5.0)
+    timeout = 5.0
+
+    if buffered_movement:
+        now = time.time()
+        if next_send <= now:
+            send_data(current_stream_id, struct.pack('>hhb', *buffered_movement, last_buttons))
+            buffered_movement = None
+            next_send = now + MIN_SEND_INTERVAL
+        else:
+            timeout = next_send - now
+
+    rfd, wfd, xfd = select.select(sel_fds, [], [], timeout)
 
     for fd in rfd:
         if fd == sys.stdin:
@@ -191,12 +209,27 @@ while not done:
                 drv.close()
                 done = True
             elif len(data) == 3:
+                flags, dx, dy = data
+                buttons = flags & 3
+
                 if current_stream_id is not None:
-                    flags, dx, dy = data
                     if flags & 0x10:
                         dx = dx - 256
                     if flags & 0x20:
                         dy = dy - 256
-                    dx = max(-128, min(127, dx))
-                    dy = -max(-128, min(127, dy))
-                    send_data(current_stream_id, struct.pack('bbb', dx, dy, flags & 3))
+                    dy = -dy
+
+                    if buffered_movement is None:
+                        buffered_movement = (dx, dy)
+                    else:
+                        bdx, bdy = buffered_movement
+                        buffered_movement = (bdx + dx, bdy + dy)
+
+                    now = time.time()
+
+                    if buttons != last_buttons or next_send <= now:
+                        send_data(current_stream_id, struct.pack('>hhb', *buffered_movement, buttons))
+                        buffered_movement = None
+                        next_send = now + MIN_SEND_INTERVAL
+
+                last_buttons = buttons
