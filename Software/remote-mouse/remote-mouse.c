@@ -144,11 +144,9 @@ void handle_a314_read_completed()
 	{
 		int length = rmsg->a314_Length;
 
-		BYTE *p = (BYTE *)&arbuf[0];
-
-		WORD dx = *p++;
-		WORD dy = *p++;
-		WORD b = *p++;
+		WORD dx = *(WORD *)&arbuf[0];
+		WORD dy = *(WORD *)&arbuf[2];
+		WORD b = *(BYTE *)&arbuf[4];
 
 		send_generated_mouse_event(dx, dy, b);
 		last_b = b;
@@ -166,7 +164,7 @@ void handle_a314_read_completed()
 
 int main()
 {
-	SetTaskPri(FindTask(NULL), 60);
+	LONG old_priority = SetTaskPri(FindTask(NULL), 60);
 
 	mp = CreatePort(NULL, 0);
 	cmsg = (struct A314_IORequest *)CreateExtIO(mp, sizeof(struct A314_IORequest));
@@ -236,5 +234,6 @@ fail_out2:
 fail_out1:
 	DeleteExtIO((struct IORequest *)cmsg);
 	DeletePort(mp);
+	SetTaskPri(FindTask(NULL), old_priority);
 	return 0;
 }
