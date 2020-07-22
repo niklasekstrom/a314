@@ -4,6 +4,7 @@ This SANA-II driver works by copying Ethernet frames back and forth between the 
 
 ## Configuring the Raspberry Pi
 
+- Install pytun: `sudo pip3 install python-pytun`.
 - Copy `ethernet.py` to `/opt/a314/ethernet.py`.
 - Update `/etc/opt/a314/a314d.conf` with a line that starts `ethernet.py` on demand.
   - In order for `a314d` to pick up the changes in `a314d.conf` you'll have to restart `a314d`, either by `sudo systemctl restart a314d` or by rebooting the Pi.
@@ -11,7 +12,7 @@ This SANA-II driver works by copying Ethernet frames back and forth between the 
 - Add the lines in `pi-config/rc.local` to the bottom of `/etc/rc.local` just before `exit 0`. This create iptables rules that forwards packets from the `tap0` interface to the `wlan0` interface.
   - Please note that if the Pi is connected using wired ethernet then `wlan0` should be changed to `eth0`.
 
-The first three steps are performed by `sudo make install`. The last step you have to do manually.
+The first four steps are performed by `sudo make install`. The last step you have to do manually.
 
 ## Configuring the Amiga
 
