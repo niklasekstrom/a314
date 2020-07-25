@@ -126,7 +126,6 @@ volatile ULONG sana2_sigmask;
 volatile ULONG shutdown_sigmask;
 
 volatile struct Task *init_task;
-volatile ULONG init_signal;
 
 struct Process *device_process;
 volatile int device_start_error;
@@ -415,7 +414,7 @@ void device_process_run()
 	do_a314_cmd(&reset_ior, A314_CONNECT, (char *)service_name, strlen(service_name));
 	device_start_error = reset_ior.a314_Request.io_Error == A314_CONNECT_OK ? 0 : -1;
 
-	Signal((struct Task *)init_task, 1UL << init_signal);
+	Signal((struct Task *)init_task, SIGF_SINGLE);
 
 	if (device_start_error)
 		return;
@@ -452,7 +451,7 @@ void device_process_run()
 		}
 	}
 
-	Signal((struct Task *)init_task, 1UL << init_signal);
+	Signal((struct Task *)init_task, SIGF_SINGLE);
 }
 
 static struct TagItem *FindTagItem(Tag tagVal, struct TagItem *tagList)
@@ -554,20 +553,14 @@ static void open(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req 
 	}
 
 	init_task = FindTask(NULL);
-	init_signal = AllocSignal(-1);
 
 	struct MsgPort *device_mp = CreateProc((char *)device_name, TASK_PRIO, ((ULONG)device_process_seglist) >> 2, 2048);
 	if (!device_mp)
-	{
-		FreeSignal(init_signal);
 		goto error;
-	}
 
 	device_process = (struct Process *)((char *)device_mp - sizeof(struct Task));
 
-	Wait(1UL << init_signal);
-
-	FreeSignal(init_signal);
+	Wait(SIGF_SINGLE);
 
 	if (device_start_error)
 		goto error;
@@ -592,10 +585,8 @@ error:
 static BPTR close(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req *ios2)
 {
 	init_task = FindTask(NULL);
-	init_signal = AllocSignal(-1);
 	Signal(&device_process->pr_Task, shutdown_sigmask);
-	Wait(1UL << init_signal);
-	FreeSignal(init_signal);
+	Wait(SIGF_SINGLE);
 
 	for (int i = ET_BUF_CNT - 1; i >= 0; i--)
 		FreeMem(et_bufs[i].bd_Buffer, RAW_MTU);
