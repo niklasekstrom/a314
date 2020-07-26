@@ -7,3 +7,4 @@ HDL/*.bak
 HDL/*.qws
 HDL/*.rpt
 Software/bin
+Software/**/.vscode
