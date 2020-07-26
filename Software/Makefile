@@ -59,5 +59,5 @@ install: all
 	cd bpls2gif ; python3 setup.py install
 	pip3 install websockets
 	pip3 install python-pytun
-	cp ethernet/tap0 /etc/network/interfaces.d
+	cp ethernet/pi-config/tap0 /etc/network/interfaces.d
 	cp a314d/a314d.service /lib/systemd/system
