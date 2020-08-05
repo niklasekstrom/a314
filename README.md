@@ -50,4 +50,4 @@ The source code for the software that runs on the Amiga and on the RPi is availa
 
 If you have an idea about something cool to make using the A314, but you don't have the means to build a PCB on your own, then we have a small number of pre-built boards that we plan to hand out, given the idea sounds interesting enough. Send a message to Eriond on EAB and describe what you would like to make, and perhaps you can get one.
 
-There is an #a314 IRC channel on [EFNet](http://www.efnet.org/?module=servers) where you can hopefully get answers to any questions related to A314.
+There used to be an IRC channel for discussing A314, but we have since moved to Discord. [Here's the invite link](https://discord.gg/TGZNKnA).
