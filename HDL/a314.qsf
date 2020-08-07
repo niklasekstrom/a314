@@ -136,7 +136,7 @@ set_global_assignment -name DEVICE 10M08SCE144C8G
 set_global_assignment -name TOP_LEVEL_ENTITY a314_top
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 18.0.0
 set_global_assignment -name PROJECT_CREATION_TIME_DATE "14:38:01  FEBRUARY 09, 2019"
-set_global_assignment -name LAST_QUARTUS_VERSION "18.1.0 Lite Edition"
+set_global_assignment -name LAST_QUARTUS_VERSION "19.1.0 Lite Edition"
 set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
 set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
 set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
@@ -198,6 +198,8 @@ set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[12] -disable
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[13] -disable
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[14] -disable
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to SR_D[15] -disable
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to DR_RAS0_n
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to DR_RAS1_n
 set_global_assignment -name VERILOG_FILE rtc_emulation.v
 set_global_assignment -name VERILOG_FILE timescale.v
 set_global_assignment -name VERILOG_FILE i2c_master_defines.v
@@ -212,6 +214,4 @@ set_global_assignment -name VERILOG_FILE clock_port.v
 set_global_assignment -name VERILOG_FILE rtc_controller.v
 set_global_assignment -name VERILOG_FILE cmem.v
 set_global_assignment -name VERILOG_FILE spi_controller.v
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to DR_RAS0_n
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to DR_RAS1_n
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
