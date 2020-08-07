@@ -106,8 +106,9 @@ module cmem(
         begin
             if (cp_write)
                 case (cp_out_cmem_in)
+                    4'd0: rega_shift_out <= 20'd1; // Version
                     4'd1: rega_shift_out <= autodetect_address;
-                    default: rega_shift_out <= 20'd1; // Version
+                    default: rega_shift_out <= 20'd0;
                 endcase
             else if (cp_read)
                 rega_shift_out[19:0] <= {4'd0, rega_shift_out[19:4]};
