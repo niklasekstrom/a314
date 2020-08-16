@@ -52,10 +52,12 @@
 #define WRITE_SRAM_CMD          1
 #define READ_CMEM_CMD           2
 #define WRITE_CMEM_CMD          3
+#define SPI_PROTO_VER_CMD       255
 
 #define READ_SRAM_HDR_LEN       4
 
 // Addresses to variables in CMEM.
+#define BASE_ADDRESS_LEN        6
 #define R_EVENTS_ADDRESS        12
 #define R_ENABLE_ADDRESS        13
 #define A_EVENTS_ADDRESS        14
@@ -114,6 +116,7 @@ static uint8_t bits = 8;
 static uint32_t speed = 67000000;
 
 static int spi_fd = -1;
+static int spi_proto_ver = 0;
 
 static unsigned char tx_buf[65536];
 static unsigned char rx_buf[65536];
@@ -311,11 +314,24 @@ static int transfer(int len)
     return ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
 }
 
+static int spi_protocol_version()
+{
+    tx_buf[0] = (uint8_t)SPI_PROTO_VER_CMD;
+    tx_buf[1] = 0;
+    transfer(2);
+    logger_trace("SPI protocol version = %d\n", rx_buf[1]);
+    return (int)rx_buf[1];
+}
+
 static void spi_read_mem(unsigned int address, unsigned int length)
 {
     logger_trace("SPI read mem address = %d length = %d\n", address, length);
 
-    unsigned int header = (READ_SRAM_CMD << 20) | (address & 0xfffff);
+    unsigned int header;
+    if (spi_proto_ver == 1)
+        header = (READ_SRAM_CMD << 21) | (address & 0x1fffff);
+    else
+        header = (READ_SRAM_CMD << 20) | (address & 0xfffff);
 
     tx_buf[0] = (uint8_t)((header >> 16) & 0xff);
     tx_buf[1] = (uint8_t)((header >> 8) & 0xff);
@@ -329,7 +345,11 @@ static void spi_write_mem(unsigned int address, uint8_t *buf, unsigned int lengt
 {
     logger_trace("SPI write mem address = %d length = %d\n", address, length);
 
-    unsigned int header = (WRITE_SRAM_CMD << 20) | (address & 0xfffff);
+    unsigned int header;
+    if (spi_proto_ver == 1)
+        header = (WRITE_SRAM_CMD << 21) | (address & 0x1fffff);
+    else
+        header = (WRITE_SRAM_CMD << 20) | (address & 0xfffff);
 
     tx_buf[0] = (uint8_t)((header >> 16) & 0xff);
     tx_buf[1] = (uint8_t)((header >> 8) & 0xff);
@@ -341,7 +361,10 @@ static void spi_write_mem(unsigned int address, uint8_t *buf, unsigned int lengt
 
 static uint8_t spi_read_cmem(unsigned int address)
 {
-    tx_buf[0] = (uint8_t)((READ_CMEM_CMD << 4) | (address & 0xf));
+    if (spi_proto_ver == 1)
+        tx_buf[0] = (uint8_t)((READ_CMEM_CMD << 5) | (address & 0xf));
+    else
+        tx_buf[0] = (uint8_t)((READ_CMEM_CMD << 4) | (address & 0xf));
     tx_buf[1] = 0;
     transfer(2);
     logger_trace("SPI read cmem, address = %d, returned = %d\n", address, rx_buf[1]);
@@ -352,7 +375,10 @@ static void spi_write_cmem(unsigned int address, unsigned int data)
 {
     logger_trace("SPI write cmem, address = %d, data = %d\n", address, data);
 
-    tx_buf[0] = (uint8_t)((WRITE_CMEM_CMD << 4) | (address & 0xf));
+    if (spi_proto_ver == 1)
+        tx_buf[0] = (uint8_t)((WRITE_CMEM_CMD << 5) | (address & 0xf));
+    else
+        tx_buf[0] = (uint8_t)((WRITE_CMEM_CMD << 4) | (address & 0xf));
     tx_buf[1] = (uint8_t)(data & 0xf);
     transfer(2);
 }
@@ -374,11 +400,11 @@ static int open_write_close(const char *filename, const char *text)
     return 0;
 }
 
-static void sleep_10ms()
+static void sleep_100ms()
 {
     struct timespec delay;
     delay.tv_sec = 0;
-    delay.tv_nsec = 10000000L;
+    delay.tv_nsec = 100000000L;
     nanosleep(&delay, NULL);
 }
 
@@ -393,7 +419,7 @@ static void set_direction()
             close(fd);
             break;
         }
-        sleep_10ms();
+        sleep_100ms();
     }
 }
 
@@ -490,6 +516,8 @@ static int init_driver()
 
     if (init_spi() != 0)
         return -1;
+
+    spi_proto_ver = spi_protocol_version();
 
     if (init_gpio() != 0)
         return -1;
@@ -1132,13 +1160,13 @@ static void read_base_address()
     have_base_address = false;
 
     unsigned int ba1 = 0;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < BASE_ADDRESS_LEN; i++)
         ba1 |= spi_read_cmem(i) << (i * 4);
 
     if ((ba1 & 1) == 1)
     {
         unsigned int ba2 = 0;
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < BASE_ADDRESS_LEN; i++)
             ba2 |= spi_read_cmem(i) << (i * 4);
 
         if (ba1 == ba2)

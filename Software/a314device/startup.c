@@ -17,7 +17,7 @@
 #define TASK_PRIORITY 80
 #define TASK_STACK_SIZE 1024
 
-UWORD fw_version;
+ULONG fw_flags;
 
 struct GfxBase *GfxBase;
 struct MsgPort task_mp;
@@ -111,7 +111,7 @@ BOOL task_start()
 	if (!GfxBase)
 		return FALSE;
 
-	fw_version = read_fw_version();
+	fw_flags = read_fw_flags();
 
 	if (!fix_memory())
 	{

@@ -8,15 +8,19 @@
 #include "fix_mem_region.h"
 #include "cmem.h"
 
-extern UWORD fw_version;
+#define FW_FLAG_AUTODETECT	1
+#define FW_FLAG_A600		2
+
+extern ULONG fw_flags;
 
 extern ULONG check_a314_mapping(__reg("a0") void *address);
 
 #define HALF_MB (512*1024)
 #define ONE_MB (1024*1024)
+#define TWO_MB (2*1024*1024)
 
-ULONG lower_bank_address = -1;
-ULONG upper_bank_address = -1;
+ULONG bank_address[] = {-1, -1, -1, -1};
+UWORD is_a600 = FALSE;
 
 struct MemChunkList
 {
@@ -139,30 +143,31 @@ void detect_block_mapping(ULONG present_blocks)
 			ULONG address = block << 19;
 			ULONG sram_address = check_a314_mapping((void *)address);
 
-			if (sram_address == 0)
+			if ((sram_address & 1) == 0)
 			{
-				if (lower_bank_address != -1)
+				BOOL match = FALSE;
+				for (ULONG bank = 0; bank < 4; bank++)
 				{
-					// This is not the first address that maps to this A314 block.
+					if (sram_address == bank * HALF_MB)
+					{
+						if (bank_address[bank] != -1)
+						{
+							// This is not the first address that maps to this A314 block.
+							// I currently don't understand how this could happen.
+							// This should be logged, so that it can be investigated further.
+						}
+
+						bank_address[bank] = address;
+						match = TRUE;
+						break;
+					}
+				}
+
+				if (!match)
+				{
 					// I currently don't understand how this could happen.
 					// This should be logged, so that it can be investigated further.
 				}
-				lower_bank_address = address;
-			}
-			else if (sram_address == HALF_MB)
-			{
-				if (upper_bank_address != -1)
-				{
-					// This is not the first address that maps to this A314 block.
-					// I currently don't understand how this could happen.
-					// This should be logged, so that it can be investigated further.
-				}
-				upper_bank_address = address;
-			}
-			else if (sram_address != 0xfffff)
-			{
-				// I currently don't understand how this could happen.
-				// This should be logged, so that it can be investigated further.
 			}
 		}
 	}
@@ -175,13 +180,13 @@ void detect_block_mapping_heuristically(ULONG present_blocks)
 {
 	if ((present_blocks & 0xc) == 0xc)
 	{
-		lower_bank_address = ONE_MB;
-		upper_bank_address = ONE_MB + HALF_MB;
+		bank_address[0] = ONE_MB;
+		bank_address[1] = ONE_MB + HALF_MB;
 	}
 	else if (present_blocks & 0x01000000)
-		lower_bank_address = 0xc00000;
+		bank_address[0] = 0xc00000;
 	else if (present_blocks & 0x00000002)
-		lower_bank_address = HALF_MB;
+		bank_address[0] = HALF_MB;
 }
 
 ULONG get_present_blocks()
@@ -213,12 +218,29 @@ BOOL fix_memory()
 	// Only test blocks in chip mem and slow mem ranges.
 	present_blocks &= 0x0700000f; // 0b00000111000000000000000000001111
 
-	if (fw_version == 0)
-		detect_block_mapping_heuristically(present_blocks);
-	else
+	if (fw_flags & FW_FLAG_A600)
+	{
+		is_a600 = TRUE;
 		detect_block_mapping(present_blocks);
 
-	if (lower_bank_address == -1 && upper_bank_address == -1)
+		BOOL all_present = TRUE;
+		for (int i = 0; i < 4; i++)
+			if (bank_address[i] != i * HALF_MB)
+				all_present = FALSE;
+
+		if (all_present)
+			mark_region_a314(0, TWO_MB);
+
+		Permit();
+		return all_present;
+	}
+
+	if (fw_flags & FW_FLAG_AUTODETECT)
+		detect_block_mapping(present_blocks);
+	else
+		detect_block_mapping_heuristically(present_blocks);
+
+	if (bank_address[0] == -1 && bank_address[1] == -1)
 	{
 		// Didn't detect any A314 memory; the a314.device Open() should fail.
 		// Should log the reason why this happened.
@@ -226,22 +248,22 @@ BOOL fix_memory()
 		return FALSE;
 	}
 
-	if (lower_bank_address == -1)
+	if (bank_address[0] == -1)
 	{
-		mark_region_a314(upper_bank_address, HALF_MB);
+		mark_region_a314(bank_address[1], HALF_MB);
 	}
-	else if (upper_bank_address == -1)
+	else if (bank_address[1] == -1)
 	{
-		mark_region_a314(lower_bank_address, HALF_MB);
+		mark_region_a314(bank_address[0], HALF_MB);
 	}
 	else
 	{
-		ULONG lo = lower_bank_address;
-		ULONG hi = upper_bank_address;
+		ULONG lo = bank_address[0];
+		ULONG hi = bank_address[1];
 		if (lo > hi)
 		{
-			lo = upper_bank_address;
-			hi = lower_bank_address;
+			lo = bank_address[1];
+			hi = bank_address[0];
 		}
 
 		if (lo + HALF_MB == hi)
@@ -261,16 +283,22 @@ BOOL fix_memory()
 
 ULONG translate_address_a314(__reg("a0") void *address)
 {
-	if (lower_bank_address != -1)
+	if (is_a600)
 	{
-		ULONG offset = (ULONG)address - lower_bank_address;
+		ULONG offset = (ULONG)address;
+		return offset < TWO_MB ? offset : -1;
+	}
+
+	if (bank_address[0] != -1)
+	{
+		ULONG offset = (ULONG)address - bank_address[0];
 		if (offset < HALF_MB)
 			return offset;
 	}
 
-	if (upper_bank_address != -1)
+	if (bank_address[1] != -1)
 	{
-		ULONG offset = (ULONG)address - upper_bank_address;
+		ULONG offset = (ULONG)address - bank_address[1];
 		if (offset < HALF_MB)
 			return HALF_MB + offset;
 	}

@@ -24,4 +24,4 @@ extern UBYTE read_cmem_safe(int index);
 
 extern void write_base_address(ULONG ba);
 
-extern UWORD read_fw_version();
+extern ULONG read_fw_flags();

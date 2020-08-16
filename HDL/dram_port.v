@@ -2,10 +2,9 @@ module dram_port(
     input               clk200,
 
     input               DR_WE_n,
-    input               DR_RAS0_n,
-    input               DR_RAS1_n,
-    input               DR_CASL_n,
-    input               DR_CASU_n,
+    input       [1:0]   DR_RAS_n,
+    input       [1:0]   DR_CASL_n,
+    input       [1:0]   DR_CASU_n,
     input       [8:0]   DR_A,
     inout       [15:0]  DR_D,
 
@@ -13,7 +12,8 @@ module dram_port(
     input               ack,
 
     output              read,
-    output      [18:0]  address,
+
+    output      [19:0]  address,
     output              lb,
     output              ub,
 
@@ -21,12 +21,18 @@ module dram_port(
     input       [15:0]  dram_in_sram_out
     );
 
-    wire ras0 = !DR_RAS0_n;
-    wire ras1 = !DR_RAS1_n;
-    wire casl = !DR_CASL_n;
-    wire casu = !DR_CASU_n;
+    wire ras0 = !DR_RAS_n[0];
+    wire ras1 = !DR_RAS_n[1];
     wire ras = ras0 || ras1;
+
+    wire casl0 = !DR_CASL_n[0];
+    wire casu0 = !DR_CASU_n[0];
+    wire casl1 = !DR_CASL_n[1];
+    wire casu1 = !DR_CASU_n[1];
+    wire casl = casl0 || casl1;
+    wire casu = casu0 || casu1;
     wire cas = casl || casu;
+
     wire rascas = ras && cas;
 
     reg [2:0] ras_sync = 3'd0;
@@ -42,7 +48,7 @@ module dram_port(
 
     reg dram_read = 1'b0;
     reg drive_data = 1'b0;
-    reg [18:0] dram_address = 19'd0;
+    reg [19:0] dram_address = 20'd0;
     reg dram_lb = 1'b0;
     reg dram_ub = 1'b0;
 
@@ -61,7 +67,7 @@ module dram_port(
         begin
             dram_address[15:8] <= DR_A[7:0];
             dram_address[16] <= DR_A[8];
-            dram_address[18] <= DR_RAS1_n;
+            dram_address[18] <= DR_RAS_n[0];
             dram_read <= DR_WE_n;
         end
 
@@ -69,6 +75,7 @@ module dram_port(
         begin
             dram_address[7:0] <= DR_A[7:0];
             dram_address[17] <= DR_A[8];
+            dram_address[19] <= casl1 || casu1;
             dram_req <= !dram_ack;
             dram_lb <= casl;
             dram_ub <= casu;

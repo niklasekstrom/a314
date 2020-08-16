@@ -15,7 +15,9 @@ module spi_controller(
     output reg          spi_req,
     input               spi_ack,
     output reg          spi_read_sram,
-    output reg  [18:0]  spi_address_sram,
+
+    output reg  [19:0]  spi_address_sram,
+
     output reg          spi_ub,
     output reg  [7:0]   spi_out_sram_in,
     input       [15:0]  spi_in_sram_out,
@@ -25,22 +27,29 @@ module spi_controller(
 
     /*
     Commands:
-    READ_SRAM   0000aaaa aaaaaaaa aaaaaaaa -------- oooooooo ...
-    WRITE_SRAM  0001aaaa aaaaaaaa aaaaaaaa iiiiiiii ...
-    READ_CMEM   0010aaaa ----oooo
-    WRITE_CMEM  0011aaaa 0000iiii
+    READ_SRAM   000aaaaa aaaaaaaa aaaaaaaa -------- oooooooo ...
+    WRITE_SRAM  001aaaaa aaaaaaaa aaaaaaaa iiiiiiii ...
+    READ_CMEM   010-aaaa ----oooo
+    WRITE_CMEM  011-aaaa 0000iiii
+    PROTO_VER   11111111 00000001
     */
+
+    localparam READ_SRAM  = 3'd0;
+    localparam WRITE_SRAM = 3'd1;
+    localparam READ_CMEM  = 3'd2;
+    localparam WRITE_CMEM = 3'd3;
+    localparam PROTO_VER  = 8'd255;
 
     reg [23:0] counter;
     wire [20:0] byte_cnt = counter[23:3];
     wire [2:0] bit_cnt = counter[2:0];
 
-    reg [3:0] cmd;
+    reg [2:0] cmd;
 
     reg [7:0] data_shift_in;
 
-    reg [19:0] sram_address;
-    reg [19:0] sram_offset = 20'd0;
+    reg [20:0] sram_address;
+    reg [20:0] sram_offset = 21'd0;
 
     reg read_cmem_req = 1'b0;
     reg read_cmem_ack = 1'b0;
@@ -61,50 +70,50 @@ module spi_controller(
         begin
             counter <= counter + 24'd1;
 
-            if (counter <= 24'd3)
-                cmd <= {cmd[2:0], MOSI};
+            if (counter <= 24'd2)
+                cmd <= {cmd[1:0], MOSI};
 
             if (counter <= 24'd7)
                 spi_address_cmem <= {spi_address_cmem[2:0], MOSI};
 
             if (counter <= 24'd23)
-                sram_address <= {sram_address[18:0], MOSI};
+                sram_address <= {sram_address[19:0], MOSI};
 
             data_shift_in <= {data_shift_in[6:0], MOSI};
 
-            if (counter == 24'd7 && cmd == 4'd2)
+            if (counter == 24'd7 && cmd == READ_CMEM)
             begin
                 read_cmem_req <= !read_cmem_ack;
             end
 
-            if (counter == 24'd15 && cmd == 4'd3)
+            if (counter == 24'd15 && cmd == WRITE_CMEM)
             begin
                 spi_out_cmem_in <= {data_shift_in[2:0], MOSI};
                 write_cmem_req <= !write_cmem_ack;
             end
 
-            if (byte_cnt >= 21'd2 && bit_cnt == 3'd7 && cmd == 4'd0)
+            if (byte_cnt >= 21'd2 && bit_cnt == 3'd7 && cmd == READ_SRAM)
             begin
                 spi_read_sram <= 1'b1;
                 spi_req_async <= !spi_ack;
-                sram_offset <= byte_cnt[19:0] - 20'd2;
+                sram_offset <= byte_cnt - 21'd2;
             end
 
-            if (byte_cnt >= 21'd3 && bit_cnt == 3'd7 && cmd == 4'd1)
+            if (byte_cnt >= 21'd3 && bit_cnt == 3'd7 && cmd == WRITE_SRAM)
             begin
                 spi_out_sram_in <= {data_shift_in[6:0], MOSI};
                 spi_read_sram <= 1'b0;
                 spi_req_async <= !spi_ack;
-                sram_offset <= byte_cnt[19:0] - 20'd3;
+                sram_offset <= byte_cnt - 21'd3;
             end
         end
     end
 
-    wire [19:0] sram_ea = sram_address + sram_offset;
+    wire [20:0] sram_ea = sram_address + sram_offset;
 
     always @(*)
     begin
-        spi_address_sram <= swap_address_mapping ? {sram_ea[19:17], sram_ea[8:1], sram_ea[16:9]} : sram_ea[19:1];
+        spi_address_sram <= swap_address_mapping ? {sram_ea[20:17], sram_ea[8:1], sram_ea[16:9]} : sram_ea[20:1];
         spi_ub <= !sram_ea[0];
     end
 
@@ -116,9 +125,11 @@ module spi_controller(
             data_shift_out <= 8'd0;
         else
         begin
-            if (byte_cnt >= 21'd3 && bit_cnt == 3'd7 && cmd == 4'd0)
+            if (counter == 24'd7 && {sram_address[6:0], MOSI} == PROTO_VER)
+                data_shift_out <= 8'd1; // SPI protocol version.
+            else if (byte_cnt >= 21'd3 && bit_cnt == 3'd7 && cmd == READ_SRAM)
                 data_shift_out <= spi_ub ? spi_in_sram_out[15:8] : spi_in_sram_out[7:0];
-            else if (counter == 24'd11 && cmd == 4'd2)
+            else if (counter == 24'd11 && cmd == READ_CMEM)
                 data_shift_out <= {spi_in_cmem_out, 4'd0};
             else
                 data_shift_out <= {data_shift_out[6:0], 1'b0};

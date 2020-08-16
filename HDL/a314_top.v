@@ -2,13 +2,22 @@ module a314_top(
     input               CLK_14M,
 
     input               DR_WE_n,
+`ifdef is_a600
+    input       [1:0]   DR_RAS_n,
+    input       [1:0]   DR_CASL_n,
+    input       [1:0]   DR_CASU_n,
+`else
     input               DR_RAS0_n,
     input               DR_RAS1_n,
     input               DR_CASL_n,
     input               DR_CASU_n,
+`endif
     input       [8:0]   DR_A,
     inout       [15:0]  DR_D,
 
+`ifdef is_a600
+    input               CP_RTC_CS_n,
+`endif
     input               CP_RD_n,
     input               CP_WR_n,
     input       [5:2]   CP_A,
@@ -18,10 +27,17 @@ module a314_top(
     output              SR_WE_n,
     output              SR_LB_n,
     output              SR_UB_n,
+`ifdef is_a600
+    output      [19:0]  SR_A,
+`else
     output      [18:0]  SR_A,
+`endif
     inout       [15:0]  SR_D,
 
     output              AMI_INT2,
+`ifdef is_a600
+    output              AMI_LED,
+`endif
 
     input               RPI_SCLK0,
     input               RPI_SCE0,
@@ -33,6 +49,10 @@ module a314_top(
     output              RTC_SCL,
     inout               RTC_SDA
     );
+
+`ifdef is_a600
+   assign AMI_LED = 1'b0;
+`endif
 
     wire clk14 = CLK_14M;
     wire clk200;
@@ -58,7 +78,7 @@ module a314_top(
     wire spi_req;
     wire spi_ack;
     wire spi_read_sram;
-    wire [18:0] spi_address_sram;
+    wire [19:0] spi_address_sram;
     wire spi_ub;
     wire [7:0] spi_out_sram_in;
     wire [15:0] spi_in_sram_out;
@@ -93,7 +113,7 @@ module a314_top(
     wire dram_req;
     wire dram_ack;
     wire dram_read;
-    wire [18:0] dram_address;
+    wire [19:0] dram_address;
     wire dram_lb;
     wire dram_ub;
     wire [15:0] dram_out_sram_in;
@@ -104,10 +124,15 @@ module a314_top(
 
         //.DR_XMEM(DR_XMEM),
         .DR_WE_n(DR_WE_n),
-        .DR_RAS0_n(1'b1), // Change to DR_RAS0_n(DR_RAS0_n) for rev 8 (A500+)
-        .DR_RAS1_n(DR_RAS1_n),
+`ifdef is_a600
+        .DR_RAS_n(DR_RAS_n),
         .DR_CASL_n(DR_CASL_n),
         .DR_CASU_n(DR_CASU_n),
+`else
+        .DR_RAS_n({DR_RAS1_n, 1'b1}), // Change to DR_RAS_n({DR_RAS1_n, DR_RAS0_n}) for rev 8 (A500+)
+        .DR_CASL_n({1'b1, DR_CASL_n}),
+        .DR_CASU_n({1'b1, DR_CASU_n}),
+`endif
         .DR_A(DR_A),
         .DR_D(DR_D),
 
@@ -168,8 +193,13 @@ module a314_top(
     clock_port clock_port_inst(
         .clk200(clk200),
 
+`ifdef is_a600
+        .CP_RD_n(CP_RTC_CS_n || CP_RD_n),
+        .CP_WR_n(CP_RTC_CS_n || CP_WR_n),
+`else
         .CP_RD_n(CP_RD_n),
         .CP_WR_n(CP_WR_n),
+`endif
         .CP_A(CP_A),
         .CP_D(CP_D),
 

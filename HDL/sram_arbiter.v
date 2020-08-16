@@ -6,13 +6,13 @@ module sram_arbiter(
     output              SR_WE_n,
     output              SR_LB_n,
     output              SR_UB_n,
-    output      [18:0]  SR_A,
+    output      [19:0]  SR_A,
     inout       [15:0]  SR_D,
 
     input               spi_req,
     output              spi_ack,
     input               spi_read,
-    input       [18:0]  spi_address,
+    input       [19:0]  spi_address,
     input               spi_ub,
     input       [7:0]   spi_out_sram_in,
     output reg  [15:0]  spi_in_sram_out,
@@ -20,7 +20,7 @@ module sram_arbiter(
     input               dram_req,
     output              dram_ack,
     input               dram_read,
-    input       [18:0]  dram_address,
+    input       [19:0]  dram_address,
     input               dram_lb,
     input               dram_ub,
     input       [15:0]  dram_out_sram_in,
@@ -37,7 +37,7 @@ module sram_arbiter(
     reg sr_we_n = 1'b1;
     reg sr_lb_n = 1'b1;
     reg sr_ub_n = 1'b1;
-    reg [18:0] sr_a = 19'd0;
+    reg [19:0] sr_a = 20'd0;
 
     assign SR_OE_n = sr_oe_n;
     assign SR_WE_n = sr_we_n;

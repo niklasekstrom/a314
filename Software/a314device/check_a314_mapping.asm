@@ -20,14 +20,14 @@ _check_a314_mapping:
 		lea.l	$2b(a1),a1
 		move.b	#1,(a1)		; Copy autodetect address to RegA
 
-		moveq	#5-1,d2
+		moveq	#6-1,d2
 .loop:		ror.l	#4,d0
 		moveq	#$f,d1
 		and.b	(a1),d1
 		or.b	d1,d0
 		dbra	d2,.loop
 
-		moveq	#20-4,d1
+		moveq	#20,d1
 		rol.l	d1,d0
 
 		move.l	(a7)+,d2

@@ -18,7 +18,7 @@ module cmem(
 
     input dram_req,
     input dram_read,
-    input [18:0] dram_address,
+    input [19:0] dram_address,
 
     output swap_address_mapping
     );
@@ -29,7 +29,7 @@ module cmem(
     wire autodetect_mode = data[11][1];
 
     reg dram_ack = 1'b0;
-    reg [19:0] autodetect_address;
+    reg [20:0] autodetect_address;
 
     reg [3:0] r_events = 4'd0;
     reg [3:0] r_enable = 4'd7;
@@ -48,7 +48,7 @@ module cmem(
     Address map:
     
     reg0-5 - BA0-5
-    regA   - firmware version
+    regA   - multiple values
     regB   - autodetect, swap
     regC   - r-events
     regD   - r-enable
@@ -71,7 +71,7 @@ module cmem(
 
     wire a_should_drive = ((wr_a_events ? (a_events | spi_out_cmem_in) : a_events) & (wr_a_enable ? cp_out_cmem_in : a_enable)) != 4'd0 && !a_block;
 
-    reg [19:0] rega_shift_out;
+    reg [20:0] rega_shift_out;
 
     always @(posedge clk200)
     begin
@@ -96,7 +96,7 @@ module cmem(
             data[cp_address] <= cp_out_cmem_in;
 
         if (cp_write && cp_address == 4'd11 && cp_out_cmem_in[1])
-            autodetect_address <= 20'hfffff;
+            autodetect_address <= 21'h1fffff;
         else if (autodetect_mode && dram_req != dram_ack && !dram_read)
             autodetect_address <= {dram_address, 1'b0};
 
@@ -106,12 +106,16 @@ module cmem(
         begin
             if (cp_write)
                 case (cp_out_cmem_in)
-                    4'd0: rega_shift_out <= 20'd1; // Version
+`ifdef is_a600
+                    4'd0: rega_shift_out <= 21'h3; // {a600, autodetect}
+`else
+                    4'd0: rega_shift_out <= 21'h1; // {autodetect}
+`endif
                     4'd1: rega_shift_out <= autodetect_address;
-                    default: rega_shift_out <= 20'd0;
+                    default: rega_shift_out <= 21'd0;
                 endcase
             else if (cp_read)
-                rega_shift_out[19:0] <= {4'd0, rega_shift_out[19:4]};
+                rega_shift_out[20:0] <= {4'd0, rega_shift_out[20:4]};
         end
 
         if (wr_a_enable)

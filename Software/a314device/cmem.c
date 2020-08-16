@@ -3,6 +3,7 @@
 #include "cmem.h"
 
 #define CLOCK_PORT_ADDRESS	0xdc0000
+#define BASE_ADDRESS_LEN	6
 
 void write_cp_nibble(int index, UBYTE value)
 {
@@ -49,7 +50,7 @@ void write_base_address(ULONG ba)
 
 	write_cp_nibble(0, 0);
 
-	for (int i = 4; i >= 0; i--)
+	for (int i = BASE_ADDRESS_LEN - 1; i >= 0; i--)
 	{
 		ULONG v = (ba >> (i * 4)) & 0xf;
 		write_cp_nibble(i, (UBYTE)v);
@@ -59,7 +60,7 @@ void write_base_address(ULONG ba)
 	Enable();
 }
 
-UWORD read_fw_version()
+ULONG read_fw_flags()
 {
 	Disable();
 	UBYTE prev_regd = read_cp_nibble(13);
@@ -67,12 +68,12 @@ UWORD read_fw_version()
 
 	write_cp_nibble(10, 0);
 
-	UWORD ver = 0;
+	ULONG flags = 0;
 	for (int i = 0; i < 4; i++)
-		ver |= ((UWORD)read_cp_nibble(10)) << (4 * i);
+		flags |= ((ULONG)read_cp_nibble(10)) << (4 * i);
 
 	write_cp_nibble(13, prev_regd);
 	Enable();
 
-	return ver;
+	return flags;
 }
