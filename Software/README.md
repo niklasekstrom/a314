@@ -14,6 +14,7 @@ On the Raspberry Pi do the following:
 - Set the build script as executable: ```sudo chmod +x rpi_docker_build.sh```
 - Build software for both the Amiga and Pi: ```./rpi_docker_build.sh```
 - Install software for Pi: ```sudo make install```
+- Manually add the line `dtoverlay=spi-a314` to the end of `/boot/config.txt` (unless it's already added), and reboot
 - Enable and start a314d:
   - ```sudo systemctl daemon-reload```
   - ```sudo systemctl enable a314d```

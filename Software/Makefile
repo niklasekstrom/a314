@@ -61,3 +61,4 @@ install: all
 	pip3 install python-pytun
 	cp ethernet/pi-config/tap0 /etc/network/interfaces.d
 	cp a314d/a314d.service /lib/systemd/system
+	cp bin/spi-a314.dtbo /boot/overlays
