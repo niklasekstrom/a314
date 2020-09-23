@@ -265,4 +265,25 @@ struct SetCommentResponse
 	short error_code;
 };
 
+struct ExamineFhRequest
+{
+	short has_response;
+	short type;
+	long arg1;
+};
+
+struct ExamineFhResponse
+{
+	short has_response;
+	short success;
+	short error_code;
+
+	short disk_key;
+	short entry_type;
+	int size;
+	int protection;
+	int date[3];
+	char file_name[1];
+};
+
 #pragma pack(pop)
