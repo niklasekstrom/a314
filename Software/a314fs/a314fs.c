@@ -31,6 +31,11 @@
 #define REQ_RES_BUF_SIZE 256
 #define BUFFER_SIZE 4096
 
+// Not defined if using NDK13
+#ifndef ACTION_EXAMINE_FH
+#define ACTION_EXAMINE_FH 1034
+#endif
+
 struct ExecBase *SysBase;
 struct DosLibrary *DOSBase;
 struct MsgPort *mp;
@@ -665,6 +670,53 @@ void action_examine_next(struct DosPacket *dp)
 	reply_packet(dp);
 }
 
+void action_examine_fh(struct DosPacket *dp)
+{
+	ULONG arg1 = dp->dp_Arg1;
+	struct FileInfoBlock *fib = (struct FileInfoBlock *)BADDR(dp->dp_Arg2);
+
+	dbg("ACTION_EXAMINE_FH\n");
+	dbg("  arg1 = $l\n", arg1);
+	dbg("  fib = $l\n", fib);
+
+	struct ExamineFhRequest *req = (struct ExamineFhRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = dp->dp_Type;
+	req->arg1 = arg1;
+
+	write_req_and_wait_for_res(sizeof(struct ExamineFhRequest));
+
+	struct ExamineFhResponse *res = (struct ExamineFhResponse *)request_buffer;
+	if (!res->success)
+	{
+		dbg("  Failed, error code $l\n", (LONG)res->error_code);
+		dp->dp_Res1 = DOSFALSE;
+		dp->dp_Res2 = res->error_code;
+	}
+	else
+	{
+		int nlen = (unsigned char)(res->file_name[0]);
+		memcpy(fib->fib_FileName, res->file_name, nlen + 1);
+		fib->fib_FileName[nlen + 1] = 0;
+
+		fib->fib_DiskKey = res->disk_key;
+		fib->fib_DirEntryType = res->entry_type;
+		fib->fib_EntryType = res->entry_type;
+		fib->fib_Protection = res->protection;
+		fib->fib_Size = res->size;
+		fib->fib_NumBlocks = (res->size + 511) >> 9;
+		fib->fib_Date.ds_Days = res->date[0];
+		fib->fib_Date.ds_Minute = res->date[1];
+		fib->fib_Date.ds_Tick = res->date[2];
+		fib->fib_Comment[0] = 0;
+
+		dp->dp_Res1 = DOSTRUE;
+		dp->dp_Res2 = 0;
+	}
+
+	reply_packet(dp);
+}
+
 void action_findxxx(struct DosPacket *dp)
 {
 	struct FileHandle *fh = (struct FileHandle *)BADDR(dp->dp_Arg1);
@@ -1149,6 +1201,7 @@ void start(__reg("a0") struct DosPacket *startup_packet)
 		case ACTION_PARENT: action_parent(dp); break;
 		case ACTION_EXAMINE_OBJECT: action_examine_object(dp); break;
 		case ACTION_EXAMINE_NEXT: action_examine_next(dp); break;
+		case ACTION_EXAMINE_FH: action_examine_fh(dp); break;
 
 		case ACTION_FINDUPDATE: action_findxxx(dp); break;
 		case ACTION_FINDINPUT: action_findxxx(dp); break;

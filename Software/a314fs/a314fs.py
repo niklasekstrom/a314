@@ -142,6 +142,7 @@ ACTION_END              = 1007
 ACTION_SEEK             = 1008
 ACTION_TRUNCATE         = 1022
 ACTION_WRITE_PROTECT    = 1023
+ACTION_EXAMINE_FH       = 1034
 
 ERROR_NO_FREE_STORE             = 103
 ERROR_TASK_TABLE_FULL           = 105
@@ -365,6 +366,25 @@ def process_examine_next(key, disk_key):
     fn = fn.encode('latin-1', 'ignore')
     return struct.pack('>HHHhIIIIIB', 1, 0, disk_key, type_, size, 0, days, mins, ticks, len(fn)) + fn
 
+def process_examine_fh(arg1):
+    logger.debug('ACTION_EXAMINE_FH, arg1: %s', arg1)
+
+    fn = open_file_handles[arg1].f.name
+    path = os.path.realpath(fn)
+    days, mins, ticks = mtime_to_dmt(os.path.getmtime(path))
+
+    if os.path.isfile(path):
+        size = os.path.getsize(path)
+        type_ = ST_FILE
+    else:
+        size = 0
+        type_ = ST_USERDIR
+
+    size = min(size, 2 ** 31 - 1)
+    fn = fn.encode('latin-1', 'ignore')
+    return struct.pack('>HHHhIIIIIB', 1, 0, 666, type_, size, 0, days, mins, ticks, len(fn)) + fn
+
+
 next_fp = 1
 
 open_file_handles = {}
@@ -566,6 +586,9 @@ def process_request(req):
     elif rtype == ACTION_EXAMINE_NEXT:
         key, disk_key = struct.unpack('>IH', req[2:8])
         return process_examine_next(key, disk_key)
+    elif rtype == ACTION_EXAMINE_FH:
+        (arg1,) = struct.unpack('>I', req[2:6])
+        return process_examine_fh(arg1)
     elif rtype == ACTION_FINDINPUT or rtype == ACTION_FINDOUTPUT or rtype == ACTION_FINDUPDATE:
         key, nlen = struct.unpack('>IB', req[2:7])
         name = req[7:7+nlen].decode('latin-1')
