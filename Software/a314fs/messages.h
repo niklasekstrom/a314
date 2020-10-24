@@ -265,6 +265,21 @@ struct SetCommentResponse
 	short error_code;
 };
 
+struct SameLockRequest
+{
+	short has_response;
+	short type;
+	long key1;
+	long key2;
+};
+
+struct SameLockResponse
+{
+	short has_response;
+	short success;
+	short error_code;
+};
+
 struct ExamineFhRequest
 {
 	short has_response;
