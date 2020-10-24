@@ -202,6 +202,7 @@ class ObjectLock(object):
         self.key = key
         self.mode = mode
         self.path = path
+        self.entry_it = None
 
 locks = {}
 
@@ -326,6 +327,7 @@ def process_examine_object(key):
     else:
         size = 0
         type_ = ST_USERDIR
+        ol.entry_it = os.scandir(path)
 
     size = min(size, 2 ** 31 - 1)
     fn = fn.encode('latin-1', 'ignore')
@@ -343,14 +345,13 @@ def process_examine_next(key, disk_key):
     if not os.path.isdir(path):
         return struct.pack('>HH', 0, ERROR_OBJECT_WRONG_TYPE)
 
-    entries = os.listdir(path)
-    have_listed = disk_key - 666
     disk_key += 1
 
-    if len(entries) <= have_listed:
+    entry = next(ol.entry_it, None)
+    if not entry:
         return struct.pack('>HH', 0, ERROR_NO_MORE_ENTRIES)
 
-    fn = entries[have_listed]
+    fn = entry.name
     path = ('/'.join(ol.path + (fn,)))
 
     days, mins, ticks = mtime_to_dmt(os.path.getmtime(path))
