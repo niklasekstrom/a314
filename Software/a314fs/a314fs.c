@@ -36,6 +36,10 @@
 #define ACTION_EXAMINE_FH 1034
 #endif
 
+#ifndef ACTION_SAME_LOCK
+#define ACTION_SAME_LOCK 40
+#endif
+
 struct ExecBase *SysBase;
 struct DosLibrary *DOSBase;
 struct MsgPort *mp;
@@ -1138,6 +1142,29 @@ void action_set_comment(struct DosPacket *dp)
 	reply_packet(dp);
 }
 
+void action_same_lock(struct DosPacket *dp)
+{
+	struct FileLock *lock1 = (struct FileLock *)BADDR(dp->dp_Arg1);
+	struct FileLock *lock2 = (struct FileLock *)BADDR(dp->dp_Arg2);
+
+	dbg("ACTION_SAME_LOCK\n");
+	dbg("  locks to compare = $l $l\n", lock1, lock2);
+
+	struct SameLockRequest *req = (struct SameLockRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = dp->dp_Type;
+	req->key1 = lock1->fl_Key;
+	req->key2 = lock2->fl_Key;
+
+	write_req_and_wait_for_res(sizeof(struct SameLockRequest));
+
+	struct SameLockResponse *res = (struct SameLockResponse *)request_buffer;
+	dp->dp_Res1 = res->success ? DOSTRUE : DOSFALSE;
+	dp->dp_Res2 = res->error_code;
+
+	reply_packet(dp);
+}
+
 void fill_info_data(struct InfoData *id)
 {
 	memset(id, 0, sizeof(struct InfoData));
@@ -1220,6 +1247,7 @@ void start(__reg("a0") struct DosPacket *startup_packet)
 		case ACTION_SET_COMMENT: action_set_comment(dp); break;
 		//case ACTION_SET_DATE: action_set_date(dp); break;
 
+		case ACTION_SAME_LOCK: action_same_lock(dp); break;
 		case ACTION_DISK_INFO: action_disk_info(dp); break;
 		case ACTION_INFO: action_info(dp); break;
 

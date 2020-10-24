@@ -132,6 +132,7 @@ ACTION_INHIBIT          = 31
 ACTION_DISK_TYPE        = 32
 ACTION_DISK_CHANGE      = 33
 ACTION_SET_DATE         = 34
+ACTION_SAME_LOCK        = 40
 ACTION_SCREEN_MODE      = 994
 ACTION_READ_RETURN      = 1001
 ACTION_WRITE_RETURN     = 1002
@@ -178,6 +179,10 @@ ERROR_NO_MORE_ENTRIES           = 232
 
 SHARED_LOCK         = -2
 EXCLUSIVE_LOCK      = -1
+
+LOCK_DIFFERENT      = -1
+LOCK_SAME           = 0
+LOCK_SAME_VOLUME    = 1
 
 MODE_OLDFILE        = 1005  # Open existing file read/write positioned at beginning of file.
 MODE_NEWFILE        = 1006  # Open freshly created file (delete old file) read/write, exclusive lock.
@@ -563,6 +568,16 @@ def process_set_comment(key, name, comment):
     # Unimplemented.
     return struct.pack('>HH', 1, 0)
 
+def process_same_lock(key1, key2):
+    logger.debug('ACTION_SAME_LOCK, key1: %s key2: %s', key1, key2)
+
+    if not (key1 in locks and key2 in locks):
+        return struct.pack('>HH', 0, LOCK_DIFFERENT)
+    elif locks[key1].path == locks[key2].path:
+        return struct.pack('>HH', 1, LOCK_SAME)
+    else:
+        return struct.pack('>HH', 0, LOCK_SAME_VOLUME)
+
 def process_request(req):
     #logger.debug('len(req): %s, req: %s', len(req), list(req))
 
@@ -628,6 +643,9 @@ def process_request(req):
         name = req[8:8+nlen].decode('latin-1')
         comment = req[8+nlen:8+nlen+clen].decode('latin-1')
         return process_set_comment(key, name, comment)
+    elif rtype == ACTION_SAME_LOCK:
+        key1, key2 = struct.unpack('>II', req[2:10])
+        return process_same_lock(key1, key2)
     else:
         return struct.pack('>HH', 0, ERROR_ACTION_NOT_KNOWN)
 
