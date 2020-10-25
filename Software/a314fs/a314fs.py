@@ -531,6 +531,10 @@ def process_rename_object(key, name, target_dir, new_name):
         return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
 
     to_path = '/'.join(cp2)
+
+    if from_path == to_path:
+        return struct.pack('>HH', 1, 0)
+
     if os.path.exists(to_path):
         return struct.pack('>HH', 0, ERROR_OBJECT_EXISTS)
 
