@@ -418,7 +418,7 @@ def process_findxxx(mode, key, name):
 
     cp = find_path(key, name)
     if cp is None:
-        return struct.pack('>HH', 0, ERROR_DIR_NOT_FOUND)
+        return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
 
     path = '/'.join(cp)
     if len(cp) == 0 or os.path.isdir(path):
