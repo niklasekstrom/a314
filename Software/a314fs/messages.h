@@ -280,6 +280,19 @@ struct SameLockResponse
 	short error_code;
 };
 
+struct InfoDataRequest
+{
+	short has_response;
+	short type;
+};
+
+struct InfoDataResponse
+{
+	short has_response;
+	long total;
+	long used;
+};
+
 struct ExamineFhRequest
 {
 	short has_response;

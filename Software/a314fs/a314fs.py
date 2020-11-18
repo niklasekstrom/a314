@@ -8,10 +8,12 @@ import sys
 import socket
 import time
 import os
+import shutil
 import struct
 import glob
 import logging
 import json
+import math
 
 logging.basicConfig(format = '%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s')
 logger = logging.getLogger(__name__)
@@ -199,6 +201,8 @@ ST_LINKDIR          = 4     # hard link to dir
 ST_FILE             = -3    # must be negative for FIB!
 ST_LINKFILE         = -4    # hard link to file
 ST_PIPEFILE         = -5
+
+BLOCKDEV_SIZE       = 512   # de-facto industry std. for most media
 
 current_stream_id = 0
 
@@ -582,6 +586,29 @@ def process_same_lock(key1, key2):
     else:
         return struct.pack('>HH', 0, LOCK_SAME_VOLUME)
 
+def process_get_blocks(directory, blocksize):
+    logger.debug('ACTION_(DISK_)INFO, Path: %s, BlSz: %s', directory, blocksize)
+    used = 0
+    free = 0
+    try:
+        free = math.floor(shutil.disk_usage(directory).free/blocksize)
+        for entry in os.scandir(directory):
+            if entry.is_file():
+                # if it's a file, use stat() function
+                used += entry.stat().st_size
+            elif entry.is_dir():
+                # if it's a directory, recursively call this function
+                used += process_get_blocks(entry.path)
+    used = math.ceil(used/blocksize)
+    except NotADirectoryError:
+        # if `directory` isn't a directory, get the file size then
+        used = math.ceil(os.path.getsize(directory)/blocksize)
+        return struct.pack('>II', free+used, used)
+    except PermissionError:
+        # if for whatever reason we can't open the folder, return 0
+        return struct.pack('>II', 0, 0)
+    return struct.pack('>II', free+used, used)
+    
 def process_request(req):
     #logger.debug('len(req): %s, req: %s', len(req), list(req))
 
@@ -650,6 +677,10 @@ def process_request(req):
     elif rtype == ACTION_SAME_LOCK:
         key1, key2 = struct.unpack('>II', req[2:10])
         return process_same_lock(key1, key2)
+    elif rtype == ACTION_DISK_INFO:
+        return process_get_blocks(SHARED_DIRECTORY, BLOCKDEV_SIZE)
+    elif rtype == ACTION_INFO:
+        return process_get_blocks(SHARED_DIRECTORY, BLOCKDEV_SIZE)
     else:
         return struct.pack('>HH', 0, ERROR_ACTION_NOT_KNOWN)
 

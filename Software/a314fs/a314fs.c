@@ -30,6 +30,7 @@
 
 #define REQ_RES_BUF_SIZE 256
 #define BUFFER_SIZE 4096
+#define BLOCKDEV_SIZE 512
 
 // Not defined if using NDK13
 #ifndef ACTION_EXAMINE_FH
@@ -1167,11 +1168,18 @@ void action_same_lock(struct DosPacket *dp)
 
 void fill_info_data(struct InfoData *id)
 {
+	struct InfoDataRequest *req = (struct InfoDataRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = 25;	// equivalent of ACTION_DISK_INFO
+
+	write_req_and_wait_for_res(sizeof(struct InfoDataRequest));
+
+	struct InfoDataResponse *res = (struct InfoDataResponse *)request_buffer;
 	memset(id, 0, sizeof(struct InfoData));
 	id->id_DiskState = ID_VALIDATED;
-	id->id_NumBlocks = 512 * 1024;
-	id->id_NumBlocksUsed = 10;
-	id->id_BytesPerBlock = 512;
+	id->id_NumBlocks = res->total;
+	id->id_NumBlocksUsed = res->used;
+	id->id_BytesPerBlock = BLOCKDEV_SIZE;
 	id->id_DiskType = my_volume->dl_DiskType;
 	id->id_VolumeNode = MKBADDR(my_volume);
 	id->id_InUse = DOSTRUE;
