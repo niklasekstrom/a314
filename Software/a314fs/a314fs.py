@@ -144,6 +144,7 @@ ACTION_SEEK             = 1008
 ACTION_TRUNCATE         = 1022
 ACTION_WRITE_PROTECT    = 1023
 ACTION_EXAMINE_FH       = 1034
+ACTION_UNSUPPORTED      = 65535
 
 ERROR_NO_FREE_STORE             = 103
 ERROR_TASK_TABLE_FULL           = 105
@@ -650,7 +651,12 @@ def process_request(req):
     elif rtype == ACTION_SAME_LOCK:
         key1, key2 = struct.unpack('>II', req[2:10])
         return process_same_lock(key1, key2)
+    elif rtype == ACTION_UNSUPPORTED:
+        (dp_Type,) = struct.unpack('>H', req[2:4])
+        logger.warning('Unsupported action %d (Amiga/a314fs)', dp_Type)
+        return struct.pack('>HH', 0, ERROR_ACTION_NOT_KNOWN)
     else:
+        logger.warning('Unsupported action %d (a314d/a314fs)', rtype)
         return struct.pack('>HH', 0, ERROR_ACTION_NOT_KNOWN)
 
 done = False
