@@ -301,4 +301,18 @@ struct ExamineFhResponse
 	char file_name[1];
 };
 
+struct UnsupportedRequest
+{
+	short has_response;
+	short type;
+	short dp_Type;
+};
+
+struct UnsupportedResponse
+{
+	short has_response;
+	short success;
+	short error_code;
+};
+
 #pragma pack(pop)

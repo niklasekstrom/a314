@@ -40,6 +40,9 @@
 #define ACTION_SAME_LOCK 40
 #endif
 
+// Grab a reserved action type which seems to be unused
+#define ACTION_UNSUPPORTED 65535
+
 struct ExecBase *SysBase;
 struct DosLibrary *DOSBase;
 struct MsgPort *mp;
@@ -1205,6 +1208,24 @@ void action_disk_info(struct DosPacket *dp)
 	reply_packet(dp);
 }
 
+void action_unsupported(struct DosPacket *dp)
+{
+	dbg("ACTION_UNSUPPORTED\n");
+	dbg("  Unsupported action: $l\n", (ULONG)dp->dp_Type);
+
+	struct UnsupportedRequest *req = (struct UnsupportedRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = ACTION_UNSUPPORTED;
+	req->dp_Type = dp->dp_Type;
+
+	write_req_and_wait_for_res(sizeof(struct UnsupportedRequest));
+
+	struct UnsupportedResponse *res = (struct UnsupportedResponse *)request_buffer;
+	dp->dp_Res1 = res->success ? DOSTRUE : DOSFALSE;
+	dp->dp_Res2 = res->error_code;
+	reply_packet(dp);
+}
+
 void start(__reg("a0") struct DosPacket *startup_packet)
 {
 	SysBase = *(struct ExecBase **)4;
@@ -1262,12 +1283,7 @@ void start(__reg("a0") struct DosPacket *startup_packet)
 		case ACTION_WRITE_PROTECT: //action_write_protect(dp); break;
 		*/
 
-		default:
-			dbg("Unknown action: $l\n", (ULONG)dp->dp_Type);
-			dp->dp_Res1 = DOSFALSE;
-			dp->dp_Res2 = ERROR_ACTION_NOT_KNOWN;
-			reply_packet(dp);
-			break;
+		default: action_unsupported(dp); break;
 		}
 	}
 
