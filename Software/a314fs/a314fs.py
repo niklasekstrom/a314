@@ -380,7 +380,7 @@ def process_examine_object(key):
     size = min(size, 2 ** 31 - 1)
     fn = (chr(len(fn)) + fn).encode('latin-1', 'ignore')
     comment = (chr(len(comment)) + comment).encode('latin-1', 'ignore')
-    return struct.pack('>HHHhIIIII', 1, 0, 666, type_, size, 0, days, mins, ticks) + fn + comment
+    return struct.pack('>HHHhIIIII', 1, 0, 666, type_, size, protection, days, mins, ticks) + fn + comment
 
 def process_examine_next(key, disk_key):
     logger.debug('ACTION_EXAMINE_NEXT, key: %s, disk_key: %s', key, disk_key)
@@ -419,7 +419,7 @@ def process_examine_next(key, disk_key):
     size = min(size, 2 ** 31 - 1)
     fn = (chr(len(fn)) + fn).encode('latin-1', 'ignore')
     comment = (chr(len(comment)) + comment).encode('latin-1', 'ignore')
-    return struct.pack('>HHHhIIIII', 1, 0, disk_key, type_, size, 0, days, mins, ticks) + fn + comment
+    return struct.pack('>HHHhIIIII', 1, 0, disk_key, type_, size, protection, days, mins, ticks) + fn + comment
 
 def process_examine_fh(arg1):
     logger.debug('ACTION_EXAMINE_FH, arg1: %s', arg1)
@@ -439,7 +439,7 @@ def process_examine_fh(arg1):
     size = min(size, 2 ** 31 - 1)
     fn = (chr(len(fn)) + fn).encode('latin-1', 'ignore')
     comment = (chr(len(comment)) + comment).encode('latin-1', 'ignore')
-    return struct.pack('>HHHhIIIII', 1, 0, 666, type_, size, 0, days, mins, ticks) + fn + comment
+    return struct.pack('>HHHhIIIII', 1, 0, 666, type_, size, protection, days, mins, ticks) + fn + comment
 
 
 next_fp = 1
@@ -619,8 +619,16 @@ def process_create_dir(key, name):
 
 def process_set_protect(key, name, mask):
     logger.debug('ACTION_SET_PROTECT, key: %s, name: %s, mask: %s', key, name, mask)
-    # Unimplemented.
-    return struct.pack('>HH', 1, 0)
+
+    cp = find_path(key, name)
+    if cp is None or len(cp) == 0:
+        return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
+
+    path = '/'.join(cp)
+    if write_metadata(path, protection=mask):
+        return struct.pack('>HH', 1, 0)
+    else:
+        return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
 
 def process_set_comment(key, name, comment):
     logger.debug('ACTION_SET_COMMENT, key: %s, name: %s, comment: %s', key, name, comment)
