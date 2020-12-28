@@ -79,7 +79,7 @@ struct ExamineObjectResponse
 	int size;
 	int protection;
 	int date[3];
-	char file_name[1];
+	char data[1];
 };
 
 struct ExamineNextRequest
@@ -101,7 +101,7 @@ struct ExamineNextResponse
 	int size;
 	int protection;
 	int date[3];
-	char file_name[1];
+	char data[1];
 };
 
 struct FindXxxRequest
@@ -298,7 +298,7 @@ struct ExamineFhResponse
 	int size;
 	int protection;
 	int date[3];
-	char file_name[1];
+	char data[1];
 };
 
 struct UnsupportedRequest

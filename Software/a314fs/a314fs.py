@@ -20,6 +20,7 @@ logger.setLevel(logging.INFO)
 CONFIG_FILE_PATH = '/etc/opt/a314/a314fs.conf'
 
 SHARED_DIRECTORY = '/home/pi/a314shared'
+METAFILE_EXTENSION = ':a314'
 
 with open(CONFIG_FILE_PATH, encoding='utf-8') as f:
     cfg = json.load(f)
@@ -265,6 +266,46 @@ def find_path(key, name):
 
     return cp
 
+def read_metadata(path):
+    protection = 0
+    comment = ''
+
+    try:
+        f = open(path + METAFILE_EXTENSION, 'r')
+        for line in f:
+            if line[0] == 'p':
+                try:
+                    protection = int(line[1:].strip())
+                except ValueError:
+                    pass
+            elif line[0] == 'c':
+                comment = line[1:].strip()[:79]
+        f.close()
+    except FileNotFoundError:
+        pass
+    return (protection, comment)
+
+def write_metadata(path, protection=None, comment=None):
+    p, c = read_metadata(path)
+
+    if protection == None:
+        protection = p
+    if comment == None:
+        comment = c
+
+    if (p, c) == (protection, comment):
+        return True
+
+    try:
+        f = open(path + METAFILE_EXTENSION, 'w')
+        f.write('p' + str(protection) + '\n')
+        f.write('c' + comment + '\n')
+        f.close()
+    except FileNotFoundError as e:
+        logger.warning('Failed to write metadata for file %s: %s', path, e)
+        return False
+    return True
+
 def process_locate_object(key, mode, name):
     logger.debug('ACTION_LOCATE_OBJECT, key: %s, mode: %s, name: %s', key, mode, name)
 
@@ -326,6 +367,7 @@ def process_examine_object(key):
         path = '/'.join(ol.path)
 
     days, mins, ticks = mtime_to_dmt(os.path.getmtime(path))
+    protection, comment = read_metadata(path)
 
     if os.path.isfile(path):
         size = os.path.getsize(path)
@@ -336,8 +378,9 @@ def process_examine_object(key):
         ol.entry_it = os.scandir(path)
 
     size = min(size, 2 ** 31 - 1)
-    fn = fn.encode('latin-1', 'ignore')
-    return struct.pack('>HHHhIIIIIB', 1, 0, 666, type_, size, 0, days, mins, ticks, len(fn)) + fn
+    fn = (chr(len(fn)) + fn).encode('latin-1', 'ignore')
+    comment = (chr(len(comment)) + comment).encode('latin-1', 'ignore')
+    return struct.pack('>HHHhIIIII', 1, 0, 666, type_, size, 0, days, mins, ticks) + fn + comment
 
 def process_examine_next(key, disk_key):
     logger.debug('ACTION_EXAMINE_NEXT, key: %s, disk_key: %s', key, disk_key)
@@ -354,13 +397,17 @@ def process_examine_next(key, disk_key):
     disk_key += 1
 
     entry = next(ol.entry_it, None)
+    while entry and entry.name.endswith(METAFILE_EXTENSION):
+        entry = next(ol.entry_it, None)
+
     if not entry:
         return struct.pack('>HH', 0, ERROR_NO_MORE_ENTRIES)
 
     fn = entry.name
     path = ('/'.join(ol.path + (fn,)))
 
-    days, mins, ticks = mtime_to_dmt(os.path.getmtime(path))
+    days, mins, ticks = mtime_to_dmt(entry.stat().st_mtime)
+    protection, comment = read_metadata(path)
 
     if os.path.isfile(path):
         size = os.path.getsize(path)
@@ -370,8 +417,9 @@ def process_examine_next(key, disk_key):
         type_ = ST_USERDIR
 
     size = min(size, 2 ** 31 - 1)
-    fn = fn.encode('latin-1', 'ignore')
-    return struct.pack('>HHHhIIIIIB', 1, 0, disk_key, type_, size, 0, days, mins, ticks, len(fn)) + fn
+    fn = (chr(len(fn)) + fn).encode('latin-1', 'ignore')
+    comment = (chr(len(comment)) + comment).encode('latin-1', 'ignore')
+    return struct.pack('>HHHhIIIII', 1, 0, disk_key, type_, size, 0, days, mins, ticks) + fn + comment
 
 def process_examine_fh(arg1):
     logger.debug('ACTION_EXAMINE_FH, arg1: %s', arg1)
@@ -379,6 +427,7 @@ def process_examine_fh(arg1):
     fn = open_file_handles[arg1].f.name
     path = os.path.realpath(fn)
     days, mins, ticks = mtime_to_dmt(os.path.getmtime(path))
+    protection, comment = read_metadata(path)
 
     if os.path.isfile(path):
         size = os.path.getsize(path)
@@ -388,8 +437,9 @@ def process_examine_fh(arg1):
         type_ = ST_USERDIR
 
     size = min(size, 2 ** 31 - 1)
-    fn = fn.encode('latin-1', 'ignore')
-    return struct.pack('>HHHhIIIIIB', 1, 0, 666, type_, size, 0, days, mins, ticks, len(fn)) + fn
+    fn = (chr(len(fn)) + fn).encode('latin-1', 'ignore')
+    comment = (chr(len(comment)) + comment).encode('latin-1', 'ignore')
+    return struct.pack('>HHHhIIIII', 1, 0, 666, type_, size, 0, days, mins, ticks) + fn + comment
 
 
 next_fp = 1
@@ -508,6 +558,8 @@ def process_delete_object(key, name):
             os.rmdir(path)
         else:
             os.remove(path)
+        if os.path.isfile(path + METAFILE_EXTENSION):
+            os.remove(path + METAFILE_EXTENSION)
     except:
         if is_dir:
             return struct.pack('>HH', 0, ERROR_DIRECTORY_NOT_EMPTY)
@@ -541,6 +593,8 @@ def process_rename_object(key, name, target_dir, new_name):
 
     try:
         os.rename(from_path, to_path)
+        if os.path.isfile(from_path + METAFILE_EXTENSION):
+            os.rename(from_path + METAFILE_EXTENSION, to_path + METAFILE_EXTENSION)
     except:
         return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
 
@@ -570,8 +624,19 @@ def process_set_protect(key, name, mask):
 
 def process_set_comment(key, name, comment):
     logger.debug('ACTION_SET_COMMENT, key: %s, name: %s, comment: %s', key, name, comment)
-    # Unimplemented.
-    return struct.pack('>HH', 1, 0)
+
+    if len(comment) > 79:
+        return struct.pack('>HH', 0, ERROR_COMMENT_TOO_BIG)
+
+    cp = find_path(key, name)
+    if cp is None or len(cp) == 0:
+        return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
+
+    path = '/'.join(cp)
+    if write_metadata(path, comment=comment):
+        return struct.pack('>HH', 1, 0)
+    else:
+        return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
 
 def process_same_lock(key1, key2):
     logger.debug('ACTION_SAME_LOCK, key1: %s key2: %s', key1, key2)
