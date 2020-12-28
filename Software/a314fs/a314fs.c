@@ -607,9 +607,13 @@ void action_examine_object(struct DosPacket *dp)
 	}
 	else
 	{
-		int nlen = (unsigned char)(res->file_name[0]);
-		memcpy(fib->fib_FileName, res->file_name, nlen + 1);
+		int nlen = (unsigned char)(res->data[0]);
+		memcpy(fib->fib_FileName, res->data, nlen + 1);
 		fib->fib_FileName[nlen + 1] = 0;
+
+		int clen = (unsigned char)(res->data[nlen + 1]);
+		memcpy(fib->fib_Comment, &(res->data[nlen + 1]), clen + 1);
+		fib->fib_Comment[clen + 1] = 0;
 
 		fib->fib_DiskKey = res->disk_key;
 		fib->fib_DirEntryType = res->entry_type;
@@ -620,7 +624,6 @@ void action_examine_object(struct DosPacket *dp)
 		fib->fib_Date.ds_Days = res->date[0];
 		fib->fib_Date.ds_Minute = res->date[1];
 		fib->fib_Date.ds_Tick = res->date[2];
-		fib->fib_Comment[0] = 0;
 
 		dp->dp_Res1 = DOSTRUE;
 		dp->dp_Res2 = 0;
@@ -655,9 +658,13 @@ void action_examine_next(struct DosPacket *dp)
 	}
 	else
 	{
-		int fnl = (unsigned char)(res->file_name[0]);
-		memcpy(fib->fib_FileName, res->file_name, fnl + 1);
-		fib->fib_FileName[fnl + 1] = 0;
+		int nlen = (unsigned char)(res->data[0]);
+		memcpy(fib->fib_FileName, res->data, nlen + 1);
+		fib->fib_FileName[nlen + 1] = 0;
+
+		int clen = (unsigned char)(res->data[nlen + 1]);
+		memcpy(fib->fib_Comment, &(res->data[nlen + 1]), clen + 1);
+		fib->fib_Comment[clen + 1] = 0;
 
 		fib->fib_DiskKey = res->disk_key;
 		fib->fib_DirEntryType = res->entry_type;
@@ -668,7 +675,6 @@ void action_examine_next(struct DosPacket *dp)
 		fib->fib_Date.ds_Days = res->date[0];
 		fib->fib_Date.ds_Minute = res->date[1];
 		fib->fib_Date.ds_Tick = res->date[2];
-		fib->fib_Comment[0] = 0;
 
 		dp->dp_Res1 = DOSTRUE;
 		dp->dp_Res2 = 0;
@@ -702,9 +708,13 @@ void action_examine_fh(struct DosPacket *dp)
 	}
 	else
 	{
-		int nlen = (unsigned char)(res->file_name[0]);
-		memcpy(fib->fib_FileName, res->file_name, nlen + 1);
+		int nlen = (unsigned char)(res->data[0]);
+		memcpy(fib->fib_FileName, res->data, nlen + 1);
 		fib->fib_FileName[nlen + 1] = 0;
+
+		int clen = (unsigned char)(res->data[nlen + 1]);
+		memcpy(fib->fib_Comment, &(res->data[nlen + 1]), clen + 1);
+		fib->fib_Comment[clen + 1] = 0;
 
 		fib->fib_DiskKey = res->disk_key;
 		fib->fib_DirEntryType = res->entry_type;
@@ -715,7 +725,6 @@ void action_examine_fh(struct DosPacket *dp)
 		fib->fib_Date.ds_Days = res->date[0];
 		fib->fib_Date.ds_Minute = res->date[1];
 		fib->fib_Date.ds_Tick = res->date[2];
-		fib->fib_Comment[0] = 0;
 
 		dp->dp_Res1 = DOSTRUE;
 		dp->dp_Res2 = 0;
