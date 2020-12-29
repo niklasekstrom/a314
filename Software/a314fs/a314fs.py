@@ -455,9 +455,10 @@ def get_file_ptr():
     return fp
 
 class OpenFileHandle(object):
-    def __init__(self, fp, f):
+    def __init__(self, fp, f, p):
         self.fp = fp
         self.f = f
+        self.p = p
 
 def process_findxxx(mode, key, name):
     if mode == ACTION_FINDINPUT:
@@ -479,10 +480,15 @@ def process_findxxx(mode, key, name):
 
     # TODO: This must be handled better. Especially error reporting.
 
+    protection, _ = read_metadata(path)
     try:
         if mode == MODE_OLDFILE or mode == MODE_READWRITE:
             f = open(path, 'r+b')
         elif mode == MODE_NEWFILE:
+            if protection & 0x1:
+                return struct.pack('>HH', 0, ERROR_DELETE_PROTECTED)
+            elif protection & 0x4:
+                return struct.pack('>HH', 0, ERROR_WRITE_PROTECTED)
             f = open(path, 'w+b')
     except IOError:
         if mode == MODE_READWRITE:
@@ -494,13 +500,16 @@ def process_findxxx(mode, key, name):
             return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
 
     fp = get_file_ptr()
-    ofh = OpenFileHandle(fp, f)
+    ofh = OpenFileHandle(fp, f, protection)
     open_file_handles[fp] = ofh
 
     return struct.pack('>HHI', 1, 0, fp)
 
 def process_read(arg1, address, length):
     logger.debug('ACTION_READ, arg1: %s, address: %s, length: %s', arg1, address, length)
+    protection = open_file_handles[arg1].p
+    if protection & 0x8:
+        return struct.pack('>HH', 0, ERROR_READ_PROTECTED)
     f = open_file_handles[arg1].f
     data = f.read(length)
     if len(data) != 0:
@@ -509,6 +518,9 @@ def process_read(arg1, address, length):
 
 def process_write(arg1, address, length):
     logger.debug('ACTION_WRITE, arg1: %s, address: %s, length: %s', arg1, address, length)
+    protection = open_file_handles[arg1].p
+    if protection & 0x4:
+        return struct.pack('>HH', 0, ERROR_WRITE_PROTECTED)
     data = read_mem(address, length)
     f = open_file_handles[arg1].f
     f.seek(0, 1)
@@ -552,6 +564,10 @@ def process_delete_object(key, name):
 
     path = '/'.join(cp)
     is_dir = os.path.isdir(path)
+
+    protection, _ = read_metadata(path)
+    if protection & 0x1:
+        return struct.pack('>HH', 0, ERROR_DELETE_PROTECTED)
 
     try:
         if is_dir:

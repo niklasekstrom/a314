@@ -820,6 +820,7 @@ void action_read(struct DosPacket *dp)
 			dbg("  Failed, error code $l\n", (LONG)res->error_code);
 			dp->dp_Res1 = -1;
 			dp->dp_Res2 = res->error_code;
+			reply_packet(dp);
 			return;
 		}
 
@@ -874,6 +875,7 @@ void action_write(struct DosPacket *dp)
 			dbg("  Failed, error code $l\n", (LONG)res->error_code);
 			dp->dp_Res1 = total_written;
 			dp->dp_Res2 = res->error_code;
+			reply_packet(dp);
 			return;
 		}
 
