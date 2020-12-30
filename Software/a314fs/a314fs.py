@@ -270,6 +270,9 @@ def read_metadata(path):
     protection = 0
     comment = ''
 
+    if not os.path.isfile(path + METAFILE_EXTENSION):
+        return (protection, comment)
+
     try:
         f = open(path + METAFILE_EXTENSION, 'r')
         for line in f:
@@ -482,18 +485,29 @@ def process_findxxx(mode, key, name):
 
     protection, _ = read_metadata(path)
     try:
-        if mode == MODE_OLDFILE or mode == MODE_READWRITE:
+        if mode == MODE_OLDFILE:
             f = open(path, 'r+b')
+        elif mode == MODE_READWRITE:
+            f = open(path, 'r+b')
+            if protection & 16:
+                protection = protection & 0b11101111
+                write_metadata(path, protection=protection)
         elif mode == MODE_NEWFILE:
             if protection & 0x1:
                 return struct.pack('>HH', 0, ERROR_DELETE_PROTECTED)
             elif protection & 0x4:
                 return struct.pack('>HH', 0, ERROR_WRITE_PROTECTED)
             f = open(path, 'w+b')
+            if protection & 16:
+                protection = protection & 0b11101111
+                write_metadata(path, protection=protection)
     except IOError:
         if mode == MODE_READWRITE:
             try:
                 f = open(path, 'w+b')
+                if protection & 16:
+                    protection = protection & 0b11101111
+                    write_metadata(path, protection=protection)
             except IOError:
                 return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
         else:
