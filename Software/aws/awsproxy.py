@@ -237,10 +237,12 @@ def process_client_readable(c):
 
 def process_incoming_connection():
     sock, _ = server_socket.accept()
-    logger.info('Accepted client connection')
     if current_stream_id is None:
+        logger.info('Rejected client connection since Amiga is not connected')
         sock.close()
     else:
+        logger.info('Accepted client connection')
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         clients.append(Client(sock))
 
 def process_drv_msg(stream_id, ptype, payload):

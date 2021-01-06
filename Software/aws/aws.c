@@ -43,35 +43,35 @@ struct WindowInfo
 	UWORD buf_height;
 	UBYTE buf_depth;
 	UBYTE wid;
-	char title[128];
+	char title[66];
 };
 
-struct WindowInfo *windows_head = NULL;
-struct WindowInfo *windows_tail = NULL;
-
-struct MsgPort *mp;
-struct MsgPort *wmp;
-
-ULONG socket;
+static struct WindowInfo *windows_head = NULL;
+static struct WindowInfo *windows_tail = NULL;
 
 struct Library *A314Base;
 struct IntuitionBase *IntuitionBase;
 struct GfxBase *GfxBase;
 
-struct A314_IORequest *cmsg;
-struct A314_IORequest *rmsg;
-struct A314_IORequest *wmsg;
+static struct MsgPort *mp;
+static struct MsgPort *wmp;
 
-UBYTE arbuf[256];
-UBYTE awbuf[256];
+static struct A314_IORequest *cmsg;
+static struct A314_IORequest *rmsg;
+static struct A314_IORequest *wmsg;
 
-BOOL pending_a314_read = FALSE;
-BOOL pending_a314_write = FALSE;
-BOOL pending_a314_reset = FALSE;
+static ULONG socket;
 
-BOOL stream_closed = FALSE;
+static UBYTE arbuf[256];
+static UBYTE awbuf[256];
 
-void start_a314_cmd(struct A314_IORequest *msg, UWORD command, char *buffer, int length)
+static BOOL pending_a314_read = FALSE;
+static BOOL pending_a314_write = FALSE;
+static BOOL pending_a314_reset = FALSE;
+
+static BOOL stream_closed = FALSE;
+
+static void start_a314_cmd(struct A314_IORequest *msg, UWORD command, char *buffer, int length)
 {
 	msg->a314_Request.io_Command = command;
 	msg->a314_Request.io_Error = 0;
@@ -83,20 +83,20 @@ void start_a314_cmd(struct A314_IORequest *msg, UWORD command, char *buffer, int
 	SendIO((struct IORequest *)msg);
 }
 
-LONG a314_connect(char *name)
+static LONG a314_connect(char *name)
 {
 	socket = time(NULL);
 	start_a314_cmd(cmsg, A314_CONNECT, name, strlen(name));
 	return WaitIO((struct IORequest *)cmsg);
 }
 
-void start_a314_read()
+static void start_a314_read()
 {
 	start_a314_cmd(rmsg, A314_READ, arbuf, 255);
 	pending_a314_read = TRUE;
 }
 
-void wait_a314_write_complete()
+static void wait_a314_write_complete()
 {
 	if (pending_a314_write)
 	{
@@ -105,57 +105,43 @@ void wait_a314_write_complete()
 	}
 }
 
-void start_a314_write(int length)
+static void start_a314_write(int length)
 {
 	start_a314_cmd(wmsg, A314_WRITE, awbuf, length);
 	pending_a314_write = TRUE;
 }
 
-LONG sync_a314_write(int length)
-{
-	start_a314_write(length);
-	pending_a314_write = FALSE;
-	return WaitIO((struct IORequest *)wmsg);
-}
-
-void start_a314_reset()
+static void start_a314_reset()
 {
 	start_a314_cmd(cmsg, A314_RESET, NULL, 0);
 	pending_a314_reset = TRUE;
 }
 
-LONG sync_a314_reset()
-{
-	start_a314_reset();
-	pending_a314_reset = FALSE;
-	return WaitIO((struct IORequest *)cmsg);
-}
-
-struct WindowInfo *find_window_by_id(ULONG wid)
+static struct WindowInfo *find_window_by_id(ULONG wid)
 {
 	struct WindowInfo *wi = windows_head;
 	while (wi)
 	{
 		if (wi->wid == wid)
-			return wi;
+			break;
 		wi = wi->next;
 	}
 	return wi;
 }
 
-struct WindowInfo *find_window(struct Window *w)
+static struct WindowInfo *find_window(struct Window *w)
 {
 	struct WindowInfo *wi = windows_head;
 	while (wi)
 	{
 		if (wi->window == w)
-			return wi;
+			break;
 		wi = wi->next;
 	}
 	return wi;
 }
 
-void append_window(struct WindowInfo *wi)
+static void append_window(struct WindowInfo *wi)
 {
 	wi->next = NULL;
 	wi->prev = windows_tail;
@@ -166,7 +152,7 @@ void append_window(struct WindowInfo *wi)
 	windows_tail = wi;
 }
 
-void remove_window(struct WindowInfo *wi)
+static void remove_window(struct WindowInfo *wi)
 {
 	if (wi->prev)
 		wi->prev->next = wi->next;
@@ -182,7 +168,7 @@ void remove_window(struct WindowInfo *wi)
 	wi->next = NULL;
 }
 
-void handle_req_open_window()
+static void handle_req_open_window()
 {
 	struct WindowInfo *wi = (struct WindowInfo *)AllocMem(sizeof(struct WindowInfo), MEMF_CLEAR);
 
@@ -191,7 +177,11 @@ void handle_req_open_window()
 	UWORD top = *(UWORD *)&arbuf[4];
 	UWORD width = *(UWORD *)&arbuf[6];
 	UWORD height = *(UWORD *)&arbuf[8];
-	memcpy(wi->title, &arbuf[10], rmsg->a314_Length - 10);
+
+	int title_len = rmsg->a314_Length - 10;
+	if (title_len > sizeof(wi->title) - 1)
+		title_len = sizeof(wi->title) - 1;
+	memcpy(wi->title, &arbuf[10], title_len);
 
 	struct NewWindow nw =
 	{
@@ -255,25 +245,17 @@ void handle_req_open_window()
 	FreeMem(wi, sizeof(struct WindowInfo));
 
 	wait_a314_write_complete();
-
 	awbuf[0] = AWS_RES_OPEN_WINDOW_FAIL;
 	awbuf[1] = wid;
 	start_a314_write(2);
 }
 
-void handle_req_close_window()
+static void close_window(struct WindowInfo *wi)
 {
-	UBYTE wid = arbuf[1];
-	struct WindowInfo *wi = find_window_by_id(wid);
-	if (!wi)
-		return;
-
 	remove_window(wi);
 
-	ULONG pixels = wi->buf_width;
-	pixels = (pixels + 15) & ~15;
-	pixels = pixels * wi->buf_height * wi->buf_depth;
-	FreeMem(wi->buffer, pixels >> 3);
+	ULONG buffer_size = wi->bm.BytesPerRow * wi->bm.Rows * wi->bm.Depth;
+	FreeMem(wi->buffer, buffer_size);
 
 	wi->window->UserPort = NULL;
 	CloseWindow(wi->window);
@@ -281,7 +263,15 @@ void handle_req_close_window()
 	FreeMem(wi, sizeof(struct WindowInfo));
 }
 
-void redraw_window(struct WindowInfo *wi)
+static void handle_req_close_window()
+{
+	UBYTE wid = arbuf[1];
+	struct WindowInfo *wi = find_window_by_id(wid);
+	if (wi)
+		close_window(wi);
+}
+
+static void redraw_window(struct WindowInfo *wi)
 {
 	struct RastPort rp;
 	rp.Layer = NULL;
@@ -290,7 +280,7 @@ void redraw_window(struct WindowInfo *wi)
 	ClipBlit(&rp, 0, 0, w->RPort, w->BorderLeft, w->BorderTop, wi->buf_width, wi->buf_height, 0xc0);
 }
 
-void handle_req_flip_buffer()
+static void handle_req_flip_buffer()
 {
 	UBYTE wid = arbuf[1];
 	struct WindowInfo *wi = find_window_by_id(wid);
@@ -298,7 +288,7 @@ void handle_req_flip_buffer()
 		redraw_window(wi);
 }
 
-void handle_intui_message(struct IntuiMessage *im)
+static void handle_intui_message(struct IntuiMessage *im)
 {
 	ULONG class = im->Class;
 	struct WindowInfo *wi = find_window(im->IDCMPWindow);
@@ -321,7 +311,7 @@ void handle_intui_message(struct IntuiMessage *im)
 	}
 }
 
-void handle_a314_read_completed()
+static void handle_a314_read_completed()
 {
 	pending_a314_read = FALSE;
 
@@ -427,6 +417,9 @@ int main()
 		if (stream_closed && !pending_a314_read && !pending_a314_write && !pending_a314_reset)
 			break;
 	}
+
+	while (windows_head)
+		close_window(windows_head);
 
 fail_out2:
 	DeleteExtIO((struct IORequest *)wmsg);
