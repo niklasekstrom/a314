@@ -13,12 +13,17 @@ window_sizes = {}
 
 class ConnectionCallbacks(object):
     # Take care as these callbacks are executed in a separate thread!
+
+    # There is currently no synchronization in awslib,
+    # so you should not invoke connection methods on this thread.
+
     # An option is to forward the notification to the main thread through a queue or socketpair.
     def connection_closed(self, conn):
         print('Connection closed')
 
     def event_close_window(self, conn, wid):
         print('Close button clicked for window {}'.format(wid))
+        # TODO: Close window, but not on this thread.
 
 conn = awslib.connect(ConnectionCallbacks())
 if conn is None:
@@ -27,6 +32,7 @@ if conn is None:
 
 def print_help():
     print("Possible commands:")
+    print("  info")
     print("  open <x> <y> <w> <h> <title>")
     print("  close <wid>")
     print("  flip <wid>")
@@ -34,7 +40,7 @@ def print_help():
     print("  quit")
 
 print("Connected to AWS")
-print("Enter command (open/close/flip/help/quit):")
+print("Enter command (info/open/close/flip/help/quit):")
 
 while True:
     arr = sys.stdin.readline().strip().split()
@@ -44,6 +50,11 @@ while True:
             break
         elif arr[0] == 'help':
             print_help()
+        elif arr[0] == 'info':
+            w, h, d, pal = conn.get_wb_screen_info()
+            print('Screen info:')
+            print('  width={}, height={}, depth={}'.format(w, h, d))
+            print('  palette={}'.format([('%04x' % c) for c in pal]))
         elif arr[0] == 'open':
             x, y, w, h = int(arr[1]), int(arr[2]), int(arr[3]), int(arr[4])
             title = ' '.join(arr[5:])

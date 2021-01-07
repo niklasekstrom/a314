@@ -25,6 +25,8 @@ AWS_CLIENT_REQ_COPY_FLIP_BUFFER = 3
 AWS_CLIENT_RES_OPEN_WINDOW_FAIL = 4
 AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS = 5
 AWS_CLIENT_EVENT_CLOSE_WINDOW = 6
+AWS_CLIENT_REQ_WB_SCREEN_INFO = 7
+AWS_CLIENT_RES_WB_SCREEN_INFO = 8
 
 class Window(object):
     def __init__(self, wid):
@@ -66,12 +68,8 @@ class Connection(threading.Thread):
 
     def process_msg(self, msg):
         cmd = msg[0]
-        if cmd == AWS_CLIENT_RES_OPEN_WINDOW_FAIL:
-            wid = struct.unpack('=H', msg[1:3])[0]
-            self.sync_queue.put(None)
-        elif cmd == AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS:
-            wid, width, height, depth = struct.unpack('=HHHH', msg[1:9])
-            self.sync_queue.put((width, height, depth))
+        if cmd in [AWS_CLIENT_RES_OPEN_WINDOW_FAIL, AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS, AWS_CLIENT_RES_WB_SCREEN_INFO]:
+            self.sync_queue.put(msg)
         elif cmd == AWS_CLIENT_EVENT_CLOSE_WINDOW:
             wid = struct.unpack('=H', msg[1:3])[0]
             self.callbacks.event_close_window(self, wid)
@@ -97,6 +95,16 @@ class Connection(threading.Thread):
 
         return True
 
+    def get_wb_screen_info(self):
+        self.send(bytes([AWS_CLIENT_REQ_WB_SCREEN_INFO]))
+        msg = self.sync_queue.get()
+        if msg is None:
+            raise RuntimeError('Connection failed')
+        w, h, d = struct.unpack('=HHH', msg[1:7])
+        pal = msg[7:]
+        pal = [struct.unpack('=H', pal[2*i:2*(i+1)])[0] for i in range(len(pal) // 2)]
+        return (w, h, d, pal)
+
     def open_window(self, left, top, width, height, title):
         if not self.is_open:
             return None, None
@@ -107,14 +115,21 @@ class Connection(threading.Thread):
         self.next_wid = (wid + 1) % 65536
         self.windows[wid] = Window(wid)
         self.send(struct.pack('=BHHHHH', AWS_CLIENT_REQ_OPEN_WINDOW, wid, left, top, width, height) + title.encode('latin-1'))
-        size = self.sync_queue.get()
-        if not size:
+        msg = self.sync_queue.get()
+        if not msg:
+            raise RuntimeError('Connection failed')
+
+        cmd = msg[0]
+        if cmd == AWS_CLIENT_RES_OPEN_WINDOW_FAIL:
+            #wid = struct.unpack('=H', msg[1:3])[0]
             del self.windows[wid]
             return None, None
-        else:
+        elif cmd == AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS:
             w = self.windows[wid]
-            w.width, w.height, w.depth = size
-            return wid, size
+            _, w.width, w.height, w.depth = struct.unpack('=HHHH', msg[1:9])
+            return w.wid, (w.width, w.height, w.depth)
+        else:
+            raise RuntimeError('Invalid response')
 
     def close_window(self, wid):
         if not self.is_open or wid not in self.windows:

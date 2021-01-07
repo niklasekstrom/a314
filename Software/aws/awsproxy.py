@@ -104,6 +104,7 @@ class Client(object):
         self.sock = sock
         self.rbuf = None
         self.windows = {} # cwid -> window object.
+        self.waiting_for_wb_screen_info = False
 
     def send(self, data):
         data = struct.pack('=I', len(data)) + data
@@ -141,6 +142,8 @@ AWS_REQ_FLIP_BUFFER = 3
 AWS_RES_OPEN_WINDOW_FAIL = 4
 AWS_RES_OPEN_WINDOW_SUCCESS = 5
 AWS_EVENT_CLOSE_WINDOW = 6
+AWS_REQ_WB_SCREEN_INFO = 7
+AWS_RES_WB_SCREEN_INFO = 8
 
 # Definiera de olika meddelandena som går mellan klient och awsproxy.
 AWS_CLIENT_REQ_OPEN_WINDOW = 1
@@ -149,6 +152,8 @@ AWS_CLIENT_REQ_COPY_FLIP_BUFFER = 3
 AWS_CLIENT_RES_OPEN_WINDOW_FAIL = 4
 AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS = 5
 AWS_CLIENT_EVENT_CLOSE_WINDOW = 6
+AWS_CLIENT_REQ_WB_SCREEN_INFO = 7
+AWS_CLIENT_RES_WB_SCREEN_INFO = 8
 
 # Kan stänga klientanslutningen när som helst, vilket resettar allt state.
 
@@ -176,6 +181,16 @@ def process_drv_data(msg):
             w = windows[wid]
             c = w.client
             c.send(struct.pack('=BH', AWS_CLIENT_EVENT_CLOSE_WINDOW, w.cwid))
+    elif cmd == AWS_RES_WB_SCREEN_INFO:
+        width, height, depth = struct.unpack('>HHH', msg[2:8])
+        pal = list(msg[8:])
+        for i in range(len(pal) // 2):
+            pal[2*i], pal[2*i + 1] = pal[2*i + 1], pal[2*i]
+        pal = bytes(pal)
+        for c in clients:
+            if c.waiting_for_wb_screen_info:
+                c.send(struct.pack('=BHHH', AWS_CLIENT_RES_WB_SCREEN_INFO, width, height, depth) + pal)
+                c.waiting_for_wb_screen_info = False
 
 def process_write_mem_res():
     wid = write_mem_reqs.pop(0)
@@ -205,6 +220,9 @@ def process_client_msg(c, msg):
             w = c.windows[cwid]
             write_mem_reqs.append(w.wid)
             send_write_mem_req(drv, w.buffer_address, msg[3:])
+    elif cmd == AWS_CLIENT_REQ_WB_SCREEN_INFO:
+        c.waiting_for_wb_screen_info = True
+        send_data(drv, current_stream_id, bytes([AWS_REQ_WB_SCREEN_INFO]))
 
 def process_client_readable(c):
     buf = c.sock.recv(128*1024)

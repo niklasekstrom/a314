@@ -31,6 +31,8 @@
 #define AWS_RES_OPEN_WINDOW_FAIL 4
 #define AWS_RES_OPEN_WINDOW_SUCCESS 5
 #define AWS_EVENT_CLOSE_WINDOW 6
+#define AWS_REQ_WB_SCREEN_INFO 7
+#define AWS_RES_WB_SCREEN_INFO 8
 
 struct WindowInfo
 {
@@ -288,6 +290,42 @@ static void handle_req_flip_buffer()
 		redraw_window(wi);
 }
 
+static struct Screen *find_wb_screen()
+{
+	struct Screen *screen = IntuitionBase->FirstScreen;
+	while (screen)
+	{
+		if ((screen->Flags & SCREENTYPE) == WBENCHSCREEN)
+			return screen;
+		screen = screen->NextScreen;
+	}
+	return NULL;
+}
+
+static void handle_req_wb_screen_info()
+{
+	struct Screen *screen = find_wb_screen();
+
+	wait_a314_write_complete();
+
+	awbuf[0] = AWS_RES_WB_SCREEN_INFO;
+	awbuf[1] = 0;
+
+	UWORD *p = (UWORD *)&awbuf[2];
+	*p++ = screen->Width;
+	*p++ = screen->Height;
+	*p++ = screen->BitMap.Depth;
+
+	struct ColorMap *cm = screen->ViewPort.ColorMap;
+	int n = 1 << screen->BitMap.Depth;
+	if (n > cm->Count)
+		n = cm->Count;
+	for (int i = 0; i < n; i++)
+		*p++ = ((UWORD *)cm->ColorTable)[i] & 0xfff;
+
+	start_a314_write((UBYTE *)p - awbuf);
+}
+
 static void handle_intui_message(struct IntuiMessage *im)
 {
 	ULONG class = im->Class;
@@ -331,6 +369,9 @@ static void handle_a314_read_completed()
 				break;
 			case AWS_REQ_FLIP_BUFFER:
 				handle_req_flip_buffer();
+				break;
+			case AWS_REQ_WB_SCREEN_INFO:
+				handle_req_wb_screen_info();
 				break;
 		}
 
