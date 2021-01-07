@@ -12,6 +12,8 @@ import sys
 import time
 import random
 import string
+import threading
+import queue
 
 logging.basicConfig(format = '%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s')
 logger = logging.getLogger(__name__)
@@ -31,16 +33,28 @@ class Window(object):
         self.height = None
         self.depth = None
 
-class Connection(object):
+class Connection(threading.Thread):
     def __init__(self, sock, callbacks):
+        super().__init__()
         self.sock = sock
         self.callbacks = callbacks
+        self.is_open = True
         self.next_wid = 0
         self.windows = {}
         self.rbuf = None
+        self.sync_queue = queue.Queue()
 
-    def fileno(self):
-        return self.sock.fileno()
+    def run(self):
+        while True:
+            rl, _, _ = select.select([self.sock], [], [])
+            if self.sock not in rl:
+                continue
+            if not self.handle_readable():
+                self.is_open = False
+                self.callbacks.connection_closed(self)
+                self.sync_queue.put(None)
+                self.sock.close()
+                break
 
     def send(self, data):
         data = struct.pack('=I', len(data)) + data
@@ -48,54 +62,25 @@ class Connection(object):
 
     def close(self):
         self.sock.shutdown(socket.SHUT_RDWR)
-        self.sock.close()
-
-    def open_window(self, left, top, width, height, title):
-        wid = self.next_wid
-        while wid in self.windows:
-            wid = (wid + 1) % 65536
-        self.next_wid = (wid + 1) % 65536
-        self.windows[wid] = Window(wid)
-        self.send(struct.pack('=BHHHHH', AWS_CLIENT_REQ_OPEN_WINDOW, wid, left, top, width, height) + title.encode('latin-1'))
-        return wid
-
-    def close_window(self, wid):
-        if wid in self.windows:
-            self.send(struct.pack('=BH', AWS_CLIENT_REQ_CLOSE_WINDOW, wid))
-            del self.windows[wid]
-
-    def copy_flip_window(self, wid, buffer):
-        if wid in self.windows:
-            self.send(struct.pack('=BH', AWS_CLIENT_REQ_COPY_FLIP_BUFFER, wid) + buffer)
+        self.join(2.0)
 
     def process_msg(self, msg):
         cmd = msg[0]
         if cmd == AWS_CLIENT_RES_OPEN_WINDOW_FAIL:
             wid = struct.unpack('=H', msg[1:3])[0]
-            if wid in self.windows:
-                self.callbacks.open_window_fail(self, wid)
-                del self.windows[wid]
+            self.sync_queue.put(None)
         elif cmd == AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS:
             wid, width, height, depth = struct.unpack('=HHHH', msg[1:9])
-            if wid in self.windows:
-                w = self.windows[wid]
-                w.width = width
-                w.height = height
-                w.depth = depth
-                self.callbacks.open_window_success(self, wid, width, height, depth)
+            self.sync_queue.put((width, height, depth))
         elif cmd == AWS_CLIENT_EVENT_CLOSE_WINDOW:
             wid = struct.unpack('=H', msg[1:3])[0]
-            if wid in self.windows:
-                self.callbacks.event_close_window(self, wid)
+            self.callbacks.event_close_window(self, wid)
 
     def handle_readable(self):
         buf = self.sock.recv(128)
         if not buf:
             self.sock.shutdown(socket.SHUT_RDWR)
-            self.sock.close()
-            self.sock = None
-            self.callbacks.connection_closed(self)
-            return
+            return False
 
         self.rbuf = self.rbuf + buf if self.rbuf else buf
 
@@ -110,8 +95,42 @@ class Connection(object):
             self.rbuf = None if blen == plen + 4 else self.rbuf[plen + 4:]
             self.process_msg(msg)
 
+        return True
+
+    def open_window(self, left, top, width, height, title):
+        if not self.is_open:
+            return None, None
+
+        wid = self.next_wid
+        while wid in self.windows:
+            wid = (wid + 1) % 65536
+        self.next_wid = (wid + 1) % 65536
+        self.windows[wid] = Window(wid)
+        self.send(struct.pack('=BHHHHH', AWS_CLIENT_REQ_OPEN_WINDOW, wid, left, top, width, height) + title.encode('latin-1'))
+        size = self.sync_queue.get()
+        if not size:
+            del self.windows[wid]
+            return None, None
+        else:
+            w = self.windows[wid]
+            w.width, w.height, w.depth = size
+            return wid, size
+
+    def close_window(self, wid):
+        if not self.is_open or wid not in self.windows:
+            return
+        self.send(struct.pack('=BH', AWS_CLIENT_REQ_CLOSE_WINDOW, wid))
+        del self.windows[wid]
+
+    def copy_flip_window(self, wid, buffer):
+        if not self.is_open or wid not in self.windows:
+            return
+        self.send(struct.pack('=BH', AWS_CLIENT_REQ_COPY_FLIP_BUFFER, wid) + buffer)
+
 def connect(callbacks):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect(('localhost', 18377))
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    return Connection(sock, callbacks)
+    conn = Connection(sock, callbacks)
+    conn.start()
+    return conn
