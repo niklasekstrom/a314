@@ -9,10 +9,12 @@
 #include <exec/lists.h>
 #include <exec/execbase.h>
 #include <exec/memory.h>
+#include <exec/interrupts.h>
 
 #include <libraries/dos.h>
 #include <intuition/intuition.h>
 #include <graphics/gfx.h>
+#include <hardware/intbits.h>
 
 #include <proto/exec.h>
 #include <proto/intuition.h>
@@ -46,11 +48,23 @@ struct WindowInfo
 	UWORD buf_height;
 	UBYTE buf_depth;
 	UBYTE wid;
-	char title[66];
+	UBYTE redraw_after_vblank;
+	char title[65];
 };
 
 static struct WindowInfo *windows_head = NULL;
 static struct WindowInfo *windows_tail = NULL;
+
+struct VBlankData
+{
+	struct Task *task;
+	ULONG signal;
+};
+
+static struct VBlankData vblank_data;
+
+extern void VBlankServer();
+static struct Interrupt vblank_interrupt;
 
 struct Library *A314Base;
 struct IntuitionBase *IntuitionBase;
@@ -212,13 +226,12 @@ static void handle_req_open_window()
 		UWORD bd = w->WScreen->BitMap.Depth;
 
 		ULONG bpr = ((bw + 15) & ~15) >> 3;
-		void *buffer = AllocMem(bpr * bh * bd, MEMF_A314 | MEMF_CHIP);
-		if (!buffer)
+		wi->buffer = AllocMem(bpr * bh * bd, MEMF_A314 | MEMF_CHIP);
+		if (!wi->buffer)
 			CloseWindow(w);
 		else
 		{
 			wi->window = w;
-			wi->buffer = buffer;
 			wi->buf_width = bw;
 			wi->buf_height = bh;
 			wi->buf_depth = bd;
@@ -236,7 +249,7 @@ static void handle_req_open_window()
 
 			awbuf[0] = AWS_RES_OPEN_WINDOW_SUCCESS;
 			awbuf[1] = wid;
-			*(ULONG *)&awbuf[2] = TranslateAddressA314(buffer);
+			*(ULONG *)&awbuf[2] = TranslateAddressA314(wi->buffer);
 			*(UWORD *)&awbuf[6] = bw;
 			*(UWORD *)&awbuf[8] = bh;
 			*(UWORD *)&awbuf[10] = bd;
@@ -288,14 +301,7 @@ static void handle_req_flip_buffer()
 	UBYTE wid = arbuf[1];
 	struct WindowInfo *wi = find_window_by_id(wid);
 	if (wi)
-	{
-		redraw_window(wi);
-
-		wait_a314_write_complete();
-		awbuf[0] = AWS_EVENT_FLIP_DONE;
-		awbuf[1] = wi->wid;
-		start_a314_write(2);
-	}
+		wi->redraw_after_vblank = 1;
 }
 
 static struct Screen *find_wb_screen()
@@ -394,6 +400,33 @@ static void handle_a314_read_completed()
 		stream_closed = TRUE;
 }
 
+static void handle_vblank()
+{
+	struct WindowInfo *wi = windows_head;
+	while (wi)
+	{
+		if (wi->redraw_after_vblank)
+			redraw_window(wi);
+
+		wi = wi->next;
+	}
+
+	wi = windows_head;
+	while (wi)
+	{
+		if (wi->redraw_after_vblank)
+		{
+			wait_a314_write_complete();
+			awbuf[0] = AWS_EVENT_FLIP_DONE;
+			awbuf[1] = wi->wid;
+			start_a314_write(2);
+
+			wi->redraw_after_vblank = 0;
+		}
+		wi = wi->next;
+	}
+}
+
 int main()
 {
 	LONG old_priority = SetTaskPri(FindTask(NULL), 20);
@@ -430,11 +463,27 @@ int main()
 	ULONG mp_sig = 1 << mp->mp_SigBit;
 	ULONG wmp_sig = 1 << wmp->mp_SigBit;
 
+	ULONG vblank_sigbit = AllocSignal(-1);
+	ULONG vblank_sig = 1 << vblank_sigbit;
+
+	vblank_data.task = FindTask(NULL);
+	vblank_data.signal = vblank_sig;
+
+	vblank_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	vblank_interrupt.is_Node.ln_Pri = 0;
+	vblank_interrupt.is_Node.ln_Name = "aws";
+	vblank_interrupt.is_Data = (APTR)&vblank_data;
+	vblank_interrupt.is_Code = VBlankServer;
+	AddIntServer(INTB_VERTB, &vblank_interrupt);
+
 	printf("Press ctrl-c to exit...\n");
 
 	while (TRUE)
 	{
-		ULONG signal = Wait(mp_sig | wmp_sig | SIGBREAKF_CTRL_C);
+		ULONG signal = Wait(mp_sig | wmp_sig | vblank_sig | SIGBREAKF_CTRL_C);
+
+		if (signal & vblank_sig)
+			handle_vblank();
 
 		if (signal & wmp_sig)
 		{
@@ -469,6 +518,9 @@ int main()
 
 	while (windows_head)
 		close_window(windows_head);
+
+	RemIntServer(INTB_VERTB, &vblank_interrupt);
+	FreeSignal(vblank_sigbit);
 
 fail_out2:
 	DeleteExtIO((struct IORequest *)wmsg);

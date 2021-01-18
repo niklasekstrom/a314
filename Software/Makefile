@@ -42,8 +42,8 @@ bin/diag: diag/diag.c
 bin/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c ethernet/sana2.h ethernet/tagitem.h
 	${VC} ethernet/romtag.asm ethernet/device.c -O3 -nostdlib -o bin/a314eth.device -lamiga
 
-bin/aws: aws/aws.c
-	${VC} aws/aws.c -O3 -lamiga -o bin/aws
+bin/aws: aws/aws.c aws/vblank_server.asm
+	${VC} aws/aws.c aws/vblank_server.asm -O3 -lamiga -o bin/aws
 
 install: all
 	mkdir -p /opt/a314
