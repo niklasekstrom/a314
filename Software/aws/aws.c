@@ -26,13 +26,14 @@
 #include "../a314device/proto_a314.h"
 
 #define AWS_REQ_OPEN_WINDOW 1
-#define AWS_REQ_CLOSE_WINDOW 2
-#define AWS_REQ_FLIP_BUFFER 3
-#define AWS_RES_OPEN_WINDOW_FAIL 4
-#define AWS_RES_OPEN_WINDOW_SUCCESS 5
-#define AWS_EVENT_CLOSE_WINDOW 6
-#define AWS_REQ_WB_SCREEN_INFO 7
-#define AWS_RES_WB_SCREEN_INFO 8
+#define AWS_RES_OPEN_WINDOW_FAIL 2
+#define AWS_RES_OPEN_WINDOW_SUCCESS 3
+#define AWS_REQ_CLOSE_WINDOW 4
+#define AWS_REQ_FLIP_BUFFER 5
+#define AWS_REQ_WB_SCREEN_INFO 6
+#define AWS_RES_WB_SCREEN_INFO 7
+#define AWS_EVENT_CLOSE_WINDOW 8
+#define AWS_EVENT_FLIP_DONE 9
 
 struct WindowInfo
 {
@@ -287,7 +288,14 @@ static void handle_req_flip_buffer()
 	UBYTE wid = arbuf[1];
 	struct WindowInfo *wi = find_window_by_id(wid);
 	if (wi)
+	{
 		redraw_window(wi);
+
+		wait_a314_write_complete();
+		awbuf[0] = AWS_EVENT_FLIP_DONE;
+		awbuf[1] = wi->wid;
+		start_a314_write(2);
+	}
 }
 
 static struct Screen *find_wb_screen()

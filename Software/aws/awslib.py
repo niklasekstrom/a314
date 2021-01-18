@@ -20,13 +20,14 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 AWS_CLIENT_REQ_OPEN_WINDOW = 1
-AWS_CLIENT_REQ_CLOSE_WINDOW = 2
-AWS_CLIENT_REQ_COPY_FLIP_BUFFER = 3
-AWS_CLIENT_RES_OPEN_WINDOW_FAIL = 4
-AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS = 5
-AWS_CLIENT_EVENT_CLOSE_WINDOW = 6
-AWS_CLIENT_REQ_WB_SCREEN_INFO = 7
-AWS_CLIENT_RES_WB_SCREEN_INFO = 8
+AWS_CLIENT_RES_OPEN_WINDOW_FAIL = 2
+AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS = 3
+AWS_CLIENT_REQ_CLOSE_WINDOW = 4
+AWS_CLIENT_REQ_COPY_FLIP_BUFFER = 5
+AWS_CLIENT_REQ_WB_SCREEN_INFO = 6
+AWS_CLIENT_RES_WB_SCREEN_INFO = 7
+AWS_CLIENT_EVENT_CLOSE_WINDOW = 8
+AWS_CLIENT_EVENT_FLIP_DONE = 9
 
 class Window(object):
     def __init__(self, wid):
@@ -73,6 +74,12 @@ class Connection(threading.Thread):
         elif cmd == AWS_CLIENT_EVENT_CLOSE_WINDOW:
             wid = struct.unpack('=H', msg[1:3])[0]
             self.callbacks.event_close_window(self, wid)
+        elif cmd == AWS_CLIENT_EVENT_FLIP_DONE:
+            wid = struct.unpack('=H', msg[1:3])[0]
+            self.callbacks.event_flip_done(self, wid)
+        else:
+            logger.error('Received unknown command %d, shutting down', cmd)
+            exit(-1)
 
     def handle_readable(self):
         buf = self.sock.recv(128)

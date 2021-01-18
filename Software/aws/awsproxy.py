@@ -137,25 +137,24 @@ write_mem_reqs = []
 SERVICE_NAME = b'awsproxy'
 
 AWS_REQ_OPEN_WINDOW = 1
-AWS_REQ_CLOSE_WINDOW = 2
-AWS_REQ_FLIP_BUFFER = 3
-AWS_RES_OPEN_WINDOW_FAIL = 4
-AWS_RES_OPEN_WINDOW_SUCCESS = 5
-AWS_EVENT_CLOSE_WINDOW = 6
-AWS_REQ_WB_SCREEN_INFO = 7
-AWS_RES_WB_SCREEN_INFO = 8
+AWS_RES_OPEN_WINDOW_FAIL = 2
+AWS_RES_OPEN_WINDOW_SUCCESS = 3
+AWS_REQ_CLOSE_WINDOW = 4
+AWS_REQ_FLIP_BUFFER = 5
+AWS_REQ_WB_SCREEN_INFO = 6
+AWS_RES_WB_SCREEN_INFO = 7
+AWS_EVENT_CLOSE_WINDOW = 8
+AWS_EVENT_FLIP_DONE = 9
 
-# Definiera de olika meddelandena som går mellan klient och awsproxy.
 AWS_CLIENT_REQ_OPEN_WINDOW = 1
-AWS_CLIENT_REQ_CLOSE_WINDOW = 2
-AWS_CLIENT_REQ_COPY_FLIP_BUFFER = 3
-AWS_CLIENT_RES_OPEN_WINDOW_FAIL = 4
-AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS = 5
-AWS_CLIENT_EVENT_CLOSE_WINDOW = 6
-AWS_CLIENT_REQ_WB_SCREEN_INFO = 7
-AWS_CLIENT_RES_WB_SCREEN_INFO = 8
-
-# Kan stänga klientanslutningen när som helst, vilket resettar allt state.
+AWS_CLIENT_RES_OPEN_WINDOW_FAIL = 2
+AWS_CLIENT_RES_OPEN_WINDOW_SUCCESS = 3
+AWS_CLIENT_REQ_CLOSE_WINDOW = 4
+AWS_CLIENT_REQ_COPY_FLIP_BUFFER = 5
+AWS_CLIENT_REQ_WB_SCREEN_INFO = 6
+AWS_CLIENT_RES_WB_SCREEN_INFO = 7
+AWS_CLIENT_EVENT_CLOSE_WINDOW = 8
+AWS_CLIENT_EVENT_FLIP_DONE = 9
 
 def process_drv_data(msg):
     cmd = msg[0]
@@ -181,6 +180,12 @@ def process_drv_data(msg):
             w = windows[wid]
             c = w.client
             c.send(struct.pack('=BH', AWS_CLIENT_EVENT_CLOSE_WINDOW, w.cwid))
+    elif cmd == AWS_EVENT_FLIP_DONE:
+        wid = msg[1]
+        if wid in windows:
+            w = windows[wid]
+            c = w.client
+            c.send(struct.pack('=BH', AWS_CLIENT_EVENT_FLIP_DONE, w.cwid))
     elif cmd == AWS_RES_WB_SCREEN_INFO:
         width, height, depth = struct.unpack('>HHH', msg[2:8])
         pal = list(msg[8:])
