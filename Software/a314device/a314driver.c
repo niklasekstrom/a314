@@ -118,9 +118,9 @@ static void close_socket(struct A314Device *dev, struct Socket *s, BOOL should_s
 
 	if (should_send_reset)
 	{
-		if (dev->send_queue_head == NULL && room_in_a2r(ca, 0))
+		if (dev->send_queue_head == NULL && room_in_a2r(dev->ca, 0))
 		{
-			append_a2r_packet(ca, PKT_RESET, s->stream_id, 0, NULL);
+			append_a2r_packet(dev->ca, PKT_RESET, s->stream_id, 0, NULL);
 		}
 		else
 		{
@@ -263,6 +263,8 @@ static void handle_r2a_packet(struct A314Device *dev, UBYTE type, UBYTE stream_i
 
 static void handle_packets_received_r2a(struct A314Device *dev)
 {
+	struct ComArea *ca = dev->ca;
+
 	while (used_in_r2a(ca) != 0)
 	{
 		UBYTE index = ca->r2a_head;
@@ -282,6 +284,8 @@ static void handle_packets_received_r2a(struct A314Device *dev)
 
 static void handle_room_in_a2r(struct A314Device *dev)
 {
+	struct ComArea *ca = dev->ca;
+
 	while (dev->send_queue_head != NULL)
 	{
 		struct Socket *s = dev->send_queue_head;
@@ -360,9 +364,9 @@ static void handle_app_connect(struct A314Device *dev, struct A314_IORequest *io
 		s->flags = 0;
 
 		int len = ior->a314_Length;
-		if (dev->send_queue_head == NULL && room_in_a2r(ca, len))
+		if (dev->send_queue_head == NULL && room_in_a2r(dev->ca, len))
 		{
-			append_a2r_packet(ca, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+			append_a2r_packet(dev->ca, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else
 		{
@@ -457,9 +461,9 @@ static void handle_app_write(struct A314Device *dev, struct A314_IORequest *ior,
 		}
 		else
 		{
-			if (dev->send_queue_head == NULL && room_in_a2r(ca, len))
+			if (dev->send_queue_head == NULL && room_in_a2r(dev->ca, len))
 			{
-				append_a2r_packet(ca, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				append_a2r_packet(dev->ca, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
 				ior->a314_Request.io_Error = A314_WRITE_OK;
 				ReplyMsg((struct Message *)ior);
@@ -496,9 +500,9 @@ static void handle_app_eos(struct A314Device *dev, struct A314_IORequest *ior, s
 		{
 			s->flags |= SOCKET_RCVD_EOS_FROM_APP;
 
-			if (dev->send_queue_head == NULL && room_in_a2r(ca, 0))
+			if (dev->send_queue_head == NULL && room_in_a2r(dev->ca, 0))
 			{
-				append_a2r_packet(ca, PKT_EOS, s->stream_id, 0, NULL);
+				append_a2r_packet(dev->ca, PKT_EOS, s->stream_id, 0, NULL);
 
 				ior->a314_Request.io_Error = A314_EOS_OK;
 				ReplyMsg((struct Message *)ior);
@@ -566,6 +570,7 @@ static void handle_app_request(struct A314Device *dev, struct A314_IORequest *io
 void task_main()
 {
 	struct A314Device *dev = (struct A314Device *)FindTask(NULL)->tc_UserData;
+	struct ComArea *ca = dev->ca;
 
 	while (TRUE)
 	{
@@ -581,7 +586,7 @@ void task_main()
 			write_cmem_safe(A_ENABLE_ADDRESS, 0);
 
 			struct Message *msg;
-			while (msg = GetMsg(&task_mp))
+			while (msg = GetMsg(&dev->task_mp))
 				handle_app_request(dev, (struct A314_IORequest *)msg);
 		}
 

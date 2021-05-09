@@ -3,6 +3,9 @@
 
 #include <exec/types.h>
 #include <exec/libraries.h>
+#include <exec/tasks.h>
+#include <exec/ports.h>
+#include <exec/interrupts.h>
 #include <libraries/dos.h>
 
 struct A314Device
@@ -14,6 +17,16 @@ struct A314Device
 
     ULONG bank_address[4];
     UWORD is_a600;
+
+    ULONG fw_flags;
+
+    struct MsgPort task_mp;
+    struct Task *task;
+
+    struct ComArea *ca;
+
+    struct Interrupt vertb_interrupt;
+    struct Interrupt ports_interrupt;
 
     struct List active_sockets;
 

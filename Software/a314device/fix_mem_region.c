@@ -15,13 +15,11 @@
 #define FW_FLAG_AUTODETECT	1
 #define FW_FLAG_A600		2
 
-extern ULONG fw_flags;
-
-extern ULONG check_a314_mapping(__reg("a0") void *address);
-
 #define HALF_MB (512*1024)
 #define ONE_MB (1024*1024)
 #define TWO_MB (2*1024*1024)
+
+extern ULONG check_a314_mapping(__reg("a0") void *address);
 
 struct MemChunkList
 {
@@ -231,7 +229,7 @@ BOOL fix_memory(struct A314Device *dev)
 	// Only test blocks in chip mem and slow mem ranges.
 	present_blocks &= 0x0700000f; // 0b00000111000000000000000000001111
 
-	if (fw_flags & FW_FLAG_A600)
+	if (dev->fw_flags & FW_FLAG_A600)
 	{
 		dev->is_a600 = TRUE;
 		detect_block_mapping(present_blocks, bank_address);
@@ -248,7 +246,7 @@ BOOL fix_memory(struct A314Device *dev)
 		return all_present;
 	}
 
-	if (fw_flags & FW_FLAG_AUTODETECT)
+	if (dev->fw_flags & FW_FLAG_AUTODETECT)
 		detect_block_mapping(present_blocks, bank_address);
 	else
 		detect_block_mapping_heuristically(present_blocks, bank_address);

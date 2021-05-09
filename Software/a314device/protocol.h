@@ -20,5 +20,3 @@ struct ComArea
 	UBYTE a2r_buffer[256];
 	UBYTE r2a_buffer[256];
 };
-
-extern struct ComArea *ca;

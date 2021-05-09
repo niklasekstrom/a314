@@ -88,7 +88,7 @@ static BPTR close(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IO
 
 static void begin_io(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IORequest *ior)
 {
-	PutMsg(&task_mp, (struct Message *)ior);
+	PutMsg(&dev->task_mp, (struct Message *)ior);
 	ior->a314_Request.io_Flags &= ~IOF_QUICK;
 }
 
