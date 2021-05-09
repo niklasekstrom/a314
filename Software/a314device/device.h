@@ -15,6 +15,12 @@ struct A314Device
     ULONG bank_address[4];
     UWORD is_a600;
 
+    struct List active_sockets;
+
+    struct Socket *send_queue_head;
+    struct Socket *send_queue_tail;
+
+    UBYTE next_stream_id;
 };
 
 extern char device_name[];

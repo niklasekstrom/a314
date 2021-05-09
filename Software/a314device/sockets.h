@@ -1,6 +1,8 @@
 #include <exec/types.h>
 #include <exec/lists.h>
 
+#include "device.h"
+
 // Used to store received data until application asks for it using a A314_READ.
 struct QueuedData
 {
@@ -42,16 +44,13 @@ struct Socket
 	struct QueuedData *rq_tail;
 };
 
-extern struct Socket *send_queue_head;
-extern struct Socket *send_queue_tail;
+extern void init_sockets(struct A314Device *dev);
 
-extern void init_sockets();
+extern struct Socket *create_socket(struct A314Device *dev, struct Task *task, ULONG id);
+extern void delete_socket(struct A314Device *dev, struct Socket *s);
 
-extern struct Socket *create_socket(struct Task *task, ULONG id);
-extern void delete_socket(struct Socket *s);
+extern struct Socket *find_socket(struct A314Device *dev, void *sig_task, ULONG socket);
+extern struct Socket *find_socket_by_stream_id(struct A314Device *dev, UBYTE stream_id);
 
-extern struct Socket *find_socket(void *sig_task, ULONG socket);
-extern struct Socket *find_socket_by_stream_id(UBYTE stream_id);
-
-extern void add_to_send_queue(struct Socket *s, UWORD required_length);
-extern void remove_from_send_queue(struct Socket *s);
+extern void add_to_send_queue(struct A314Device *dev, struct Socket *s, UWORD required_length);
+extern void remove_from_send_queue(struct A314Device *dev, struct Socket *s);

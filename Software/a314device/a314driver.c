@@ -31,22 +31,27 @@
 
 #define SysBase (*(struct ExecBase **)4)
 
-int used_in_r2a()
+// When a message is received on R2A it is written to this buffer,
+// to avoid dealing with the issue that R2A is a circular buffer.
+// This is somewhat inefficient, so may want to change that to read from R2A directly.
+UBYTE received_packet[256];
+
+static int used_in_r2a(struct ComArea *ca)
 {
 	return (ca->r2a_tail - ca->r2a_head) & 255;
 }
 
-int used_in_a2r()
+static int used_in_a2r(struct ComArea *ca)
 {
 	return (ca->a2r_tail - ca->a2r_head) & 255;
 }
 
-BOOL room_in_a2r(int len)
+static BOOL room_in_a2r(struct ComArea *ca, int len)
 {
-	return used_in_a2r() + 3 + len <= 255;
+	return used_in_a2r(ca) + 3 + len <= 255;
 }
 
-void append_a2r_packet(UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
+static void append_a2r_packet(struct ComArea *ca, UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
 {
 	UBYTE index = ca->a2r_tail;
 	ca->a2r_buffer[index++] = length;
@@ -57,7 +62,7 @@ void append_a2r_packet(UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
 	ca->a2r_tail = index;
 }
 
-void close_socket(struct Socket *s, BOOL should_send_reset)
+static void close_socket(struct A314Device *dev, struct Socket *s, BOOL should_send_reset)
 {
 	debug_printf("Called close socket\n");
 
@@ -103,7 +108,7 @@ void close_socket(struct Socket *s, BOOL should_send_reset)
 		s->rq_tail = NULL;
 	}
 
-	remove_from_send_queue(s);
+	remove_from_send_queue(dev, s);
 
 	// No operations can be pending when SOCKET_CLOSED is set.
 	// However, may not be able to delete socket yet, because is waiting to send PKT_RESET.
@@ -113,28 +118,23 @@ void close_socket(struct Socket *s, BOOL should_send_reset)
 
 	if (should_send_reset)
 	{
-		if (send_queue_head == NULL && room_in_a2r(0))
+		if (dev->send_queue_head == NULL && room_in_a2r(ca, 0))
 		{
-			append_a2r_packet(PKT_RESET, s->stream_id, 0, NULL);
+			append_a2r_packet(ca, PKT_RESET, s->stream_id, 0, NULL);
 		}
 		else
 		{
 			s->flags |= SOCKET_SHOULD_SEND_RESET;
-			add_to_send_queue(s, 0);
+			add_to_send_queue(dev, s, 0);
 			should_delete_socket = FALSE;
 		}
 	}
 
 	if (should_delete_socket)
-		delete_socket(s);
+		delete_socket(dev, s);
 }
 
-// When a message is received on R2A it is written to this buffer,
-// to avoid dealing with the issue that R2A is a circular buffer.
-// This is somewhat inefficient, so may want to change that to read from R2A directly.
-UBYTE received_packet[256];
-
-static void handle_pkt_connect_response(UBYTE length, struct Socket *s)
+static void handle_pkt_connect_response(struct A314Device *dev, UBYTE length, struct Socket *s)
 {
 	debug_printf("Received a CONNECT RESPONSE packet from rpi\n");
 
@@ -167,12 +167,12 @@ static void handle_pkt_connect_response(UBYTE length, struct Socket *s)
 
 			s->pending_connect = NULL;
 
-			close_socket(s, FALSE);
+			close_socket(dev, s, FALSE);
 		}
 	}
 }
 
-static void handle_pkt_data(UBYTE length, struct Socket *s)
+static void handle_pkt_data(struct A314Device *dev, UBYTE length, struct Socket *s)
 {
 	debug_printf("Received a DATA packet from rpi\n");
 
@@ -181,7 +181,7 @@ static void handle_pkt_data(UBYTE length, struct Socket *s)
 		struct A314_IORequest *ior = s->pending_read;
 
 		if (ior->a314_Length < length)
-			close_socket(s, TRUE);
+			close_socket(dev, s, TRUE);
 		else
 		{
 			memcpy(ior->a314_Buffer, received_packet, length);
@@ -207,7 +207,7 @@ static void handle_pkt_data(UBYTE length, struct Socket *s)
 	}
 }
 
-static void handle_pkt_eos(struct Socket *s)
+static void handle_pkt_eos(struct A314Device *dev, struct Socket *s)
 {
 	debug_printf("Received a EOS packet from rpi\n");
 
@@ -225,18 +225,18 @@ static void handle_pkt_eos(struct Socket *s)
 		s->flags |= SOCKET_SENT_EOS_TO_APP;
 
 		if (s->flags & SOCKET_SENT_EOS_TO_RPI)
-			close_socket(s, FALSE);
+			close_socket(dev, s, FALSE);
 	}
 }
 
-static void handle_r2a_packet(UBYTE type, UBYTE stream_id, UBYTE length)
+static void handle_r2a_packet(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE length)
 {
-	struct Socket *s = find_socket_by_stream_id(stream_id);
+	struct Socket *s = find_socket_by_stream_id(dev, stream_id);
 
 	if (s != NULL && type == PKT_RESET)
 	{
 		debug_printf("Received a RESET packet from rpi\n");
-		close_socket(s, FALSE);
+		close_socket(dev, s, FALSE);
 		return;
 	}
 
@@ -249,21 +249,21 @@ static void handle_r2a_packet(UBYTE type, UBYTE stream_id, UBYTE length)
 
 	if (type == PKT_CONNECT_RESPONSE)
 	{
-		handle_pkt_connect_response(length, s);
+		handle_pkt_connect_response(dev, length, s);
 	}
 	else if (type == PKT_DATA)
 	{
-		handle_pkt_data(length, s);
+		handle_pkt_data(dev, length, s);
 	}
 	else if (type == PKT_EOS)
 	{
-		handle_pkt_eos(s);
+		handle_pkt_eos(dev, s);
 	}
 }
 
-void handle_packets_received_r2a()
+static void handle_packets_received_r2a(struct A314Device *dev)
 {
-	while (used_in_r2a() != 0)
+	while (used_in_r2a(ca) != 0)
 	{
 		UBYTE index = ca->r2a_head;
 
@@ -276,26 +276,26 @@ void handle_packets_received_r2a()
 
 		ca->r2a_head = index;
 
-		handle_r2a_packet(type, stream_id, len);
+		handle_r2a_packet(dev, type, stream_id, len);
 	}
 }
 
-void handle_room_in_a2r()
+static void handle_room_in_a2r(struct A314Device *dev)
 {
-	while (send_queue_head != NULL)
+	while (dev->send_queue_head != NULL)
 	{
-		struct Socket *s = send_queue_head;
+		struct Socket *s = dev->send_queue_head;
 
-		if (!room_in_a2r(s->send_queue_required_length))
+		if (!room_in_a2r(ca, s->send_queue_required_length))
 			break;
 
-		remove_from_send_queue(s);
+		remove_from_send_queue(dev, s);
 
 		if (s->pending_connect != NULL)
 		{
 			struct A314_IORequest *ior = s->pending_connect;
 			int len = ior->a314_Length;
-			append_a2r_packet(PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+			append_a2r_packet(ca, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else if (s->pending_write != NULL)
 		{
@@ -304,7 +304,7 @@ void handle_room_in_a2r()
 
 			if (ior->a314_Request.io_Command == A314_WRITE)
 			{
-				append_a2r_packet(PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				append_a2r_packet(ca, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
 				ior->a314_Request.io_Error = A314_WRITE_OK;
 				ReplyMsg((struct Message *)ior);
@@ -313,7 +313,7 @@ void handle_room_in_a2r()
 			}
 			else // A314_EOS
 			{
-				append_a2r_packet(PKT_EOS, s->stream_id, 0, NULL);
+				append_a2r_packet(ca, PKT_EOS, s->stream_id, 0, NULL);
 
 				ior->a314_Request.io_Error = A314_EOS_OK;
 				ReplyMsg((struct Message *)ior);
@@ -323,13 +323,13 @@ void handle_room_in_a2r()
 				s->flags |= SOCKET_SENT_EOS_TO_RPI;
 
 				if (s->flags & SOCKET_SENT_EOS_TO_APP)
-					close_socket(s, FALSE);
+					close_socket(dev, s, FALSE);
 			}
 		}
 		else if (s->flags & SOCKET_SHOULD_SEND_RESET)
 		{
-			append_a2r_packet(PKT_RESET, s->stream_id, 0, NULL);
-			delete_socket(s);
+			append_a2r_packet(ca, PKT_RESET, s->stream_id, 0, NULL);
+			delete_socket(dev, s);
 		}
 		else
 		{
@@ -338,7 +338,7 @@ void handle_room_in_a2r()
 	}
 }
 
-static void handle_app_connect(struct A314_IORequest *ior, struct Socket *s)
+static void handle_app_connect(struct A314Device *dev, struct A314_IORequest *ior, struct Socket *s)
 {
 	debug_printf("Received a CONNECT request from application\n");
 
@@ -354,24 +354,24 @@ static void handle_app_connect(struct A314_IORequest *ior, struct Socket *s)
 	}
 	else
 	{
-		s = create_socket(ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
+		s = create_socket(dev, ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
 
 		s->pending_connect = ior;
 		s->flags = 0;
 
 		int len = ior->a314_Length;
-		if (send_queue_head == NULL && room_in_a2r(len))
+		if (dev->send_queue_head == NULL && room_in_a2r(ca, len))
 		{
-			append_a2r_packet(PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+			append_a2r_packet(ca, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else
 		{
-			add_to_send_queue(s, len);
+			add_to_send_queue(dev, s, len);
 		}
 	}
 }
 
-static void handle_app_read(struct A314_IORequest *ior, struct Socket *s)
+static void handle_app_read(struct A314Device *dev, struct A314_IORequest *ior, struct Socket *s)
 {
 	debug_printf("Received a READ request from application\n");
 
@@ -389,7 +389,7 @@ static void handle_app_read(struct A314_IORequest *ior, struct Socket *s)
 			ior->a314_Request.io_Error = A314_READ_RESET;
 			ReplyMsg((struct Message *)ior);
 
-			close_socket(s, TRUE);
+			close_socket(dev, s, TRUE);
 		}
 		else if (s->rq_head != NULL)
 		{
@@ -402,7 +402,7 @@ static void handle_app_read(struct A314_IORequest *ior, struct Socket *s)
 				ior->a314_Request.io_Error = A314_READ_RESET;
 				ReplyMsg((struct Message *)ior);
 
-				close_socket(s, TRUE);
+				close_socket(dev, s, TRUE);
 			}
 			else
 			{
@@ -427,14 +427,14 @@ static void handle_app_read(struct A314_IORequest *ior, struct Socket *s)
 			s->flags |= SOCKET_SENT_EOS_TO_APP;
 
 			if (s->flags & SOCKET_SENT_EOS_TO_RPI)
-				close_socket(s, FALSE);
+				close_socket(dev, s, FALSE);
 		}
 		else
 			s->pending_read = ior;
 	}
 }
 
-static void handle_app_write(struct A314_IORequest *ior, struct Socket *s)
+static void handle_app_write(struct A314Device *dev, struct A314_IORequest *ior, struct Socket *s)
 {
 	debug_printf("Received a WRITE request from application\n");
 
@@ -453,13 +453,13 @@ static void handle_app_write(struct A314_IORequest *ior, struct Socket *s)
 			ior->a314_Request.io_Error = A314_WRITE_RESET;
 			ReplyMsg((struct Message *)ior);
 
-			close_socket(s, TRUE);
+			close_socket(dev, s, TRUE);
 		}
 		else
 		{
-			if (send_queue_head == NULL && room_in_a2r(len))
+			if (dev->send_queue_head == NULL && room_in_a2r(ca, len))
 			{
-				append_a2r_packet(PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				append_a2r_packet(ca, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
 				ior->a314_Request.io_Error = A314_WRITE_OK;
 				ReplyMsg((struct Message *)ior);
@@ -467,13 +467,13 @@ static void handle_app_write(struct A314_IORequest *ior, struct Socket *s)
 			else
 			{
 				s->pending_write = ior;
-				add_to_send_queue(s, len);
+				add_to_send_queue(dev, s, len);
 			}
 		}
 	}
 }
 
-static void handle_app_eos(struct A314_IORequest *ior, struct Socket *s)
+static void handle_app_eos(struct A314Device *dev, struct A314_IORequest *ior, struct Socket *s)
 {
 	debug_printf("Received an EOS request from application\n");
 
@@ -490,15 +490,15 @@ static void handle_app_eos(struct A314_IORequest *ior, struct Socket *s)
 			ior->a314_Request.io_Error = A314_EOS_RESET;
 			ReplyMsg((struct Message *)ior);
 
-			close_socket(s, TRUE);
+			close_socket(dev, s, TRUE);
 		}
 		else
 		{
 			s->flags |= SOCKET_RCVD_EOS_FROM_APP;
 
-			if (send_queue_head == NULL && room_in_a2r(0))
+			if (dev->send_queue_head == NULL && room_in_a2r(ca, 0))
 			{
-				append_a2r_packet(PKT_EOS, s->stream_id, 0, NULL);
+				append_a2r_packet(ca, PKT_EOS, s->stream_id, 0, NULL);
 
 				ior->a314_Request.io_Error = A314_EOS_OK;
 				ReplyMsg((struct Message *)ior);
@@ -506,18 +506,18 @@ static void handle_app_eos(struct A314_IORequest *ior, struct Socket *s)
 				s->flags |= SOCKET_SENT_EOS_TO_RPI;
 
 				if (s->flags & SOCKET_SENT_EOS_TO_APP)
-					close_socket(s, FALSE);
+					close_socket(dev, s, FALSE);
 			}
 			else
 			{
 				s->pending_write = ior;
-				add_to_send_queue(s, 0);
+				add_to_send_queue(dev, s, 0);
 			}
 		}
 	}
 }
 
-static void handle_app_reset(struct A314_IORequest *ior, struct Socket *s)
+static void handle_app_reset(struct A314Device *dev, struct A314_IORequest *ior, struct Socket *s)
 {
 	debug_printf("Received a RESET request from application\n");
 
@@ -531,30 +531,30 @@ static void handle_app_reset(struct A314_IORequest *ior, struct Socket *s)
 		ior->a314_Request.io_Error = A314_RESET_OK;
 		ReplyMsg((struct Message *)ior);
 
-		close_socket(s, TRUE);
+		close_socket(dev, s, TRUE);
 	}
 }
 
-static void handle_app_request(struct A314_IORequest *ior)
+static void handle_app_request(struct A314Device *dev, struct A314_IORequest *ior)
 {
-	struct Socket *s = find_socket(ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
+	struct Socket *s = find_socket(dev, ior->a314_Request.io_Message.mn_ReplyPort->mp_SigTask, ior->a314_Socket);
 
 	switch (ior->a314_Request.io_Command)
 	{
 	case A314_CONNECT:
-		handle_app_connect(ior, s);
+		handle_app_connect(dev, ior, s);
 		break;
 	case A314_READ:
-		handle_app_read(ior, s);
+		handle_app_read(dev, ior, s);
 		break;
 	case A314_WRITE:
-		handle_app_write(ior, s);
+		handle_app_write(dev, ior, s);
 		break;
 	case A314_EOS:
-		handle_app_eos(ior, s);
+		handle_app_eos(dev, ior, s);
 		break;
 	case A314_RESET:
-		handle_app_reset(ior, s);
+		handle_app_reset(dev, ior, s);
 		break;
 	default:
 		ior->a314_Request.io_Error = IOERR_NOCMD;
@@ -565,6 +565,8 @@ static void handle_app_request(struct A314_IORequest *ior)
 
 void task_main()
 {
+	struct A314Device *dev = (struct A314Device *)FindTask(NULL)->tc_UserData;
+
 	while (TRUE)
 	{
 		debug_printf("Waiting for signal\n");
@@ -580,14 +582,14 @@ void task_main()
 
 			struct Message *msg;
 			while (msg = GetMsg(&task_mp))
-				handle_app_request((struct A314_IORequest *)msg);
+				handle_app_request(dev, (struct A314_IORequest *)msg);
 		}
 
 		UBYTE a_enable = 0;
 		while (a_enable == 0)
 		{
-			handle_packets_received_r2a();
-			handle_room_in_a2r();
+			handle_packets_received_r2a(dev);
+			handle_room_in_a2r(dev);
 
 			UBYTE r_events = 0;
 			if (ca->a2r_tail != prev_a2r_tail)
@@ -602,9 +604,9 @@ void task_main()
 
 			if (ca->r2a_head == ca->r2a_tail)
 			{
-				if (send_queue_head == NULL)
+				if (dev->send_queue_head == NULL)
 					a_enable = A_EVENT_R2A_TAIL;
-				else if (!room_in_a2r(send_queue_head->send_queue_required_length))
+				else if (!room_in_a2r(ca, dev->send_queue_head->send_queue_required_length))
 					a_enable = A_EVENT_R2A_TAIL | A_EVENT_A2R_HEAD;
 
 				if (a_enable != 0)

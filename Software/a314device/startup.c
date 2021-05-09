@@ -28,7 +28,7 @@ struct Interrupt vertb_interrupt;
 struct Interrupt ports_interrupt;
 
 extern void task_main();
-extern void init_sockets();
+extern void init_sockets(struct A314Device *dev);
 extern void IntServer();
 
 void NewList(struct List *l)
@@ -38,7 +38,7 @@ void NewList(struct List *l)
 	l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
-static struct Task *create_task(char *name, long priority, char *initialPC, unsigned long stacksize)
+static struct Task *create_task(struct A314Device *dev, char *name, long priority, char *initialPC, unsigned long stacksize)
 {
 	char *stack = AllocMem(stacksize, MEMF_CLEAR);
 	if (stack == NULL)
@@ -57,6 +57,7 @@ static struct Task *create_task(char *name, long priority, char *initialPC, unsi
 	tc->tc_SPLower = (APTR)stack;
 	tc->tc_SPUpper = (APTR)(stack + stacksize);
 	tc->tc_SPReg = (APTR)(stack + stacksize);
+	tc->tc_UserData = (void *)dev;
 
 	AddTask(tc, initialPC, 0);
 	return tc;
@@ -121,7 +122,7 @@ BOOL task_start(struct A314Device *dev)
 		return FALSE;
 	}
 
-	task = create_task(device_name, TASK_PRIORITY, (void *)task_main, TASK_STACK_SIZE);
+	task = create_task(dev, device_name, TASK_PRIORITY, (void *)task_main, TASK_STACK_SIZE);
 	if (task == NULL)
 	{
 		debug_printf("Unable to create task\n");
@@ -130,7 +131,7 @@ BOOL task_start(struct A314Device *dev)
 	}
 
 	init_message_port();
-	init_sockets();
+	init_sockets(dev);
 
 	write_cmem_safe(A_ENABLE_ADDRESS, 0);
 	read_cmem_safe(A_EVENTS_ADDRESS);
