@@ -11,4 +11,4 @@
 extern struct Task *task;
 extern struct MsgPort task_mp;
 
-extern BOOL task_start();
+extern BOOL task_start(struct A314Device *dev);

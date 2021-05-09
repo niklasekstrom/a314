@@ -105,11 +105,11 @@ static void detect_and_write_address_swap()
 	write_cmem_safe(CMEM_CFG_ADDRESS, swap);
 }
 
-BOOL task_start()
+BOOL task_start(struct A314Device *dev)
 {
 	fw_flags = read_fw_flags();
 
-	if (!fix_memory())
+	if (!fix_memory(dev))
 		return FALSE;
 
 	detect_and_write_address_swap();
@@ -135,7 +135,7 @@ BOOL task_start()
 	write_cmem_safe(A_ENABLE_ADDRESS, 0);
 	read_cmem_safe(A_EVENTS_ADDRESS);
 
-	write_base_address(translate_address_a314(ca));
+	write_base_address(translate_address_a314(dev, ca));
 
 	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
 

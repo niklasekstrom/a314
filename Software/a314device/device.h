@@ -11,6 +11,10 @@ struct A314Device
 
     BPTR saved_seg_list;
     BOOL running;
+
+    ULONG bank_address[4];
+    UWORD is_a600;
+
 };
 
 extern char device_name[];

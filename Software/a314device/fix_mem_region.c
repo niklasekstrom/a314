@@ -8,6 +8,7 @@
 #include "a314.h"
 #include "fix_mem_region.h"
 #include "cmem.h"
+#include "device.h"
 
 #define SysBase (*(struct ExecBase **)4)
 
@@ -21,9 +22,6 @@ extern ULONG check_a314_mapping(__reg("a0") void *address);
 #define HALF_MB (512*1024)
 #define ONE_MB (1024*1024)
 #define TWO_MB (2*1024*1024)
-
-ULONG bank_address[] = {-1, -1, -1, -1};
-UWORD is_a600 = FALSE;
 
 struct MemChunkList
 {
@@ -131,7 +129,7 @@ static void mark_region_a314(ULONG address, ULONG size)
 	}
 }
 
-static void detect_block_mapping(ULONG present_blocks)
+static void detect_block_mapping(ULONG present_blocks, ULONG *bank_address)
 {
 	struct GfxBase *GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 0);
 	if (!GfxBase)
@@ -185,7 +183,7 @@ static void detect_block_mapping(ULONG present_blocks)
 	CloseLibrary((struct Library *)GfxBase);
 }
 
-static void detect_block_mapping_heuristically(ULONG present_blocks)
+static void detect_block_mapping_heuristically(ULONG present_blocks, ULONG *bank_address)
 {
 	if ((present_blocks & 0xc) == 0xc)
 	{
@@ -218,8 +216,14 @@ static ULONG get_present_blocks()
 	return present_blocks;
 }
 
-BOOL fix_memory()
+BOOL fix_memory(struct A314Device *dev)
 {
+	ULONG *bank_address = dev->bank_address;
+	for (int i = 0; i < 4; i++)
+		bank_address[i] = -1;
+
+	dev->is_a600 = FALSE;
+
 	Forbid();
 
 	ULONG present_blocks = get_present_blocks();
@@ -229,8 +233,8 @@ BOOL fix_memory()
 
 	if (fw_flags & FW_FLAG_A600)
 	{
-		is_a600 = TRUE;
-		detect_block_mapping(present_blocks);
+		dev->is_a600 = TRUE;
+		detect_block_mapping(present_blocks, bank_address);
 
 		BOOL all_present = TRUE;
 		for (int i = 0; i < 4; i++)
@@ -245,9 +249,9 @@ BOOL fix_memory()
 	}
 
 	if (fw_flags & FW_FLAG_AUTODETECT)
-		detect_block_mapping(present_blocks);
+		detect_block_mapping(present_blocks, bank_address);
 	else
-		detect_block_mapping_heuristically(present_blocks);
+		detect_block_mapping_heuristically(present_blocks, bank_address);
 
 	if (bank_address[0] == -1 && bank_address[1] == -1)
 	{
@@ -290,24 +294,24 @@ BOOL fix_memory()
 	return TRUE;
 }
 
-ULONG translate_address_a314(__reg("a0") void *address)
+ULONG translate_address_a314(__reg("a6") struct A314Device *dev, __reg("a0") void *address)
 {
-	if (is_a600)
+	if (dev->is_a600)
 	{
 		ULONG offset = (ULONG)address;
 		return offset < TWO_MB ? offset : -1;
 	}
 
-	if (bank_address[0] != -1)
+	if (dev->bank_address[0] != -1)
 	{
-		ULONG offset = (ULONG)address - bank_address[0];
+		ULONG offset = (ULONG)address - dev->bank_address[0];
 		if (offset < HALF_MB)
 			return offset;
 	}
 
-	if (bank_address[1] != -1)
+	if (dev->bank_address[1] != -1)
 	{
-		ULONG offset = (ULONG)address - bank_address[1];
+		ULONG offset = (ULONG)address - dev->bank_address[1];
 		if (offset < HALF_MB)
 			return HALF_MB + offset;
 	}

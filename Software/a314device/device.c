@@ -59,7 +59,7 @@ static void open(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IOR
 
 	if (dev->lib.lib_OpenCnt == 1 && !dev->running)
 	{
-		if (!task_start())
+		if (!task_start(dev))
 		{
 			ior->a314_Request.io_Error = IOERR_OPENFAIL;
 			ior->a314_Request.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
