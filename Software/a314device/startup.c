@@ -31,29 +31,24 @@ void NewList(struct List *l)
 	l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
-static struct Task *create_task(struct A314Device *dev)
+static BOOL create_task(struct A314Device *dev)
 {
 	char *stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
 	if (stack == NULL)
-		return NULL;
+		return FALSE;
 
-	struct Task *tc = AllocMem(sizeof(struct Task), MEMF_CLEAR | MEMF_PUBLIC);
-	if (tc == NULL)
-	{
-		FreeMem(stack, TASK_STACK_SIZE);
-		return NULL;
-	}
+	struct Task *task = &dev->task;
+	memset(task, 0, sizeof(struct Task));
+	task->tc_Node.ln_Type = NT_TASK;
+	task->tc_Node.ln_Pri = TASK_PRIORITY;
+	task->tc_Node.ln_Name = device_name;
+	task->tc_SPLower = (APTR)stack;
+	task->tc_SPUpper = (APTR)(stack + TASK_STACK_SIZE);
+	task->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
+	task->tc_UserData = (void *)dev;
 
-	tc->tc_Node.ln_Type = NT_TASK;
-	tc->tc_Node.ln_Pri = TASK_PRIORITY;
-	tc->tc_Node.ln_Name = device_name;
-	tc->tc_SPLower = (APTR)stack;
-	tc->tc_SPUpper = (APTR)(stack + TASK_STACK_SIZE);
-	tc->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
-	tc->tc_UserData = (void *)dev;
-
-	AddTask(tc, (void *)task_main, 0);
-	return tc;
+	AddTask(task, (void *)task_main, 0);
+	return TRUE;
 }
 
 static void init_message_port(struct A314Device *dev)
@@ -65,7 +60,7 @@ static void init_message_port(struct A314Device *dev)
 	mp->mp_Node.ln_Type = NT_MSGPORT;
 	mp->mp_Flags = PA_SIGNAL;
 	mp->mp_SigBit = SIGB_MSGPORT;
-	mp->mp_SigTask = dev->task;
+	mp->mp_SigTask = &dev->task;
 	NewList(&(mp->mp_MsgList));
 }
 
@@ -75,7 +70,7 @@ static void add_interrupt_handlers(struct A314Device *dev)
 	dev->vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
 	dev->vertb_interrupt.is_Node.ln_Pri = -60;
 	dev->vertb_interrupt.is_Node.ln_Name = device_name;
-	dev->vertb_interrupt.is_Data = (APTR)dev->task;
+	dev->vertb_interrupt.is_Data = (APTR)&dev->task;
 	dev->vertb_interrupt.is_Code = IntServer;
 
 	AddIntServer(INTB_VERTB, &dev->vertb_interrupt);
@@ -84,7 +79,7 @@ static void add_interrupt_handlers(struct A314Device *dev)
 	dev->ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
 	dev->ports_interrupt.is_Node.ln_Pri = 0;
 	dev->ports_interrupt.is_Node.ln_Name = device_name;
-	dev->ports_interrupt.is_Data = (APTR)dev->task;
+	dev->ports_interrupt.is_Data = (APTR)&dev->task;
 	dev->ports_interrupt.is_Code = IntServer;
 
 	AddIntServer(INTB_PORTS, &dev->ports_interrupt);
@@ -119,10 +114,9 @@ BOOL task_start(struct A314Device *dev)
 		return FALSE;
 	}
 
-	dev->task = create_task(dev);
-	if (dev->task == NULL)
+	if (!create_task(dev))
 	{
-		debug_printf("Unable to create task\n");
+		debug_printf("Unable to create task stack\n");
 		FreeMem(dev->ca, sizeof(struct ComArea));
 		return FALSE;
 	}

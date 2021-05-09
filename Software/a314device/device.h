@@ -20,10 +20,10 @@ struct A314Device
 
     ULONG fw_flags;
 
-    struct MsgPort task_mp;
-    struct Task *task;
-
     struct ComArea *ca;
+
+    struct Task task;
+    struct MsgPort task_mp;
 
     struct Interrupt vertb_interrupt;
     struct Interrupt ports_interrupt;
