@@ -31,28 +31,28 @@ void NewList(struct List *l)
 	l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
-static struct Task *create_task(struct A314Device *dev, char *name, long priority, char *initialPC, unsigned long stacksize)
+static struct Task *create_task(struct A314Device *dev)
 {
-	char *stack = AllocMem(stacksize, MEMF_CLEAR);
+	char *stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
 	if (stack == NULL)
 		return NULL;
 
 	struct Task *tc = AllocMem(sizeof(struct Task), MEMF_CLEAR | MEMF_PUBLIC);
 	if (tc == NULL)
 	{
-		FreeMem(stack, stacksize);
+		FreeMem(stack, TASK_STACK_SIZE);
 		return NULL;
 	}
 
 	tc->tc_Node.ln_Type = NT_TASK;
-	tc->tc_Node.ln_Pri = priority;
-	tc->tc_Node.ln_Name = name;
+	tc->tc_Node.ln_Pri = TASK_PRIORITY;
+	tc->tc_Node.ln_Name = device_name;
 	tc->tc_SPLower = (APTR)stack;
-	tc->tc_SPUpper = (APTR)(stack + stacksize);
-	tc->tc_SPReg = (APTR)(stack + stacksize);
+	tc->tc_SPUpper = (APTR)(stack + TASK_STACK_SIZE);
+	tc->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
 	tc->tc_UserData = (void *)dev;
 
-	AddTask(tc, initialPC, 0);
+	AddTask(tc, (void *)task_main, 0);
 	return tc;
 }
 
@@ -119,7 +119,7 @@ BOOL task_start(struct A314Device *dev)
 		return FALSE;
 	}
 
-	dev->task = create_task(dev, device_name, TASK_PRIORITY, (void *)task_main, TASK_STACK_SIZE);
+	dev->task = create_task(dev);
 	if (dev->task == NULL)
 	{
 		debug_printf("Unable to create task\n");
