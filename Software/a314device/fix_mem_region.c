@@ -1,12 +1,15 @@
 #include <exec/types.h>
 #include <exec/execbase.h>
 #include <exec/memory.h>
+#include <graphics/gfxbase.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
 
 #include "a314.h"
 #include "fix_mem_region.h"
 #include "cmem.h"
+
+#define SysBase (*(struct ExecBase **)4)
 
 #define FW_FLAG_AUTODETECT	1
 #define FW_FLAG_A600		2
@@ -29,7 +32,7 @@ struct MemChunkList
 	ULONG free;
 };
 
-void add_chunk(struct MemChunkList *l, struct MemChunk *mc)
+static void add_chunk(struct MemChunkList *l, struct MemChunk *mc)
 {
 	if (l->first == NULL)
 		l->first = mc;
@@ -39,7 +42,7 @@ void add_chunk(struct MemChunkList *l, struct MemChunk *mc)
 	l->free += mc->mc_Bytes;
 }
 
-struct MemHeader *split_region(struct MemHeader *lower, ULONG split_at)
+static struct MemHeader *split_region(struct MemHeader *lower, ULONG split_at)
 {
 	struct MemHeader *upper = (struct MemHeader *)AllocMem(sizeof(struct MemHeader), MEMF_PUBLIC | MEMF_CLEAR);
 
@@ -91,12 +94,12 @@ struct MemHeader *split_region(struct MemHeader *lower, ULONG split_at)
 	return upper;
 }
 
-BOOL overlap(struct MemHeader *mh, ULONG lower, ULONG upper)
+static BOOL overlap(struct MemHeader *mh, ULONG lower, ULONG upper)
 {
 	return lower < (ULONG)(mh->mh_Upper) && (ULONG)(mh->mh_Lower) < upper;
 }
 
-void mark_region_a314(ULONG address, ULONG size)
+static void mark_region_a314(ULONG address, ULONG size)
 {
 	struct List *memlist = &(SysBase->MemList);
 
@@ -128,8 +131,12 @@ void mark_region_a314(ULONG address, ULONG size)
 	}
 }
 
-void detect_block_mapping(ULONG present_blocks)
+static void detect_block_mapping(ULONG present_blocks)
 {
+	struct GfxBase *GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 0);
+	if (!GfxBase)
+		return;
+
 	Disable();
 	WaitBlit();
 
@@ -174,9 +181,11 @@ void detect_block_mapping(ULONG present_blocks)
 
 	write_cp_nibble(13, prev_regd);
 	Enable();
+
+	CloseLibrary((struct Library *)GfxBase);
 }
 
-void detect_block_mapping_heuristically(ULONG present_blocks)
+static void detect_block_mapping_heuristically(ULONG present_blocks)
 {
 	if ((present_blocks & 0xc) == 0xc)
 	{
@@ -189,7 +198,7 @@ void detect_block_mapping_heuristically(ULONG present_blocks)
 		bank_address[0] = HALF_MB;
 }
 
-ULONG get_present_blocks()
+static ULONG get_present_blocks()
 {
 	ULONG present_blocks = 0;
 

@@ -11,16 +11,16 @@
 #include "startup.h"
 #include "fix_mem_region.h"
 
+#define SysBase (*(struct ExecBase **)4)
+
 char device_name[] = A314_NAME;
 char id_string[] = A314_NAME " 1.0 (25 Aug 2018)";
 
-struct ExecBase *SysBase;
 BPTR saved_seg_list;
 BOOL running = FALSE;
 
 static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") BPTR seg_list, __reg("d0") struct Library *dev)
 {
-	SysBase = *(struct ExecBase **)4;
 	saved_seg_list = seg_list;
 
 	// We are being called from InitResident() in initializers.asm.

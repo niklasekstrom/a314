@@ -2,6 +2,8 @@
 
 #include "sockets.h"
 
+#define SysBase (*(struct ExecBase **)4)
+
 struct List active_sockets;
 
 struct Socket *send_queue_head = NULL;

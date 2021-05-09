@@ -2,6 +2,8 @@
 
 #include "cmem.h"
 
+#define SysBase (*(struct ExecBase **)4)
+
 #define CLOCK_PORT_ADDRESS	0xdc0000
 #define BASE_ADDRESS_LEN	6
 

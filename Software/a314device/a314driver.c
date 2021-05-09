@@ -29,6 +29,8 @@
 #include "fix_mem_region.h"
 #include "startup.h"
 
+#define SysBase (*(struct ExecBase **)4)
+
 int used_in_r2a()
 {
 	return (ca->r2a_tail - ca->r2a_head) & 255;

@@ -2,7 +2,6 @@
 #include <exec/memory.h>
 #include <exec/tasks.h>
 #include <hardware/intbits.h>
-#include <graphics/gfxbase.h>
 
 #include <proto/exec.h>
 
@@ -14,12 +13,13 @@
 #include "cmem.h"
 #include "debug.h"
 
+#define SysBase (*(struct ExecBase **)4)
+
 #define TASK_PRIORITY 80
 #define TASK_STACK_SIZE 1024
 
 ULONG fw_flags;
 
-struct GfxBase *GfxBase;
 struct MsgPort task_mp;
 struct Task *task;
 struct ComArea *ca;
@@ -107,17 +107,10 @@ static void detect_and_write_address_swap()
 
 BOOL task_start()
 {
-	GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 0);
-	if (!GfxBase)
-		return FALSE;
-
 	fw_flags = read_fw_flags();
 
 	if (!fix_memory())
-	{
-		CloseLibrary((struct Library *)GfxBase);
 		return FALSE;
-	}
 
 	detect_and_write_address_swap();
 
@@ -125,7 +118,6 @@ BOOL task_start()
 	if (ca == NULL)
 	{
 		debug_printf("Unable to allocate A314 memory for com area\n");
-		CloseLibrary((struct Library *)GfxBase);
 		return FALSE;
 	}
 
@@ -134,7 +126,6 @@ BOOL task_start()
 	{
 		debug_printf("Unable to create task\n");
 		FreeMem(ca, sizeof(struct ComArea));
-		CloseLibrary((struct Library *)GfxBase);
 		return FALSE;
 	}
 
