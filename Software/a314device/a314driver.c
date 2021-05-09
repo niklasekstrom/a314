@@ -31,11 +31,6 @@
 
 #define SysBase (*(struct ExecBase **)4)
 
-// When a message is received on R2A it is written to this buffer,
-// to avoid dealing with the issue that R2A is a circular buffer.
-// This is somewhat inefficient, so may want to change that to read from R2A directly.
-UBYTE received_packet[256];
-
 static int used_in_r2a(struct ComArea *ca)
 {
 	return (ca->r2a_tail - ca->r2a_head) & 255;
@@ -134,7 +129,7 @@ static void close_socket(struct A314Device *dev, struct Socket *s, BOOL should_s
 		delete_socket(dev, s);
 }
 
-static void handle_pkt_connect_response(struct A314Device *dev, UBYTE length, struct Socket *s)
+static void handle_pkt_connect_response(struct A314Device *dev, UBYTE offset, UBYTE length, struct Socket *s)
 {
 	debug_printf("Received a CONNECT RESPONSE packet from rpi\n");
 
@@ -150,7 +145,7 @@ static void handle_pkt_connect_response(struct A314Device *dev, UBYTE length, st
 	}
 	else
 	{
-		UBYTE result = received_packet[0];
+		UBYTE result = dev->ca->r2a_buffer[offset];
 		if (result == 0)
 		{
 			struct A314_IORequest *ior = s->pending_connect;
@@ -172,7 +167,7 @@ static void handle_pkt_connect_response(struct A314Device *dev, UBYTE length, st
 	}
 }
 
-static void handle_pkt_data(struct A314Device *dev, UBYTE length, struct Socket *s)
+static void handle_pkt_data(struct A314Device *dev, UBYTE offset, UBYTE length, struct Socket *s)
 {
 	debug_printf("Received a DATA packet from rpi\n");
 
@@ -184,7 +179,11 @@ static void handle_pkt_data(struct A314Device *dev, UBYTE length, struct Socket 
 			close_socket(dev, s, TRUE);
 		else
 		{
-			memcpy(ior->a314_Buffer, received_packet, length);
+			UBYTE *r2a_buffer = dev->ca->r2a_buffer;
+			UBYTE *dst = ior->a314_Buffer;
+			for (int i = 0; i < length; i++)
+				*dst++ = r2a_buffer[offset++];
+
 			ior->a314_Length = length;
 			ior->a314_Request.io_Error = A314_READ_OK;
 			ReplyMsg((struct Message *)ior);
@@ -197,7 +196,11 @@ static void handle_pkt_data(struct A314Device *dev, UBYTE length, struct Socket 
 		struct QueuedData *qd = (struct QueuedData *)AllocMem(sizeof(struct QueuedData) + length, 0);
 		qd->next = NULL,
 		qd->length = length;
-		memcpy(qd->data, received_packet, length);
+
+		UBYTE *r2a_buffer = dev->ca->r2a_buffer;
+		UBYTE *dst = qd->data;
+		for (int i = 0; i < length; i++)
+			*dst++ = r2a_buffer[offset++];
 
 		if (s->rq_head == NULL)
 			s->rq_head = qd;
@@ -229,7 +232,7 @@ static void handle_pkt_eos(struct A314Device *dev, struct Socket *s)
 	}
 }
 
-static void handle_r2a_packet(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE length)
+static void handle_r2a_packet(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE offset, UBYTE length)
 {
 	struct Socket *s = find_socket_by_stream_id(dev, stream_id);
 
@@ -249,11 +252,11 @@ static void handle_r2a_packet(struct A314Device *dev, UBYTE type, UBYTE stream_i
 
 	if (type == PKT_CONNECT_RESPONSE)
 	{
-		handle_pkt_connect_response(dev, length, s);
+		handle_pkt_connect_response(dev, offset, length, s);
 	}
 	else if (type == PKT_DATA)
 	{
-		handle_pkt_data(dev, length, s);
+		handle_pkt_data(dev, offset, length, s);
 	}
 	else if (type == PKT_EOS)
 	{
@@ -273,12 +276,10 @@ static void handle_packets_received_r2a(struct A314Device *dev)
 		UBYTE type = ca->r2a_buffer[index++];
 		UBYTE stream_id = ca->r2a_buffer[index++];
 
-		for (int i = 0; i < len; i++)
-			received_packet[i] = ca->r2a_buffer[index++];
+		handle_r2a_packet(dev, type, stream_id, index, len);
 
+		index += len;
 		ca->r2a_head = index;
-
-		handle_r2a_packet(dev, type, stream_id, len);
 	}
 }
 
