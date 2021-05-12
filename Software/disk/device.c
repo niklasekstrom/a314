@@ -168,9 +168,9 @@ static const char a314_device_name[] = A314_NAME;
 
 void NewList(struct List *l)
 {
-	l->lh_Head = (struct Node *)&(l->lh_Tail);
-	l->lh_Tail = NULL;
-	l->lh_TailPred = (struct Node *)&(l->lh_Head);
+    l->lh_Head = (struct Node *)&(l->lh_Tail);
+    l->lh_Tail = NULL;
+    l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
 static void send_a314_cmd(struct DiskDevice *dev, struct A314_IORequest *ior, UWORD cmd, char *buffer, int length)
@@ -381,31 +381,31 @@ static void task_main()
 
 static BOOL init_task(struct DiskDevice *dev)
 {
-	char *stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
-	if (!stack)
-		return FALSE;
+    char *stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
+    if (!stack)
+        return FALSE;
 
-	struct Task *task = &dev->task;
-	task->tc_Node.ln_Type = NT_TASK;
-	task->tc_Node.ln_Pri = TASK_PRIORITY;
-	task->tc_Node.ln_Name = (char *)device_name;
-	task->tc_SPLower = (APTR)stack;
-	task->tc_SPUpper = (APTR)(stack + TASK_STACK_SIZE);
-	task->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
+    struct Task *task = &dev->task;
+    task->tc_Node.ln_Type = NT_TASK;
+    task->tc_Node.ln_Pri = TASK_PRIORITY;
+    task->tc_Node.ln_Name = (char *)device_name;
+    task->tc_SPLower = (APTR)stack;
+    task->tc_SPUpper = (APTR)(stack + TASK_STACK_SIZE);
+    task->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
     NewList(&task->tc_MemEntry);
-	task->tc_UserData = (void *)dev;
+    task->tc_UserData = (void *)dev;
 
-	AddTask(task, (void *)task_main, 0);
-	return TRUE;
+    AddTask(task, (void *)task_main, 0);
+    return TRUE;
 }
 
 static void init_message_port(struct MsgPort *mp, UBYTE sig_bit, struct Task *sig_task)
 {
-	mp->mp_Node.ln_Type = NT_MSGPORT;
-	mp->mp_Flags = PA_SIGNAL;
-	mp->mp_SigBit = sig_bit;
-	mp->mp_SigTask = sig_task;
-	NewList(&mp->mp_MsgList);
+    mp->mp_Node.ln_Type = NT_MSGPORT;
+    mp->mp_Flags = PA_SIGNAL;
+    mp->mp_SigBit = sig_bit;
+    mp->mp_SigTask = sig_task;
+    NewList(&mp->mp_MsgList);
 }
 
 static void init_a314_ioreq(struct A314_IORequest *ior, struct MsgPort *mp)
