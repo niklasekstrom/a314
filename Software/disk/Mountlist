@@ -1,0 +1,55 @@
+PD0:	Device = a314disk.device
+	Unit   = 0
+	Flags  = 1
+	Surfaces  = 2
+	BlocksPerTrack = 11
+	Reserved = 2
+	Interleave = 0
+	LowCyl = 0
+	HighCyl = 79
+	Buffers = 2
+	BufMemType = 128
+	MaxTransfer = 5632
+#
+
+PD1:	Device = a314disk.device
+	Unit   = 1
+	Flags  = 1
+	Surfaces  = 2
+	BlocksPerTrack = 11
+	Reserved = 2
+	Interleave = 0
+	LowCyl = 0
+	HighCyl = 79
+	Buffers = 2
+	BufMemType = 128
+	MaxTransfer = 5632
+#
+
+PD2:	Device = a314disk.device
+	Unit   = 2
+	Flags  = 1
+	Surfaces  = 2
+	BlocksPerTrack = 11
+	Reserved = 2
+	Interleave = 0
+	LowCyl = 0
+	HighCyl = 79
+	Buffers = 2
+	BufMemType = 128
+	MaxTransfer = 5632
+#
+
+PD3:	Device = a314disk.device
+	Unit   = 3
+	Flags  = 1
+	Surfaces  = 2
+	BlocksPerTrack = 11
+	Reserved = 2
+	Interleave = 0
+	LowCyl = 0
+	HighCyl = 79
+	Buffers = 2
+	BufMemType = 128
+	MaxTransfer = 5632
+#
