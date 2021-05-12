@@ -1,8 +1,9 @@
 RTC_MATCHWORD:	equ	$4afc
 RTF_AUTOINIT:	equ	(1<<7)
+RTF_COLDSTART:	equ	(1<<0)
 NT_DEVICE:	equ	3
 VERSION:	equ	1
-PRIORITY:	equ	0
+PRIORITY:	equ	-3
 
 		section	code,code
 
@@ -13,7 +14,7 @@ romtag:
 		dc.w	RTC_MATCHWORD
 		dc.l	romtag
 		dc.l	endcode
-		dc.b	RTF_AUTOINIT
+		dc.b	RTF_AUTOINIT | RTF_COLDSTART
 		dc.b	VERSION
 		dc.b	NT_DEVICE
 		dc.b	PRIORITY
