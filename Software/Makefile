@@ -3,7 +3,7 @@
 CPP=g++
 VC=vc
 
-all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/piaudio bin/remotewb bin/remote-mouse bin/videoplayer bin/diag bin/a314eth.device
+all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/piaudio bin/remotewb bin/remote-mouse bin/videoplayer bin/diag bin/a314eth.device bin/a314disk.device
 
 bin_dir:
 	mkdir -p bin
@@ -42,6 +42,9 @@ bin/diag: diag/diag.c
 bin/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c ethernet/sana2.h ethernet/tagitem.h
 	${VC} ethernet/romtag.asm ethernet/device.c -O3 -nostdlib -o bin/a314eth.device -lamiga
 
+bin/a314disk.device: a314device/a314.h a314device/proto_a314.h disk/romtag.asm disk/device.c disk/debug.h disk/debug.c
+	${VC} disk/romtag.asm disk/device.c disk/debug.c -O3 -nostdlib -o bin/a314disk.device -lamiga
+
 install: all
 	mkdir -p /opt/a314
 	cp bin/a314d /opt/a314
@@ -52,10 +55,13 @@ install: all
 	cp remote-mouse/remote-mouse.py /opt/a314
 	cp videoplayer/videoplayer.py /opt/a314
 	cp ethernet/ethernet.py /opt/a314
+	cp disk/a314d.py /opt/a314
+	cp disk/disk.py /opt/a314
 	mkdir -p /etc/opt/a314
 	cp a314d/a314d.conf /etc/opt/a314
 	cp a314fs/a314fs.conf /etc/opt/a314
 	cp picmd/picmd.conf /etc/opt/a314
+	cp disk/disk.conf /etc/opt/a314
 	cd bpls2gif ; python3 setup.py install
 	pip3 install websockets
 	pip3 install python-pytun
