@@ -61,6 +61,9 @@ struct DriveGeometry
 #define TASK_PRIORITY           10
 #define TASK_STACK_SIZE         2048
 
+#define UNIT_COUNT              4
+#define AUTOBOOT_UNIT_COUNT     1
+
 #define SIGB_A314               30
 #define SIGB_OP_REQ             29
 
@@ -72,16 +75,13 @@ struct DriveGeometry
 // TRACK_SIZE = 5632
 #define TRACK_SIZE              (NUMSECS * TD_SECTOR)
 
-#define NUMCYLS                 80
-#define NUMHEADS                2
-#define NUMTRACKS               (NUMCYLS * NUMHEADS)
-
 #define MSG_READ_TRACK_REQ      1
 #define MSG_WRITE_TRACK_REQ     2
 #define MSG_READ_TRACK_RES      3
 #define MSG_WRITE_TRACK_RES     4
 #define MSG_INSERT_NOTIFY       5
 #define MSG_EJECT_NOTIFY        6
+#define MSG_SET_GEOMETRY        7
 
 #define OP_RES_OK               0
 #define OP_RES_NOT_PRESENT      1
@@ -93,30 +93,44 @@ struct DriveState
 {
     struct IOStdReq *change_int;
     struct Interrupt *remove_int;
+    ULONG *env_vec;
     volatile ULONG change_num;
     volatile ULONG opencnt;
     volatile BOOL present;
     volatile BOOL write_protected;
     UWORD unit;
+    UWORD heads;
+    UWORD sectors_per_track;
+    ULONG cylinders;
 };
 
 #pragma pack(push, 1)
 struct RequestMsg
 {
-    UBYTE msg_Kind;
-    UBYTE msg_Drive;
-    UWORD msg_Length;
-    ULONG msg_Offset;
-    ULONG msg_Data;
+    UBYTE kind;
+    UBYTE unit;
+    UWORD length;
+    ULONG offset;
+    ULONG address;
 };
 #pragma pack(pop)
 
 #pragma pack(push, 1)
 struct ResponseMsg
 {
-    UBYTE msg_Kind;
-    UBYTE msg_Drive;
-    UBYTE msg_Error; // For INSERT_NOTIFY this field tells if disk is writable.
+    UBYTE kind;
+    UBYTE unit;
+    union
+    {
+        UBYTE error; // READ_/WRITE_TRACK_RES
+        UBYTE writable; // INSERT_NOTIFY
+        struct // SET_GEOMETRY
+        {
+            UBYTE heads;
+            UBYTE sectors_per_track;
+            ULONG cylinders;
+        } geometry;
+    } u;
 };
 #pragma pack(pop)
 
@@ -137,8 +151,9 @@ struct DiskDevice
 
     char *track_buffer;
 
-    struct DriveState drive_states[NUMUNITS];
+    struct DriveState drive_states[UNIT_COUNT];
 
+    void *task_stack;
     struct Task task;
 
     struct List request_queue;
@@ -199,7 +214,7 @@ static void send_request_if_possible(struct DiskDevice *dev)
         struct DriveState *ds = (struct DriveState *)ior->io_Unit;
         if (ds->present)
         {
-            dev->req_msg.msg_Drive = ds->unit;
+            dev->req_msg.unit = ds->unit;
             break;
         }
         else
@@ -219,23 +234,23 @@ static void send_request_if_possible(struct DiskDevice *dev)
     switch (ior->io_Command)
     {
     case CMD_READ:
-        dev->req_msg.msg_Kind = MSG_READ_TRACK_REQ;
+        dev->req_msg.kind = MSG_READ_TRACK_REQ;
         break;
 
     case TD_FORMAT:
     case CMD_WRITE:
         if (buf_address == -1)
             memcpy(dev->track_buffer, ior->io_Data, ior->io_Length);
-        dev->req_msg.msg_Kind = MSG_WRITE_TRACK_REQ;
+        dev->req_msg.kind = MSG_WRITE_TRACK_REQ;
         break;
     }
 
     if (buf_address == -1)
         buf_address = TranslateAddressA314(dev->track_buffer);
 
-    dev->req_msg.msg_Length = ior->io_Length;
-    dev->req_msg.msg_Offset = ior->io_Offset;
-    dev->req_msg.msg_Data = buf_address;
+    dev->req_msg.length = ior->io_Length;
+    dev->req_msg.offset = ior->io_Offset;
+    dev->req_msg.address = buf_address;
 
     send_a314_cmd(dev, &dev->write_ior, A314_WRITE, (char *)&dev->req_msg, sizeof(struct RequestMsg));
     dev->pending_write = TRUE;
@@ -255,9 +270,9 @@ static void handle_eject_msg(struct DriveState *ds)
         Cause((struct Interrupt *)change_int->io_Data);
 }
 
-static void handle_insert_msg(struct DriveState *ds, BOOL write_protected)
+static void handle_insert_msg(struct DriveState *ds, struct ResponseMsg *msg)
 {
-    ds->write_protected = write_protected;
+    ds->write_protected = msg->u.writable == 0;
     ds->change_num++;
     ds->present = TRUE;
 
@@ -270,18 +285,33 @@ static void handle_insert_msg(struct DriveState *ds, BOOL write_protected)
         Cause((struct Interrupt *)change_int->io_Data);
 }
 
+static void handle_set_geometry_msg(struct DriveState *ds, struct ResponseMsg *msg)
+{
+    ds->heads = msg->u.geometry.heads;
+    ds->sectors_per_track = msg->u.geometry.sectors_per_track;
+    ds->cylinders = msg->u.geometry.cylinders;
+
+    ULONG *ev = ds->env_vec;
+    if (ev)
+    {
+        ev[DE_NUMHEADS] = msg->u.geometry.heads;
+        ev[DE_BLKSPERTRACK] = msg->u.geometry.sectors_per_track;
+        ev[DE_UPPERCYL] = msg->u.geometry.cylinders - 1;
+    }
+}
+
 static void handle_response_msg(struct DiskDevice *dev)
 {
-    struct DriveState *ds = &dev->drive_states[dev->res_msg.msg_Drive];
+    struct DriveState *ds = &dev->drive_states[dev->res_msg.unit];
 
-    switch (dev->res_msg.msg_Kind)
+    switch (dev->res_msg.kind)
     {
     case MSG_READ_TRACK_RES:
     case MSG_WRITE_TRACK_RES:
-        switch (dev->res_msg.msg_Error)
+        switch (dev->res_msg.u.error)
         {
         case OP_RES_OK:
-            if (dev->res_msg.msg_Kind == MSG_READ_TRACK_RES &&
+            if (dev->res_msg.kind == MSG_READ_TRACK_RES &&
                     TranslateAddressA314(dev->pending_operation->io_Data) == -1)
                 memcpy(dev->pending_operation->io_Data, dev->track_buffer, dev->pending_operation->io_Length);
             dev->pending_operation->io_Actual = dev->pending_operation->io_Length;
@@ -305,7 +335,11 @@ static void handle_response_msg(struct DiskDevice *dev)
         break;
 
     case MSG_INSERT_NOTIFY:
-        handle_insert_msg(ds, dev->res_msg.msg_Error == 0);
+        handle_insert_msg(ds, &dev->res_msg);
+        break;
+
+    case MSG_SET_GEOMETRY:
+        handle_set_geometry_msg(ds, &dev->res_msg);
         break;
     }
 }
@@ -379,12 +413,9 @@ static void task_main()
     }
 }
 
-static BOOL init_task(struct DiskDevice *dev)
+static void init_task(struct DiskDevice *dev)
 {
-    char *stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
-    if (!stack)
-        return FALSE;
-
+    char *stack = dev->task_stack;
     struct Task *task = &dev->task;
     task->tc_Node.ln_Type = NT_TASK;
     task->tc_Node.ln_Pri = TASK_PRIORITY;
@@ -396,7 +427,6 @@ static BOOL init_task(struct DiskDevice *dev)
     task->tc_UserData = (void *)dev;
 
     AddTask(task, (void *)task_main, 0);
-    return TRUE;
 }
 
 static void init_message_port(struct MsgPort *mp, UBYTE sig_bit, struct Task *sig_task)
@@ -415,14 +445,15 @@ static void init_a314_ioreq(struct A314_IORequest *ior, struct MsgPort *mp)
     ior->a314_Request.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
 }
 
-static void get_geometry(struct DriveGeometry *geom)
+static void get_geometry(struct DriveState *ds, struct DriveGeometry *geom)
 {
+    ULONG numtracks = ds->cylinders * ds->heads;
     geom->dg_SectorSize = TD_SECTOR;
-    geom->dg_TotalSectors = NUMTRACKS * NUMSECS;
-    geom->dg_Cylinders = NUMCYLS;
-    geom->dg_CylSectors = NUMSECS * NUMHEADS;
-    geom->dg_Heads = NUMHEADS;
-    geom->dg_TrackSectors = NUMSECS;
+    geom->dg_TotalSectors = numtracks * ds->sectors_per_track;
+    geom->dg_Cylinders = ds->cylinders;
+    geom->dg_CylSectors = ds->sectors_per_track * ds->heads;
+    geom->dg_Heads = ds->heads;
+    geom->dg_TrackSectors = ds->sectors_per_track;
     geom->dg_BufMemType = MEMF_A314;
     geom->dg_DeviceType = DG_DIRECT_ACCESS;
     geom->dg_Flags = DGF_REMOVABLE;
@@ -470,11 +501,11 @@ static void begin_io(__reg("a6") struct DiskDevice *dev, __reg("a1") struct IOSt
         break;
 
     case TD_GETNUMTRACKS:
-        ior->io_Actual = NUMTRACKS;
+        ior->io_Actual = ds->cylinders * ds->heads;
         break;
 
     case TD_GETGEOMETRY:
-        get_geometry((struct DriveGeometry *)ior->io_Data);
+        get_geometry(ds, (struct DriveGeometry *)ior->io_Data);
         break;
 
     case TD_ADDCHANGEINT:
@@ -560,11 +591,29 @@ struct MountListEntry
 };
 
 static ULONG env_vec_template[20] = {
-    19, 128, 0, 2, 1, 11, 2, 0, 0, 0,
-    79, 2, MEMF_A314, 5632, 0x7fffffff, BOOT_PRIORITY, ID_DOS_DISK, 0, 0, 2
+    19,             // DE_TABLESIZE
+    128,            // DE_SIZEBLOCK
+    0,              // DE_SECORG
+    2,              // DE_NUMHEADS
+    1,              // DE_SECSPERBLK
+    11,             // DE_BLKSPERTRACK
+    2,              // DE_RESERVEDBLKS
+    0,              // DE_PREFAC
+    0,              // DE_INTERLEAVE
+    0,              // DE_LOWCYL
+    79,             // DE_UPPERCYL
+    2,              // DE_NUMBUFFERS
+    MEMF_A314,      // DE_BUFMEMTYPE
+    TRACK_SIZE,     // DE_MAXTRANSFER
+    0x7fffffff,     // DE_MASK
+    BOOT_PRIORITY,  // DE_BOOTPRI
+    ID_DOS_DISK,    // DE_DOSTYPE
+    0,              // DE_BAUD
+    0,              // DE_CONTROL
+    2               // DE_BOOTBLOCKS
 };
 
-static void add_boot_node(struct ExpansionBase *expansion_base, int unit)
+static void add_boot_node(struct ExpansionBase *expansion_base, struct DriveState *ds)
 {
     struct MountListEntry *mle = AllocMem(sizeof(struct MountListEntry), MEMF_PUBLIC | MEMF_CLEAR);
 
@@ -574,13 +623,14 @@ static void add_boot_node(struct ExpansionBase *expansion_base, int unit)
     mle->dev_node.dn_Startup = ((ULONG)(&mle->fssm)) >> 2;
     mle->dev_node.dn_Name = ((ULONG)(&mle->drive_name[0])) >> 2;
 
-    mle->fssm.fssm_Unit = unit;
+    mle->fssm.fssm_Unit = ds->unit;
     mle->fssm.fssm_Device = ((ULONG)(&mle->device_name[0])) >> 2;
     mle->fssm.fssm_Environ = ((ULONG)(&mle->env_vec[0])) >> 2;
 
     memcpy(mle->env_vec, env_vec_template, sizeof(env_vec_template));
+    ds->env_vec = mle->env_vec;
 
-    *(ULONG *)(&mle->drive_name[0]) = (3 << 24) | ('P' << 16) | ('D' << 8) | ('0' + unit);
+    *(ULONG *)(&mle->drive_name[0]) = (3 << 24) | ('P' << 16) | ('D' << 8) | ('0' + ds->unit);
 
     mle->device_name[0] = sizeof(device_name);
     memcpy(&mle->device_name[1], device_name, sizeof(device_name));
@@ -622,18 +672,22 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
     if (!dev->track_buffer)
         goto fail2;
 
-    for (int i = 0; i < NUMUNITS; i++)
-        dev->drive_states[i].unit = i;
+    for (int i = 0; i < UNIT_COUNT; i++)
+    {
+        struct DriveState *ds = &dev->drive_states[i];
+        ds->unit = i;
+        ds->heads = 2; // Default to floppy disk geometry.
+        ds->sectors_per_track = 11;
+        ds->cylinders = 80;
+    }
 
     NewList(&dev->request_queue);
 
     dev->a314_socket = get_socket_id();
 
-    if (!init_task(dev))
+    dev->task_stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
+    if (!dev->task_stack)
         goto fail3;
-
-    dbg_init();
-    dbg("Started");
 
     if (!seg_list)
     {
@@ -641,12 +695,17 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
 
         if (expansion_base)
         {
-            for (int i = 0; i < NUMUNITS; i++)
-                add_boot_node(expansion_base, i);
+            for (int i = 0; i < AUTOBOOT_UNIT_COUNT; i++)
+                add_boot_node(expansion_base, &dev->drive_states[i]);
 
             CloseLibrary(&expansion_base->LibNode);
         }
     }
+
+    init_task(dev);
+
+    dbg_init();
+    dbg("Started");
 
     return &dev->lib;
 
@@ -680,7 +739,7 @@ static void open(__reg("a6") struct DiskDevice *dev, __reg("a1") struct IOReques
     ior->io_Error = IOERR_OPENFAIL;
     ior->io_Message.mn_Node.ln_Type = NT_REPLYMSG;
 
-    if (unitnum >= NUMUNITS)
+    if (unitnum >= UNIT_COUNT)
         return;
 
     struct DriveState *ds = &dev->drive_states[unitnum];
