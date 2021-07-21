@@ -48,6 +48,7 @@ bin/a314disk.device: a314device/a314.h a314device/proto_a314.h disk/romtag.asm d
 install: all
 	mkdir -p /opt/a314
 	cp bin/a314d /opt/a314
+	cp a314d/a314d.py /opt/a314
 	cp a314fs/a314fs.py /opt/a314
 	cp picmd/picmd.py /opt/a314
 	cp piaudio/piaudio.py /opt/a314
@@ -55,7 +56,6 @@ install: all
 	cp remote-mouse/remote-mouse.py /opt/a314
 	cp videoplayer/videoplayer.py /opt/a314
 	cp ethernet/ethernet.py /opt/a314
-	cp disk/a314d.py /opt/a314
 	cp disk/disk.py /opt/a314
 	mkdir -p /etc/opt/a314
 	cp a314d/a314d.conf /etc/opt/a314
