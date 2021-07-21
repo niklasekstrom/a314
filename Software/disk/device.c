@@ -28,6 +28,9 @@
 
 #include "debug.h"
 
+// VBCC unnecessairly warns when a loop has a single iteration.
+#pragma dontwarn 208
+
 #define SysBase (*(struct ExecBase **)4)
 #define A314Base (dev->a314_base)
 
