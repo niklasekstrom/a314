@@ -32,6 +32,10 @@
 #define BUFFER_SIZE 4096
 
 // Not defined if using NDK13
+#ifndef ACTION_IS_FILESYSTEM
+#define ACTION_IS_FILESYSTEM 1027
+#endif
+
 #ifndef ACTION_EXAMINE_FH
 #define ACTION_EXAMINE_FH 1034
 #endif
@@ -1219,6 +1223,15 @@ void action_disk_info(struct DosPacket *dp)
 	reply_packet(dp);
 }
 
+void action_is_filesystem(struct DosPacket *dp)
+{
+	dbg("ACTION_IS_FILESYSTEM\n");
+
+	dp->dp_Res1 = DOSTRUE;
+	dp->dp_Res2 = 0;
+	reply_packet(dp);
+}
+
 void action_unsupported(struct DosPacket *dp)
 {
 	dbg("ACTION_UNSUPPORTED\n");
@@ -1282,6 +1295,8 @@ void start(__reg("a0") struct DosPacket *startup_packet)
 		case ACTION_SAME_LOCK: action_same_lock(dp); break;
 		case ACTION_DISK_INFO: action_disk_info(dp); break;
 		case ACTION_INFO: action_info(dp); break;
+
+		case ACTION_IS_FILESYSTEM: action_is_filesystem(dp); break;
 
 		/*
 		case ACTION_CURRENT_VOLUME: action_current_volume(dp); break;
