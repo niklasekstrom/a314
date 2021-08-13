@@ -625,7 +625,11 @@ def process_rename_object(key, name, target_dir, new_name):
         os.rename(from_path, to_path)
         if os.path.isfile(from_path + METAFILE_EXTENSION):
             os.rename(from_path + METAFILE_EXTENSION, to_path + METAFILE_EXTENSION)
-    except:
+    except OSError:
+        return struct.pack('>HH', 0, ERROR_OBJECT_IN_USE)
+    except Exception as e:
+        logger.warning('ACTION_RENAME unexpected exception')
+        logger.warning(e)
         return struct.pack('>HH', 0, ERROR_OBJECT_NOT_FOUND)
 
     return struct.pack('>HH', 1, 0)
