@@ -11,7 +11,7 @@ On the Raspberry Pi do the following:
 - In the file `/boot/config.txt` you should add a line that says `force_turbo=1`. The reason you want this is because the active SPI frequency is a fraction of the core frequency, which is 400 MHz when running at full speed, but that frequency is reduced to 250 MHz when the CPUs are not very busy. The Raspberry does SPI transfers using DMA, so the CPU is typically idle during a SPI transfer, and unfortunately that reduces the core frequency and therefore the SPI frequency, which we don't want. Therefore we force the core frequency to 400 MHz using that option.
 - In the file `/boot/cmdline.txt` you should add `spidev.bufsiz=65536` The options in the file form are a single line of text. Just add it on the end of the line. The `spidev.bufsize` is the maximum size of a single SPI transfer. The a314d daemon will use multiple SPI transfers to transfer more data than 64 kB.
 - Manually add the line `dtoverlay=spi-a314` to the end of `/boot/config.txt`, and reboot
-- To prepare to build the software you have to install Docker: `apt install docker.io`
+- To prepare to build the software you have to install Docker: `sudo apt install docker.io`
 - Allow user pi to run Docker: `sudo usermod -aG docker pi`
 - Install Dependencies: `sudo apt install python3-dev python3-distutils python3-pip build-essential git`
 - Clone the a314 repo: `git clone https://github.com/niklasekstrom/a314.git`
