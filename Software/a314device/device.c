@@ -7,9 +7,11 @@
 #include <proto/exec.h>
 
 #include "device.h"
+#include "debug.h"
 #include "a314.h"
 #include "startup.h"
-#include "fix_mem_region.h"
+#include "memory_allocator.h"
+#include "cp_pi_if.h"
 
 #define SysBase (*(struct ExecBase **)4)
 
@@ -30,6 +32,9 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
 	dev->lib.lib_Version = 1;
 	dev->lib.lib_Revision = 0;
 	dev->lib.lib_IdString = (APTR)id_string;
+
+    dbg_init();
+    dbg_info("Started");
 
 	// AddDevice() is executed after we return.
 	return &dev->lib;
@@ -55,6 +60,8 @@ static BPTR expunge(__reg("a6") struct A314Device *dev)
 
 static void open(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IORequest *ior, __reg("d0") ULONG unitnum, __reg("d1") ULONG flags)
 {
+	dbg_trace("Enter: open device");
+
 	dev->lib.lib_OpenCnt++;
 
 	if (dev->lib.lib_OpenCnt == 1 && !dev->running)
@@ -75,6 +82,8 @@ static void open(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IOR
 
 static BPTR close(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IORequest *ior)
 {
+	dbg_trace("Enter: close device");
+
 	ior->a314_Request.io_Device = NULL;
 	ior->a314_Request.io_Unit = NULL;
 
@@ -88,6 +97,8 @@ static BPTR close(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IO
 
 static void begin_io(__reg("a6") struct A314Device *dev, __reg("a1") struct A314_IORequest *ior)
 {
+	dbg_trace("Enter: begin_io");
+
 	PutMsg(&dev->task_mp, (struct Message *)ior);
 	ior->a314_Request.io_Flags &= ~IOF_QUICK;
 }
@@ -106,7 +117,11 @@ static ULONG device_vectors[] =
 	0,
 	(ULONG)begin_io,
 	(ULONG)abort_io,
-	(ULONG)translate_address_a314,
+	(ULONG)a314base_translate_address,
+	(ULONG)a314base_alloc_mem,
+	(ULONG)a314base_free_mem,
+	(ULONG)a314base_write_mem,
+	(ULONG)a314base_read_mem,
 	-1,
 };
 

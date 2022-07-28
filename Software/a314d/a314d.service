@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 User=pi
 Group=pi
+ExecStartPre=+/opt/a314/start_gpclk
 ExecStart=/opt/a314/a314d
 
 [Install]

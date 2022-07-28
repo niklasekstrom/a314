@@ -804,12 +804,10 @@ while not done:
             send_connect_response(stream_id, 3)
     elif ptype == MSG_DATA:
         address, length = struct.unpack('>II', payload)
-        #logger.debug('address: %s, length: %s', address, length)
         req = read_mem(address + 2, length - 2)
         res = process_request(req)
         write_mem(address + 2, res)
-        #write_mem(address, b'\xff\xff')
-        send_data(stream_id, b'\xff\xff')
+        send_data(stream_id, struct.pack('>I', len(res) + 2))
     elif ptype == MSG_EOS:
         if stream_id == current_stream_id:
             logger.debug('Got EOS, stream closed')

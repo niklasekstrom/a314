@@ -198,7 +198,7 @@ void handle_a314_read_completed()
 	}
 }
 
-UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, char **argv, short rows, short cols)
+ULONG create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, char **argv, short rows, short cols)
 {
 	int buf_len = 6;
 
@@ -244,7 +244,8 @@ UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, ch
 	for (int i = 1; i < argc; i++)
 		buf_len += strlen(argv[i]) + 1;
 
-	UBYTE *buffer = AllocMem(buf_len, MEMF_A314);
+	ULONG buffer_address = AllocMemA314(buf_len);
+	UBYTE *buffer = AllocMem(buf_len, 0);
 
 	UBYTE *p = buffer;
 
@@ -273,11 +274,14 @@ UBYTE *create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, ch
 		p += n;
 	}
 
-	ULONG buf_desc[2] = {TranslateAddressA314(buffer), buf_len};
+	WriteMemA314(buffer_address, buffer, buf_len);
+	FreeMem(buffer, buf_len);
+
+	ULONG buf_desc[2] = {buffer_address, buf_len};
 	a314_write((char *)buf_desc, sizeof(buf_desc));
 
 	*buffer_len = buf_len;
-	return buffer;
+	return buffer_address;
 }
 
 int main(int argc, char **argv)
@@ -378,7 +382,7 @@ int main(int argc, char **argv)
 	int cols = atoi(arbuf + start);
 
 	int start_msg_len;
-	UBYTE *start_msg = create_and_send_start_msg(&start_msg_len, proc->pr_CurrentDir, argc, argv, (short)rows, (short)cols);
+	ULONG start_msg = create_and_send_start_msg(&start_msg_len, proc->pr_CurrentDir, argc, argv, (short)rows, (short)cols);
 
 	start_con_wait();
 	start_a314_read();
@@ -407,7 +411,7 @@ int main(int argc, char **argv)
 
 	set_screen_mode(DOSFALSE);
 
-	FreeMem(start_msg, start_msg_len);
+	FreeMemA314(start_msg, start_msg_len);
 
 	CloseDevice((struct IORequest *)sync_ior);
 	DeleteExtIO((struct IORequest *)read_ior);

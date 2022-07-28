@@ -66,9 +66,11 @@ struct Library *A314Base;
 
 long socket;
 
-// These are allocated in A314 memory.
 char *request_buffer = NULL;
-char *data_buffer = NULL;
+
+// These are allocated in A314 memory.
+ULONG request_buffer_address;
+ULONG data_buffer_address;
 
 void MyNewList(struct List *l)
 {
@@ -364,8 +366,9 @@ void startup_fs_handler(struct DosPacket *dp)
 		return;
 	}
 
-	request_buffer = AllocMem(REQ_RES_BUF_SIZE, MEMF_A314);
-	data_buffer = AllocMem(BUFFER_SIZE, MEMF_A314);
+	request_buffer = AllocMem(REQ_RES_BUF_SIZE, 0);
+	request_buffer_address = AllocMemA314(REQ_RES_BUF_SIZE);
+	data_buffer_address = AllocMemA314(BUFFER_SIZE);
 
 	// Så vi kan anta att vi kommer hit, och då har vi en ström till rasp-sidan, där vi kan skicka data.
 	create_and_add_volume();
@@ -396,10 +399,13 @@ void wait_for_response()
 
 void write_req_and_wait_for_res(int len)
 {
-	ULONG buf[2] = {TranslateAddressA314(request_buffer), len};
+	WriteMemA314(request_buffer_address, request_buffer, len);
+	ULONG buf[2] = {request_buffer_address, len};
 	a314_write((char *)&buf[0], 8);
 	//wait_for_response();
-	a314_read((char *)&buf[0], 8);
+	a314_read((char *)&buf[1], 4);
+	len = buf[1];
+	ReadMemA314(request_buffer, request_buffer_address, len);
 }
 
 struct FileLock *create_and_add_file_lock(long key, long mode)
@@ -813,7 +819,7 @@ void action_read(struct DosPacket *dp)
 		req->has_response = 0;
 		req->type = dp->dp_Type;
 		req->arg1 = arg1;
-		req->address = TranslateAddressA314(data_buffer);
+		req->address = data_buffer_address;
 		req->length = to_read;
 
 		write_req_and_wait_for_res(sizeof(struct ReadRequest));
@@ -830,7 +836,7 @@ void action_read(struct DosPacket *dp)
 
 		if (res->actual)
 		{
-			memcpy(dst, data_buffer, res->actual);
+			ReadMemA314(dst, data_buffer_address, res->actual);
 			dst += res->actual;
 			total_read += res->actual;
 			length -= res->actual;
@@ -862,13 +868,13 @@ void action_write(struct DosPacket *dp)
 		if (to_write > BUFFER_SIZE)
 			to_write = BUFFER_SIZE;
 
-		memcpy(data_buffer, src, to_write);
+		WriteMemA314(data_buffer_address, src, to_write);
 
 		struct WriteRequest *req = (struct WriteRequest *)request_buffer;
 		req->has_response = 0;
 		req->type = dp->dp_Type;
 		req->arg1 = arg1;
-		req->address = TranslateAddressA314(data_buffer);
+		req->address = data_buffer_address;
 		req->length = to_write;
 
 		write_req_and_wait_for_res(sizeof(struct WriteRequest));

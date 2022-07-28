@@ -4,7 +4,6 @@
 
 #include <arpa/inet.h>
 
-#include <linux/spi/spidev.h>
 #include <linux/types.h>
 
 #include <netinet/in.h>
@@ -12,6 +11,7 @@
 
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -47,22 +47,6 @@
 #define LOGGER_ERROR 1
 #define logger_error(...) do { if (LOGGER_ERROR) fprintf(stderr, __VA_ARGS__); } while (0)
 
-// SPI commands.
-#define READ_SRAM_CMD           0
-#define WRITE_SRAM_CMD          1
-#define READ_CMEM_CMD           2
-#define WRITE_CMEM_CMD          3
-#define SPI_PROTO_VER_CMD       255
-
-#define READ_SRAM_HDR_LEN       4
-
-// Addresses to variables in CMEM.
-#define BASE_ADDRESS_LEN        6
-#define R_EVENTS_ADDRESS        12
-#define R_ENABLE_ADDRESS        13
-#define A_EVENTS_ADDRESS        14
-#define A_ENABLE_ADDRESS        15
-
 // Events that are communicated via IRQ from Amiga to Raspberry.
 #define R_EVENT_A2R_TAIL        1
 #define R_EVENT_R2A_HEAD        2
@@ -73,10 +57,15 @@
 #define A_EVENT_A2R_HEAD        2
 
 // Offset relative to communication area for queue pointers.
-#define A2R_TAIL_OFFSET         0
-#define R2A_HEAD_OFFSET         1
-#define R2A_TAIL_OFFSET         2
-#define A2R_HEAD_OFFSET         3
+#define R2A_TAIL_OFFSET         0
+#define A2R_HEAD_OFFSET         1
+#define A2R_TAIL_OFFSET         2
+#define R2A_HEAD_OFFSET         3
+
+// Addresses of fixed data structures in shared memory.
+#define A2R_BASE                0
+#define R2A_BASE                256
+#define CAP_BASE                512
 
 // Packets that are communicated across physical channels (A2R and R2A).
 #define PKT_CONNECT             4
@@ -107,30 +96,62 @@
 #define MSG_SUCCESS             1
 #define MSG_FAIL                0
 
-#define IRQ_GPIO                "25"
+#define IRQ_GPIO                "2"
 
+#define PIN_IRQ                 2
+#define PIN_CLK                 4
+#define PIN_REQ                 14
+#define PIN_ACK                 15
+#define PIN_D(x)                (16 + x)
+#define PIN_A(x)                (24 + x)
+#define PIN_WR                  27
+
+#define PINS_OUT            ((0xff << PIN_D(0)) | (3 << PIN_A(0)) | (1 << PIN_WR) | (1 << PIN_REQ))
+#define PINS_OUT_NOT_WR     ((0xff << PIN_D(0)) | (3 << PIN_A(0)) | (1 << PIN_REQ))
+
+#define GPIO_DIR_0              0x08004000
+#define GPIO_DIR_1_DIN          0x00001009
+#define GPIO_DIR_1_DOUT         0x09241009
+#define GPIO_DIR_2_DIN          0x08209000
+#define GPIO_DIR_2_DOUT         0x08209249
+
+#define GPIO_PULL_NONE          0
+#define GPIO_PULL_DOWN          1
+#define GPIO_PULL_UP            2
+
+#define REG_SRAM                0
+#define REG_IRQ                 1
+#define REG_ADDR_LO             2
+#define REG_ADDR_HI             3
+
+#define REG_IRQ_SET             0x80
+#define REG_IRQ_CLR             0x00
+#define REG_IRQ_PI              0x02
+#define REG_IRQ_CP              0x01
+
+// Global variables.
 static sigset_t original_sigset;
 
-static uint8_t mode = SPI_CS_HIGH;
-static uint8_t bits = 8;
-static uint32_t speed = 67000000;
+static uint8_t rx_buf[65536];
 
-static int spi_fd = -1;
-static int spi_proto_ver = 0;
+static volatile unsigned int *gpio;
 
-static unsigned char tx_buf[65536];
-static unsigned char rx_buf[65536];
+static unsigned short current_address;
+static int current_dir = 0; // 0 = input, 1 = output.
 
-static bool gpio_exported = false;
-static bool gpio_edge_set = false;
-static int gpio_fd = -1;
+static bool read_a314_magic = false;
+static int restart_counter;
+
+static bool gpio_irq_exported = false;
+static bool gpio_irq_edge_set = false;
+static int gpio_irq_fd = -1;
+
+static bool auto_clear_cp_irq = false;
+static time_t auto_clear_cp_irq_after;
 
 static int server_socket = -1;
 
 static int epfd = -1;
-
-static bool have_base_address = false;
-static unsigned int base_address = 0;
 
 static uint8_t channel_status[4];
 static uint8_t channel_status_updated = 0;
@@ -277,116 +298,163 @@ static void load_config_file(const char *filename)
         logger_warn("No registered services\n");
 }
 
-static int init_spi()
+static int create_dev_gpiomem_mapping()
 {
-    spi_fd = open("/dev/spidev0.0", O_RDWR | O_CLOEXEC);
-    if (spi_fd < 0)
+    int fd = open("/dev/gpiomem", O_RDWR | O_SYNC);
+    if (fd < 0)
+    {
+        logger_error("Unable to open /dev/gpiomem\n");
+        return -1;
+    }
+
+    void *gpio_map = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+    close(fd);
+
+    if (gpio_map == MAP_FAILED)
+    {
+        logger_error("mmap failed, errno = %d\n", errno);
+        return -1;
+    }
+
+    gpio = (volatile unsigned int *)gpio_map;
+    return 0;
+}
+
+static void write_reg(unsigned int reg, unsigned int value)
+{
+    if (current_dir == 0)
+    {
+        *(gpio + 7) = (1 << PIN_WR);
+        *(gpio + 1) = GPIO_DIR_1_DOUT;
+        *(gpio + 2) = GPIO_DIR_2_DOUT;
+        current_dir = 1;
+    }
+
+    while ((*(gpio + 13) & (1 << PIN_ACK)))
+        ;
+
+    *(gpio + 7) = ((value & 0xff) << PIN_D(0)) | (reg << PIN_A(0)) | (1 << PIN_REQ);
+
+    while (!(*(gpio + 13) & (1 << PIN_ACK)))
+        ;
+
+    *(gpio + 10) = PINS_OUT_NOT_WR;
+}
+
+static unsigned int read_reg(unsigned int reg)
+{
+    if (current_dir == 1)
+    {
+        *(gpio + 1) = GPIO_DIR_1_DIN;
+        *(gpio + 2) = GPIO_DIR_2_DIN;
+        *(gpio + 10) = (1 << PIN_WR);
+        current_dir = 0;
+    }
+
+    while ((*(gpio + 13) & (1 << PIN_ACK)))
+        ;
+
+    *(gpio + 7) = (reg << PIN_A(0)) | (1 << PIN_REQ);
+
+    unsigned int value;
+    while (!((value = *(gpio + 13)) & (1 << PIN_ACK)))
+        ;
+
+    value = (value >> PIN_D(0)) & 0xff;
+
+    *(gpio + 10) = PINS_OUT_NOT_WR;
+
+    return value;
+}
+
+static void clear_pi_irq()
+{
+    write_reg(REG_IRQ, REG_IRQ_CLR | REG_IRQ_PI);
+}
+
+static void set_cp_irq()
+{
+    write_reg(REG_IRQ, REG_IRQ_SET | REG_IRQ_CP);
+}
+
+static void clear_cp_irq()
+{
+    write_reg(REG_IRQ, REG_IRQ_CLR | REG_IRQ_CP);
+}
+
+static void set_address(unsigned short address)
+{
+    if ((address & 0xff) != (current_address & 0xff))
+        write_reg(REG_ADDR_LO, address & 0xff);
+
+    if (((address >> 8) & 0xff) != ((current_address >> 8) & 0xff))
+        write_reg(REG_ADDR_HI, (address >> 8) & 0xff);
+
+    current_address = address;
+}
+
+static void write_str(unsigned short address, unsigned char *data, unsigned short length)
+{
+    set_address(address);
+
+    for (int i = 0; i < length; i++)
+        write_reg(REG_SRAM, *data++);
+
+    current_address += length;
+}
+
+static void read_str(unsigned char *data, unsigned short address, unsigned short length)
+{
+    set_address(address);
+
+    for (int i = 0; i < length; i++)
+        *data++ = read_reg(REG_SRAM);
+
+    current_address += length;
+}
+
+static void set_gpio_pull_mode(int mask, int mode)
+{
+    *(gpio + 37) = mode;
+    usleep(50);
+    *(gpio + 38) = mask;
+    usleep(50);
+    *(gpio + 38) = 0;
+    *(gpio + 37) = 0;
+    usleep(50);
+}
+
+static int init_gpio()
+{
+    if (create_dev_gpiomem_mapping())
         return -1;
 
-    int ret = ioctl(spi_fd, SPI_IOC_WR_MODE, &mode);
-    ret |= ioctl(spi_fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
-    ret |= ioctl(spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
-    if (ret != 0)
-        return ret;
+    // Set pin directions.
+    // Inputs: PIN_IRQ, PIN_ACK, PIN_D(x), unused pins.
+    // Outputs: PIN_REQ, PIN_A(x), PIN_WR, pin 29 (connects to LED on Pi3).
+    // Alt0: PIN_CLK.
+    *(gpio + 0) = GPIO_DIR_0;
+    *(gpio + 1) = GPIO_DIR_1_DIN;
+    *(gpio + 2) = GPIO_DIR_2_DIN;
+
+    set_gpio_pull_mode((1 << PIN_ACK) | (1 << PIN_IRQ), GPIO_PULL_DOWN);
+    set_gpio_pull_mode(PINS_OUT | (1 << PIN_CLK), GPIO_PULL_NONE);
+
+    current_dir = 0;
+
+    // Set address pointer.
+    write_reg(REG_ADDR_LO, 0);
+    write_reg(REG_ADDR_HI, 0);
+
+    current_address = 0;
 
     return 0;
 }
 
-static void shutdown_spi()
+static void shutdown_gpio()
 {
-    if (spi_fd != -1)
-        close(spi_fd);
-}
-
-static int transfer(int len)
-{
-    struct spi_ioc_transfer tr =
-    {
-        .tx_buf = (uintptr_t)tx_buf,
-        .rx_buf = (uintptr_t)rx_buf,
-        .len = (uint32_t)len,
-        .speed_hz = speed,
-        .delay_usecs = 0,
-        .bits_per_word = bits,
-        .cs_change = 0,
-    };
-
-    return ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
-}
-
-static int spi_protocol_version()
-{
-    tx_buf[0] = (uint8_t)SPI_PROTO_VER_CMD;
-    tx_buf[1] = 0;
-    transfer(2);
-    logger_trace("SPI protocol version = %d\n", rx_buf[1]);
-    return (int)rx_buf[1];
-}
-
-static void spi_read_mem(unsigned int address, unsigned int length)
-{
-    logger_trace("SPI read mem address = %d length = %d\n", address, length);
-
-    unsigned int header;
-    if (spi_proto_ver == 1)
-        header = (READ_SRAM_CMD << 21) | (address & 0x1fffff);
-    else
-        header = (READ_SRAM_CMD << 20) | (address & 0xfffff);
-
-    tx_buf[0] = (uint8_t)((header >> 16) & 0xff);
-    tx_buf[1] = (uint8_t)((header >> 8) & 0xff);
-    tx_buf[2] = (uint8_t)(header & 0xff);
-	tx_buf[3] = 0;
-
-    transfer(length + 4);
-}
-
-static void spi_write_mem(unsigned int address, uint8_t *buf, unsigned int length)
-{
-    logger_trace("SPI write mem address = %d length = %d\n", address, length);
-
-    unsigned int header;
-    if (spi_proto_ver == 1)
-        header = (WRITE_SRAM_CMD << 21) | (address & 0x1fffff);
-    else
-        header = (WRITE_SRAM_CMD << 20) | (address & 0xfffff);
-
-    tx_buf[0] = (uint8_t)((header >> 16) & 0xff);
-    tx_buf[1] = (uint8_t)((header >> 8) & 0xff);
-    tx_buf[2] = (uint8_t)(header & 0xff);
-
-    memcpy(&tx_buf[3], buf, length);
-    transfer(length + 3);
-}
-
-static uint8_t spi_read_cmem(unsigned int address)
-{
-    if (spi_proto_ver == 1)
-        tx_buf[0] = (uint8_t)((READ_CMEM_CMD << 5) | (address & 0xf));
-    else
-        tx_buf[0] = (uint8_t)((READ_CMEM_CMD << 4) | (address & 0xf));
-    tx_buf[1] = 0;
-    transfer(2);
-    logger_trace("SPI read cmem, address = %d, returned = %d\n", address, rx_buf[1]);
-    return rx_buf[1];
-}
-
-static void spi_write_cmem(unsigned int address, unsigned int data)
-{
-    logger_trace("SPI write cmem, address = %d, data = %d\n", address, data);
-
-    if (spi_proto_ver == 1)
-        tx_buf[0] = (uint8_t)((WRITE_CMEM_CMD << 5) | (address & 0xf));
-    else
-        tx_buf[0] = (uint8_t)((WRITE_CMEM_CMD << 4) | (address & 0xf));
-    tx_buf[1] = (uint8_t)(data & 0xf);
-    transfer(2);
-}
-
-static uint8_t spi_ack_irq()
-{
-    logger_trace("SPI ack_irq\n");
-    return spi_read_cmem(R_EVENTS_ADDRESS);
+    // Let Linux take care of this.
 }
 
 static int open_write_close(const char *filename, const char *text)
@@ -423,36 +491,36 @@ static void set_direction()
     }
 }
 
-static int init_gpio()
+static int init_gpio_irq()
 {
     if (open_write_close("/sys/class/gpio/export", IRQ_GPIO) != 0)
         return -1;
 
-    gpio_exported = true;
+    gpio_irq_exported = true;
 
     set_direction();
 
-    if (open_write_close("/sys/class/gpio/gpio" IRQ_GPIO "/edge", "both") == -1)
+    if (open_write_close("/sys/class/gpio/gpio" IRQ_GPIO "/edge", "rising") == -1)
         return -1;
 
-    gpio_edge_set = true;
+    gpio_irq_edge_set = true;
 
-    gpio_fd = open("/sys/class/gpio/gpio" IRQ_GPIO "/value", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    if (gpio_fd == -1)
+    gpio_irq_fd = open("/sys/class/gpio/gpio" IRQ_GPIO "/value", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (gpio_irq_fd == -1)
         return -1;
 
     return 0;
 }
 
-static void shutdown_gpio()
+static void shutdown_gpio_irq()
 {
-    if (gpio_fd != -1)
-        close(gpio_fd);
+    if (gpio_irq_fd != -1)
+        close(gpio_irq_fd);
 
-    if (gpio_edge_set)
+    if (gpio_irq_edge_set)
         open_write_close("/sys/class/gpio/gpio" IRQ_GPIO "/edge", "none");
 
-    if (gpio_exported)
+    if (gpio_irq_exported)
         open_write_close("/sys/class/gpio/unexport", IRQ_GPIO);
 }
 
@@ -514,12 +582,10 @@ static int init_driver()
     if (init_server_socket() != 0)
         return -1;
 
-    if (init_spi() != 0)
+    if (init_gpio() != 0)
         return -1;
 
-    spi_proto_ver = spi_protocol_version();
-
-    if (init_gpio() != 0)
+    if (init_gpio_irq() != 0)
         return -1;
 
     epfd = epoll_create1(EPOLL_CLOEXEC);
@@ -528,8 +594,8 @@ static int init_driver()
 
     struct epoll_event ev;
     ev.events = EPOLLPRI | EPOLLERR;
-    ev.data.fd = gpio_fd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, gpio_fd, &ev) != 0)
+    ev.data.fd = gpio_irq_fd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, gpio_irq_fd, &ev) != 0)
         return -1;
 
     ev.events = EPOLLIN;
@@ -545,8 +611,8 @@ static void shutdown_driver()
     if (epfd != -1)
         close(epfd);
 
+    shutdown_gpio_irq();
     shutdown_gpio();
-    shutdown_spi();
     shutdown_server_socket();
 }
 
@@ -650,9 +716,9 @@ static void handle_msg_read_mem_req(ClientConnection *cc)
     uint32_t address = *(uint32_t *)&(cc->payload[0]);
     uint32_t length = *(uint32_t *)&(cc->payload[4]);
 
-    spi_read_mem(address, length);
+    read_str(rx_buf, address, length);
 
-    create_and_send_msg(cc, MSG_READ_MEM_RES, 0, &rx_buf[READ_SRAM_HDR_LEN], length);
+    create_and_send_msg(cc, MSG_READ_MEM_RES, 0, rx_buf, length);
 }
 
 static void handle_msg_write_mem_req(ClientConnection *cc)
@@ -660,7 +726,7 @@ static void handle_msg_write_mem_req(ClientConnection *cc)
     uint32_t address = *(uint32_t *)&(cc->payload[0]);
     uint32_t length = cc->payload.size() - 4;
 
-    spi_write_mem(address, &(cc->payload[4]), length);
+    write_str(address, &(cc->payload[4]), length);
 
     create_and_send_msg(cc, MSG_WRITE_MEM_RES, 0, nullptr, 0);
 }
@@ -1055,29 +1121,22 @@ static void handle_received_pkt(int ptype, int channel_id, uint8_t *data, int pl
     remove_channel_if_not_associated_and_empty_pq(channel_id);
 }
 
-static bool receive_from_a2r()
+static void receive_from_a2r()
 {
     int head = channel_status[A2R_HEAD_OFFSET];
     int tail = channel_status[A2R_TAIL_OFFSET];
     int len = (tail - head) & 255;
     if (len == 0)
-        return false;
+        return;
 
     if (head < tail)
-    {
-        spi_read_mem(base_address + 4 + head, tail - head);
-        memcpy(recv_buf, &rx_buf[READ_SRAM_HDR_LEN], len);
-    }
+        read_str(recv_buf, A2R_BASE + head, len);
     else
     {
-        spi_read_mem(base_address + 4 + head, 256 - head);
-        memcpy(recv_buf, &rx_buf[READ_SRAM_HDR_LEN], 256 - head);
+        read_str(recv_buf, A2R_BASE + head, 256 - head);
 
         if (tail != 0)
-        {
-            spi_read_mem(base_address + 4, tail);
-            memcpy(&recv_buf[len - tail], &rx_buf[READ_SRAM_HDR_LEN], tail);
-        }
+            read_str(&recv_buf[len - tail], A2R_BASE, tail);
     }
 
     uint8_t *p = recv_buf;
@@ -1092,10 +1151,9 @@ static bool receive_from_a2r()
 
     channel_status[A2R_HEAD_OFFSET] = channel_status[A2R_TAIL_OFFSET];
     channel_status_updated |= A_EVENT_A2R_HEAD;
-    return true;
 }
 
-static bool flush_send_queue()
+static void flush_send_queue()
 {
     int tail = channel_status[R2A_TAIL_OFFSET];
     int head = channel_status[R2A_HEAD_OFFSET];
@@ -1135,55 +1193,28 @@ static bool flush_send_queue()
 
     int to_write = pos;
     if (!to_write)
-        return false;
+        return;
 
     uint8_t *p = send_buf;
     int at_end = 256 - tail;
     if (at_end < to_write)
     {
-        spi_write_mem(base_address + 260 + tail, p, at_end);
+        write_str(R2A_BASE + tail, p, at_end);
         p += at_end;
         to_write -= at_end;
         tail = 0;
     }
 
-    spi_write_mem(base_address + 260 + tail, p, to_write);
+    write_str(R2A_BASE + tail, p, to_write);
     tail = (tail + to_write) & 255;
 
     channel_status[R2A_TAIL_OFFSET] = tail;
     channel_status_updated |= A_EVENT_R2A_TAIL;
-    return true;
-}
-
-static void read_base_address()
-{
-    have_base_address = false;
-
-    unsigned int ba1 = 0;
-    for (int i = 0; i < BASE_ADDRESS_LEN; i++)
-        ba1 |= spi_read_cmem(i) << (i * 4);
-
-    if ((ba1 & 1) == 1)
-    {
-        unsigned int ba2 = 0;
-        for (int i = 0; i < BASE_ADDRESS_LEN; i++)
-            ba2 |= spi_read_cmem(i) << (i * 4);
-
-        if (ba1 == ba2)
-        {
-            have_base_address = true;
-            base_address = ba1 & ~1;
-        }
-    }
 }
 
 static void read_channel_status()
 {
-    spi_read_mem(base_address, 4);
-
-    for (int i = 0; i < 4; i++)
-        channel_status[i] = rx_buf[READ_SRAM_HDR_LEN + i];
-
+    read_str(channel_status, CAP_BASE, 4);
     channel_status_updated = 0;
 }
 
@@ -1191,9 +1222,13 @@ static void write_channel_status()
 {
     if (channel_status_updated != 0)
     {
-        spi_write_mem(base_address + 2, &channel_status[R2A_TAIL_OFFSET], 2);
-        spi_write_cmem(A_EVENTS_ADDRESS, channel_status_updated);
+        write_str(CAP_BASE + R2A_TAIL_OFFSET, &channel_status[R2A_TAIL_OFFSET], 2);
         channel_status_updated = 0;
+
+        set_cp_irq();
+
+        auto_clear_cp_irq = true;
+        auto_clear_cp_irq_after = time(NULL) + 3;
     }
 }
 
@@ -1218,29 +1253,49 @@ static void close_all_logical_channels()
 
 static void handle_a314_irq()
 {
-    uint8_t events = spi_ack_irq();
-    if (events == 0)
-        return;
+    // TODO: Currently there's a single notification event in either direction.
+    // Could possibly have two events, one to signal that R2A_TAIL is updated
+    // and one for A2R_HEAD.
+    // Also in that case should add enable bits so that the other side can
+    // mute notifications.
 
-    if ((events & R_EVENT_BASE_ADDRESS) || !have_base_address)
+    clear_pi_irq();
+
+    if (!read_a314_magic)
     {
-        if (have_base_address && !channels.empty())
-            logger_info("Base address was updated while logical channels are open -- closing channels\n");
+        uint8_t values[2];
+        read_str(values, CAP_BASE + 5, 2);
+        if (values[0] != 0xa3 || values[1] != 0x14)
+            return;
 
-        close_all_logical_channels();
-        read_base_address();
+        read_str(values, CAP_BASE + 4, 1);
+        restart_counter = values[0];
+
+        read_a314_magic = true;
     }
-
-    if (!have_base_address)
-        return;
 
     read_channel_status();
 
-    bool any_rcvd = receive_from_a2r();
-    bool any_sent = flush_send_queue();
+    uint8_t current_restart_counter;
+    read_str(&current_restart_counter, CAP_BASE + 4, 1);
 
-    if (any_rcvd || any_sent)
-        write_channel_status();
+    if (current_restart_counter != restart_counter)
+    {
+        if (!channels.empty())
+            logger_info("Restart counter was updated while logical channels are open -- closing channels\n");
+        else
+            logger_info("Restart counter was updated\n");
+
+        close_all_logical_channels();
+        restart_counter = current_restart_counter;
+
+        read_channel_status();
+    }
+
+    receive_from_a2r();
+    flush_send_queue();
+
+    write_channel_status();
 }
 
 static void handle_client_connection_event(ClientConnection *cc, struct epoll_event *ev)
@@ -1400,13 +1455,16 @@ static void main_loop()
 
     bool first_gpio_event = true;
     bool shutting_down = false;
+    time_t force_shutdown_after;
     bool done = false;
+
+    auto_clear_cp_irq = true;
+    auto_clear_cp_irq_after = time(NULL) + 3;
 
     while (!done)
     {
         struct epoll_event ev;
-        int timeout = shutting_down ? 10000 : -1;
-        int n = epoll_pwait(epfd, &ev, 1, timeout, &original_sigset);
+        int n = epoll_pwait(epfd, &ev, 1, 1000, &original_sigset);
         if (n == -1)
         {
             if (errno == EINTR)
@@ -1418,11 +1476,16 @@ static void main_loop()
                 while (!connections.empty())
                     close_and_remove_connection(&connections.front());
 
-                if (flush_send_queue())
-                    write_channel_status();
+                flush_send_queue();
+                write_channel_status();
 
                 if (!channels.empty())
+                {
+                    if (!shutting_down)
+                        force_shutdown_after = time(NULL) + 10;
+
                     shutting_down = true;
+                }
                 else
                     done = true;
             }
@@ -1434,24 +1497,18 @@ static void main_loop()
         }
         else if (n == 0)
         {
-            if (shutting_down)
-                done = true;
-            else
-            {
-                logger_error("epoll_pwait returned 0 which is unexpected since no timeout was set\n");
-                exit(-1);
-            }
+            // Timeout. Handle below.
         }
         else
         {
-            if (ev.data.fd == gpio_fd)
+            if (ev.data.fd == gpio_irq_fd)
             {
                 logger_trace("Epoll event: gpio is ready, events = %d\n", ev.events);
 
-                lseek(gpio_fd, 0, SEEK_SET);
+                lseek(gpio_irq_fd, 0, SEEK_SET);
 
                 char buf;
-                if (read(gpio_fd, &buf, 1) != 1)
+                if (read(gpio_irq_fd, &buf, 1) != 1)
                 {
                     logger_error("Read from GPIO value file, and unexpectedly didn't return 1 byte\n");
                     exit(-1);
@@ -1466,8 +1523,6 @@ static void main_loop()
                 {
                     logger_trace("GPIO interupted\n");
                     handle_a314_irq();
-                    if (shutting_down && channels.empty())
-                        done = true;
                 }
             }
             else if (ev.data.fd == server_socket)
@@ -1495,10 +1550,21 @@ static void main_loop()
                 ClientConnection *cc = &(*it);
                 handle_client_connection_event(cc, &ev);
 
-                if (flush_send_queue())
-                    write_channel_status();
+                flush_send_queue();
+                write_channel_status();
             }
         }
+
+        time_t now = time(NULL);
+
+        if (auto_clear_cp_irq && now > auto_clear_cp_irq_after)
+        {
+            clear_cp_irq();
+            auto_clear_cp_irq = false;
+        }
+
+        if (shutting_down && (channels.empty() || now > force_shutdown_after))
+            done = true;
     }
 }
 

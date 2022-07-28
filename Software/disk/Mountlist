@@ -8,7 +8,7 @@ PD0:	Device = a314disk.device
 	LowCyl = 0
 	HighCyl = 79
 	Buffers = 2
-	BufMemType = 128
+	BufMemType = 0
 	MaxTransfer = 5632
 #
 
@@ -22,7 +22,7 @@ PD1:	Device = a314disk.device
 	LowCyl = 0
 	HighCyl = 79
 	Buffers = 2
-	BufMemType = 128
+	BufMemType = 0
 	MaxTransfer = 5632
 #
 
@@ -36,7 +36,7 @@ PD2:	Device = a314disk.device
 	LowCyl = 0
 	HighCyl = 79
 	Buffers = 2
-	BufMemType = 128
+	BufMemType = 0
 	MaxTransfer = 5632
 #
 
@@ -50,6 +50,6 @@ PD3:	Device = a314disk.device
 	LowCyl = 0
 	HighCyl = 79
 	Buffers = 2
-	BufMemType = 128
+	BufMemType = 0
 	MaxTransfer = 5632
 #

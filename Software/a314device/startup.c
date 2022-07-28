@@ -2,6 +2,7 @@
 #include <exec/memory.h>
 #include <exec/tasks.h>
 #include <hardware/intbits.h>
+#include <devices/timer.h>
 
 #include <proto/exec.h>
 
@@ -11,9 +12,9 @@
 #include "device.h"
 #include "protocol.h"
 #include "startup.h"
-#include "fix_mem_region.h"
-#include "cmem.h"
 #include "debug.h"
+#include "cp_pi_if.h"
+#include "memory_allocator.h"
 
 #define SysBase (*(struct ExecBase **)4)
 
@@ -64,76 +65,140 @@ static void init_message_port(struct A314Device *dev)
 	NewList(&(mp->mp_MsgList));
 }
 
-static void add_interrupt_handlers(struct A314Device *dev)
+static void add_interrupt_handler(struct A314Device *dev)
 {
-	memset(&dev->vertb_interrupt, 0, sizeof(struct Interrupt));
-	dev->vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	dev->vertb_interrupt.is_Node.ln_Pri = -60;
-	dev->vertb_interrupt.is_Node.ln_Name = device_name;
-	dev->vertb_interrupt.is_Data = (APTR)&dev->task;
-	dev->vertb_interrupt.is_Code = IntServer;
+	memset(&dev->exter_interrupt, 0, sizeof(struct Interrupt));
+	dev->exter_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	dev->exter_interrupt.is_Node.ln_Pri = 0;
+	dev->exter_interrupt.is_Node.ln_Name = device_name;
+	dev->exter_interrupt.is_Data = (APTR)&dev->task;
+	dev->exter_interrupt.is_Code = IntServer;
 
-	AddIntServer(INTB_VERTB, &dev->vertb_interrupt);
-
-	memset(&dev->ports_interrupt, 0, sizeof(struct Interrupt));
-	dev->ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	dev->ports_interrupt.is_Node.ln_Pri = 0;
-	dev->ports_interrupt.is_Node.ln_Name = device_name;
-	dev->ports_interrupt.is_Data = (APTR)&dev->task;
-	dev->ports_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_PORTS, &dev->ports_interrupt);
+	AddIntServer(INTB_EXTER, &dev->exter_interrupt);
 }
 
-static void detect_and_write_address_swap()
+static int delay_1s()
 {
-	// Only looking at VPOSR Agnus identification at this point.
-	// Could add more dynamic identification of address mapping.
+	int success = FALSE;
 
-	UWORD vposr = *(UWORD *)0xdff004;
-	UWORD agnus = (vposr & 0x7f00) >> 8;
+	struct timerequest *tr = AllocMem(sizeof(struct timerequest), MEMF_CLEAR);
+	if (!tr)
+		goto fail1;
 
-	UBYTE swap = (agnus == 0x00 || agnus == 0x10) ? 0x1 : 0x0;
+	struct MsgPort *mp = AllocMem(sizeof(struct MsgPort), MEMF_CLEAR);
+	if (!mp)
+		goto fail2;
 
-	write_cmem_safe(CMEM_CFG_ADDRESS, swap);
+	mp->mp_Node.ln_Type = NT_MSGPORT;
+	mp->mp_Flags = PA_SIGNAL;
+	mp->mp_SigTask = FindTask(NULL);
+	mp->mp_SigBit = SIGB_SINGLE;
+	NewList(&mp->mp_MsgList);
+
+	if (OpenDevice(TIMERNAME, UNIT_VBLANK, (struct IORequest *)tr, 0))
+		goto fail3;
+
+	tr->tr_node.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
+	tr->tr_node.io_Message.mn_ReplyPort = mp;
+	tr->tr_node.io_Message.mn_Length = sizeof(sizeof(struct timerequest));
+	tr->tr_node.io_Command = TR_ADDREQUEST;
+	tr->tr_time.tv_secs = 1;
+	DoIO((struct IORequest *)tr);
+
+	success = TRUE;
+
+	CloseDevice((struct IORequest *)tr);
+
+fail3:
+	FreeMem(mp, sizeof(struct MsgPort));
+
+fail2:
+	FreeMem(tr, sizeof(struct timerequest));
+
+fail1:
+	return success;
+}
+
+static int probe_interface()
+{
+	int found = FALSE;
+
+	Disable();
+	*CP_REG_PTR(REG_ADDR_HI) = CAP_BASE >> 8;
+	*CP_REG_PTR(REG_ADDR_LO) = 6;
+	*CP_REG_PTR(REG_SRAM) = 0x99;
+	*CP_REG_PTR(REG_SRAM) = 0xbd;
+	*CP_REG_PTR(REG_ADDR_LO) = 7;
+	if (*CP_REG_PTR(REG_SRAM) == 0xbd)
+	{
+		*CP_REG_PTR(REG_ADDR_LO) = 6;
+		if (*CP_REG_PTR(REG_SRAM) == 0x99)
+			found = TRUE;
+	}
+	Enable();
+
+	return found;
+}
+
+static int probe_interface_retries()
+{
+	for (int i = 7; i >= 0; i--)
+	{
+		if (probe_interface())
+			return TRUE;
+
+		if (i == 0 || !delay_1s())
+			break;
+	}
+	return FALSE;
 }
 
 BOOL task_start(struct A314Device *dev)
 {
-	dev->fw_flags = read_fw_flags();
-
-	if (!fix_memory(dev))
+	if (!probe_interface_retries())
 		return FALSE;
 
-	detect_and_write_address_swap();
+	memset(&dev->cap, 0, sizeof(dev->cap));
 
-	dev->ca = (struct ComArea *)AllocMem(sizeof(struct ComArea), MEMF_A314 | MEMF_CLEAR);
-	if (dev->ca == NULL)
-	{
-		debug_printf("Unable to allocate A314 memory for com area\n");
-		return FALSE;
-	}
+	Disable();
+	set_cp_address(CAP_BASE);
+	for (int i = 0; i < 4; i++)
+		*CP_REG_PTR(REG_SRAM) = 0;
+	Enable();
+
+	init_memory_allocator(dev);
 
 	if (!create_task(dev))
 	{
-		debug_printf("Unable to create task stack\n");
-		FreeMem(dev->ca, sizeof(struct ComArea));
+		dbg("Unable to create task stack\n");
 		return FALSE;
 	}
 
 	init_message_port(dev);
 	init_sockets(dev);
 
-	write_cmem_safe(A_ENABLE_ADDRESS, 0);
-	read_cmem_safe(A_EVENTS_ADDRESS);
+	clear_cp_irq();
 
-	write_base_address(translate_address_a314(dev, dev->ca));
+	add_interrupt_handler(dev);
 
-	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
+	// FIXME: The current scheme is that a314d is notified that a314.device
+	// has restarted through a restart counter variable.
+	// Another option would be to have an event that specifically signals that
+	// a314.device has restarted.
+	// A third option is for the interface to monitor the RESET_n signal,
+	// and notify a314d that the Amiga has been reset/restarted.
 
-	add_interrupt_handlers(dev);
+	Disable();
+	set_cp_address(CAP_BASE + 4);
+	UBYTE restart_counter = *CP_REG_PTR(REG_SRAM);
 
-	write_cmem_safe(A_ENABLE_ADDRESS, A_EVENT_R2A_TAIL);
+	set_cp_address(CAP_BASE + 4);
+	*CP_REG_PTR(REG_SRAM) = restart_counter + 1;
+	*CP_REG_PTR(REG_SRAM) = 0xa3;
+	*CP_REG_PTR(REG_SRAM) = 0x14;
+	Enable();
+
+	set_pi_irq();
 
 	return TRUE;
 }

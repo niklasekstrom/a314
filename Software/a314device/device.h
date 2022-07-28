@@ -8,6 +8,8 @@
 #include <exec/interrupts.h>
 #include <libraries/dos.h>
 
+#include "protocol.h"
+
 struct A314Device
 {
     struct Library lib;
@@ -15,23 +17,19 @@ struct A314Device
     BPTR saved_seg_list;
     BOOL running;
 
-    ULONG bank_address[4];
-    UWORD is_a600;
-
-    ULONG fw_flags;
-
-    struct ComArea *ca;
+    void *first_chunk;
 
     struct Task task;
     struct MsgPort task_mp;
 
-    struct Interrupt vertb_interrupt;
-    struct Interrupt ports_interrupt;
+    struct Interrupt exter_interrupt;
 
     struct List active_sockets;
 
     struct Socket *send_queue_head;
     struct Socket *send_queue_tail;
+
+    struct ComAreaPtrs cap;
 
     UBYTE next_stream_id;
 };
