@@ -3,7 +3,7 @@
 CPP=g++
 VC=vc
 
-all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/piaudio bin/remotewb bin/remote-mouse bin/videoplayer bin/diag bin/a314eth.device bin/a314disk.device
+all: bin_dir bin/a314d bin/a314.device bin/a314fs bin/pi bin/remote-mouse bin/a314eth.device bin/a314disk.device
 
 bin_dir:
 	mkdir -p bin
@@ -24,20 +24,8 @@ bin/a314fs: a314device/a314.h a314device/proto_a314.h a314fs/messages.h a314fs/a
 bin/pi: a314device/a314.h a314device/proto_a314.h picmd/pi.c
 	${VC} picmd/pi.c -lamiga -o bin/pi
 
-bin/piaudio: a314device/a314.h a314device/proto_a314.h piaudio/piaudio.c
-	${VC} piaudio/piaudio.c -lamiga -o bin/piaudio
-
-bin/remotewb: a314device/a314.h a314device/proto_a314.h remotewb/remotewb.c remotewb/vblank_server.asm
-	${VC} remotewb/remotewb.c remotewb/vblank_server.asm -lamiga -o bin/remotewb
-
 bin/remote-mouse: a314device/a314.h remote-mouse/remote-mouse.c
 	${VC} remote-mouse/remote-mouse.c -lamiga -o bin/remote-mouse
-
-bin/videoplayer: a314device/a314.h a314device/proto_a314.h videoplayer/videoplayer.c videoplayer/vblank_server.asm
-	${VC} videoplayer/videoplayer.c videoplayer/vblank_server.asm -lamiga -o bin/videoplayer
-
-bin/diag: diag/diag.c
-	${VC} diag/diag.c -o bin/diag
 
 bin/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c ethernet/sana2.h ethernet/tagitem.h
 	${VC} ethernet/romtag.asm ethernet/device.c -O3 -nostdlib -o bin/a314eth.device -lamiga
@@ -51,10 +39,7 @@ install: all
 	cp a314d/a314d.py /opt/a314
 	cp a314fs/a314fs.py /opt/a314
 	cp picmd/picmd.py /opt/a314
-	cp piaudio/piaudio.py /opt/a314
-	cp remotewb/remotewb.py /opt/a314
 	cp remote-mouse/remote-mouse.py /opt/a314
-	cp videoplayer/videoplayer.py /opt/a314
 	cp ethernet/ethernet.py /opt/a314
 	cp disk/disk.py /opt/a314
 	mkdir -p /etc/opt/a314
@@ -62,9 +47,6 @@ install: all
 	cp a314fs/a314fs.conf /etc/opt/a314
 	cp picmd/picmd.conf /etc/opt/a314
 	cp disk/disk.conf /etc/opt/a314
-	cd bpls2gif ; python3 setup.py install
-	pip3 install websockets
 	pip3 install python-pytun
 	cp ethernet/pi-config/tap0 /etc/network/interfaces.d
 	cp a314d/a314d.service /lib/systemd/system
-	cp bin/spi-a314.dtbo /boot/overlays
