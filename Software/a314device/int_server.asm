@@ -1,7 +1,7 @@
 	XDEF	_IntServer
 	CODE
 
-CLOCK_PORT	equ	$dc0000
+CLOCK_PORT	equ	$d80000
 
 SIGB_INT	equ	14
 SIGF_INT	equ	(1 << SIGB_INT)

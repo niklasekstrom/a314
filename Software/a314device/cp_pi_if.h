@@ -1,6 +1,6 @@
 #include <exec/types.h>
 
-#define CLOCK_PORT_ADDRESS	0xdc0000
+#define CLOCK_PORT_ADDRESS	0xd80000
 
 #define REG_SRAM	0
 #define REG_IRQ		1
