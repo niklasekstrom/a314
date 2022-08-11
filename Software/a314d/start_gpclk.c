@@ -10,10 +10,7 @@
 #include <unistd.h>
 #include <time.h>
 
-//#define BCM2708_PERI_BASE 0x20000000  // pi0-1
-//#define BCM2708_PERI_BASE	0xFE000000  // pi4
-#define BCM2708_PERI_BASE 0x3F000000 // pi3
-#define BCM2708_PERI_SIZE 0x01000000
+#include <bcm_host.h>
 
 #define GPIO_ADDR 0x200000
 #define GPCLK_ADDR 0x101000
@@ -32,7 +29,7 @@
 volatile unsigned int *gpio;
 volatile unsigned int *gpclk;
 
-static void create_dev_mem_mapping()
+static void create_dev_mem_mapping(size_t base, size_t size)
 {
     int fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (fd < 0)
@@ -41,14 +38,7 @@ static void create_dev_mem_mapping()
         exit(-1);
     }
 
-    void *gpio_map = mmap(
-        NULL,                   // Any adddress in our space will do
-        BCM2708_PERI_SIZE,      // Map length
-        PROT_READ | PROT_WRITE, // Enable reading & writting to mapped memory
-        MAP_SHARED,             // Shared with other processes
-        fd,                     // File to map
-        BCM2708_PERI_BASE       // Offset to GPIO peripheral
-    );
+    void *gpio_map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, base);
 
     close(fd);
 
@@ -86,7 +76,10 @@ static void start_gpclk(int divisor)
 
 int main(int argc, char **argv)
 {
-    create_dev_mem_mapping();
+    size_t base = bcm_host_get_peripheral_address();
+    size_t size = bcm_host_get_peripheral_size();
+
+    create_dev_mem_mapping(base, size);
 
     int requested_mhz = 90;
 
