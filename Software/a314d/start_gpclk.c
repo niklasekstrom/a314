@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 {
     create_dev_mem_mapping();
 
-    int requested_mhz = 100;
+    int requested_mhz = 90;
 
     if (argc > 1)
     {
