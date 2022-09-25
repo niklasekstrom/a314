@@ -1,0 +1,37 @@
+.PHONY: bin_dir all
+
+VC=vc
+BIN=bin_amiga
+
+all: bin_dir ${BIN}/Devs/a314.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/RemoteMouse ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device
+
+bin_dir:
+	mkdir -p ${BIN}
+	mkdir -p ${BIN}/Devs
+	mkdir -p ${BIN}/L
+	mkdir -p ${BIN}/C
+
+${BIN}/Devs/a314.device: a314device/a314.h a314device/cp_pi_if.c a314device/cp_pi_if.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/int_server.asm a314device/memory_allocator.c a314device/memory_allocator.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
+	${VC} a314device/romtag.asm a314device/driver_task.c a314device/debug.c a314device/device.c a314device/startup.c a314device/cp_pi_if.c a314device/memory_allocator.c a314device/sockets.c a314device/int_server.asm -O3 -nostdlib -o ${BIN}/Devs/a314.device
+
+${BIN}/L/a314fs: a314device/a314.h a314device/proto_a314.h a314fs/messages.h a314fs/a314fs.c a314fs/bcpl_start.asm a314fs/bcpl_end.asm
+	${VC} a314fs/a314fs.c -S -o ${BIN}/L/a314fs.asm
+	sed -i 's/section/;section/g' ${BIN}/L/a314fs.asm
+	${VC} a314fs/bcpl_start.asm ${BIN}/L/a314fs.asm a314fs/bcpl_end.asm -nostdlib -o ${BIN}/L/a314fs
+	dd if=${BIN}/L/a314fs bs=1 skip=28 count=4 of=${BIN}/L/a314fs seek=32 conv=notrunc
+	rm ${BIN}/L/a314fs.asm
+
+${BIN}/Devs/MountList: a314fs/a314fs-mountlist disk/Mountlist
+	cat a314fs/a314fs-mountlist disk/Mountlist > ${BIN}/Devs/MountList
+
+${BIN}/C/Pi: a314device/a314.h a314device/proto_a314.h picmd/pi.c
+	${VC} picmd/pi.c -lamiga -o ${BIN}/C/Pi
+
+${BIN}/C/RemoteMouse: a314device/a314.h remote-mouse/remote-mouse.c
+	${VC} remote-mouse/remote-mouse.c -lamiga -o ${BIN}/C/RemoteMouse
+
+${BIN}/Devs/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c ethernet/sana2.h ethernet/tagitem.h
+	${VC} ethernet/romtag.asm ethernet/device.c -O3 -nostdlib -o ${BIN}/Devs/a314eth.device -lamiga
+
+${BIN}/Devs/a314disk.device: a314device/a314.h a314device/proto_a314.h disk/romtag.asm disk/device.c disk/debug.h disk/debug.c
+	${VC} disk/romtag.asm disk/device.c disk/debug.c -O3 -nostdlib -o ${BIN}/Devs/a314disk.device -lamiga
