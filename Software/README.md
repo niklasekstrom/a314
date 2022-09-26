@@ -8,6 +8,7 @@ On the Raspberry Pi do the following:
 - Install Raspbian: https://www.raspberrypi.org/downloads/raspbian/
 - Install Docker: ```curl -sSL https://get.docker.com | sh```
 - Allow user pi to run Docker: ```sudo usermod -aG docker pi```
+- Log out and then log back in again to make the previous command take effect
 - Install Dependencies: ```sudo apt install python3-dev python3-distutils python3-pip build-essential git```
 - Clone the a314 repo: ```git clone https://github.com/niklasekstrom/a314.git```
 - ```cd a314/Software```
