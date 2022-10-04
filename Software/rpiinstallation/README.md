@@ -1,17 +1,21 @@
 # validate_pi
 
-A script that tries to validate the Pi install described 
+A script that tries to validate the Pi installation procedure described 
 [here](https://github.com/niklasekstrom/a314/wiki/Installation-instructions).
 
 
 
 ## Prerequisites
-: apt-get install jq
+```
+apt-get install jq
+```
 
 
 
 ## Usage
-: ./validate_pi
+```
+./validate_pi
+```
 
 
 
@@ -23,10 +27,10 @@ Otherwise you will see an error message and get an exit other than 0.
 
 
 ## TODO
-The paths in /etc/opt/a314/a314fs.conf should be checked for owner. I
+The paths in `/etc/opt/a314/a314fs.conf` should be checked for owner. I
 don't feel like hardcoding `pi` here though, so until we find an OK
 heuristic OR the uid is included as a field in
-/etc/opt/a314/a314fs.conf, we can let it slide.
+`/etc/opt/a314/a314fs.conf`, we can let it slide.
 
 
 
