@@ -1,0 +1,138 @@
+#!/bin/bash
+set -o pipefail
+set -o nounset
+set -o errexit
+
+
+
+function die() {
+    echo "**** error: ${1:-}" >&2; exit 1
+}
+
+
+
+function chk_perm() {
+    local filename="${1:-}"
+    local perm="${2:-}"
+    
+    [ "$(find "$filename" -perm -$perm)" ] || die "expected perm $perm on $filename"
+}
+
+
+
+function chk_owner() {
+    local filename="${1:-}"
+    local uid="${2:-}"
+    
+    [ "$(stat -c '%u' $filename)" = "$uid" ] || die "expected uid $uid on $filename"
+}
+
+
+
+function chk_config() {
+    local filename="${1:-}"
+    local attr="${2:-}"
+    local val="${3:-}"
+    local singledef="${4:-}" # boolean attrs can be checked for contraditions
+    
+    # check for 0 or >1 definitions of attr
+    if [ -n "$singledef" ] \
+	   && [ $(< "$filename" grep "^\s*$attr=" | wc -l) != 1 ]; then
+	die "expected to find exactly one definition of $attr in $filename"
+    fi
+
+    # validate value
+    if [ $(< "$filename" grep "^\s*$attr=$val" | wc -l) != 1 ]; then
+	die "$attr is not set to $val in $filename"
+    fi    
+}
+
+
+
+function chk_cmdline {
+    local filename="${1:-}"
+    local setting="${2:-}"
+
+    < "$filename" PERL_BADLANG=0 perl -ne "exit(! /(\W|^)$setting(\W|$)/)" \
+	|| die "expected $setting in cmdline file $filename"
+}
+
+
+
+function chk_pkg {
+    local pkg="${1:-}"
+
+    dpkg --status "$pkg" | grep -q 'Status: install ok installed' \
+	|| die "package $pkg is not installed"
+}
+
+
+
+## make sure jq is installed
+if ! command -v jq &> /dev/null; then
+    die "install jq first"
+fi
+
+
+
+## check that files exist and can be read
+for file in /boot/config.txt \
+		/boot/cmdline.txt \
+		/opt/a314/a314fs.py \
+		/opt/a314/picmd.py \
+		/etc/opt/a314/a314d.conf \
+		/etc/opt/a314/a314fs.conf \
+		/etc/opt/a314/picmd.conf; do
+    chk_perm "$file" "400"
+done
+chk_perm "/opt/a314/a314d" "100"
+
+
+
+## check owner
+for file in /opt/a314/a314d \
+		/opt/a314/a314fs.py \
+		/opt/a314/picmd.py \
+		/etc/opt/a314/a314d.conf \
+		/etc/opt/a314/a314fs.conf \
+		/etc/opt/a314/picmd.conf; do
+    chk_owner "$file" 0
+done
+
+
+
+## check config that the right values are set
+chk_config "/boot/config.txt" "dtparam=spi" "on"       "singledef"
+chk_config "/boot/config.txt" "force_turbo" "1"        "singledef"
+chk_config "/boot/config.txt" "dtoverlay"   "spi-a314"
+
+
+
+## check cmdline that the right values are set
+chk_cmdline "/boot/cmdline.txt" "spidev.bufsiz=65536"
+
+
+
+## check installed packages
+for pkg in python3-distutils python3-dev python3-pip; do
+    chk_pkg "$pkg"
+done
+
+
+
+## check perms of the shared paths
+for path in $(jq -r '.devices[].path' /etc/opt/a314/a314fs.conf); do
+    chk_perm "$file" "600"
+    # fixme: check uid of path - but I don't want to
+    # assume user pi here, so a heuristic is needed
+done
+
+
+
+## check that service is alive
+LANG=C systemctl status a314d | grep -q 'Active: active (running)' \
+    || die "service a314d is not alive"
+
+
+
+echo "a314 looks fine from here." >&2
