@@ -1,0 +1,11 @@
+--- vbcc_target_m68k-kick13/targets/m68k-kick13/include/clib/expansion_protos.h	2017-01-11 10:31:32.000000000 +0100
++++ /opt/vbcc.niklas/targets/m68k-kick13/include/clib/expansion_protos.h	2021-05-15 22:24:17.000000000 +0200
+@@ -4,7 +4,7 @@
+ #endif
+ 
+ /* CPTR */
+-#ifndef #ifndef EXEC_TYPES_H 
++#ifndef EXEC_TYPES_H
+ #include <exec/types.h>
+ #endif
+ 
