@@ -52,7 +52,18 @@ install_target_kick13() {
     ${WGET} http://phoenix.owl.de/vbcc/2017-08-14/vbcc_target_m68k-kick13.lha
     #${WGET} http://phoenix.owl.de/vbcc/2022-05-22/vbcc_target_m68k-kick13.lha
     lha x vbcc_target_m68k-kick13.lha > /dev/null
-    patch -p0 < patch.vbcc_target_m68k-kick13_patch
+    echo "
+--- vbcc_target_m68k-kick13/targets/m68k-kick13/include/clib/expansion_protos.h	2017-01-11 10:31:32.000000000 +0100
++++ /opt/vbcc.niklas/targets/m68k-kick13/include/clib/expansion_protos.h	2021-05-15 22:24:17.000000000 +0200
+@@ -4,7 +4,7 @@
+ #endif
+ 
+ /* CPTR */
+-#ifndef #ifndef EXEC_TYPES_H 
++#ifndef EXEC_TYPES_H
+ #include <exec/types.h>
+ #endif
+" | patch -p0
     mkdir -p $DEST/targets
     mv vbcc_target_m68k-kick13/targets/* $DEST/targets/
     rm -rf vbcc_target_m68k-kick13*
@@ -61,11 +72,11 @@ install_target_kick13() {
 install_ndk() {
     rm -rf NDK3.2.lha
     ${WGET} http://aminet.net/dev/misc/NDK3.2.lha
-    mkdir NDK_3.2
-	cd NDK_3.2
+    mkdir NDK32
+    cd NDK32
     lha x ../NDK3.2.lha > /dev/null
-	cd ..
-    mv NDK_3.2 $DEST/../
+    cd ..
+    mv NDK32 $DEST/../
     rm -rf NDK3.2.lha
 }
 
@@ -74,7 +85,21 @@ install_config() {
     ${WGET} https://server.owl.de/~frank/vbcc/2019-10-04/vbcc_unix_config.tar.gz
     tar ${TAR_OPTS} vbcc_unix_config.tar.gz
     mv config $DEST
-    cp vc.config $DEST/config
+    echo "-cc=vbccm68k -c99 -quiet -hunkdebug %s -o= %s %s -O=%ld -no-cpp-warn -I$VBCC/targets/m68k-kick13/include -I$VBCC/../NDK32/Include_H
+-ccv=vbccm68k -c99 -hunkdebug %s -o= %s %s -O=%ld -no-cpp-warn -I$VBCC/targets/m68k-kick13/include -I$VBCC/../NDK32/Include_H
+-as=vasmm68k_mot -quiet -Fhunk -kick1hunks -phxass -nowarn=62 %s -o %s
+-asv=vasmm68k_mot -Fhunk -kick1hunks -phxass -nowarn=62 %s -o %s
+-rm=rm -f %s
+-rmv=rm %s
+-ld=vlink -bamigahunk -x -Bstatic -Cvbcc -nostdlib -Z -mrel $VBCC/targets/m68k-kick13/lib/startup.o %s %s -L$VBCC/targets/m68k-kick13/lib -lvc -o %s
+-l2=vlink -bamigahunk -x -Bstatic -Cvbcc -nostdlib -Z -mrel %s %s -L$VBCC/targets/m68k-kick13/lib -o %s
+-ldv=vlink -bamigahunk -t -x -Bstatic -Cvbcc -nostdlib -Z -mrel $VBCC/targets/m68k-kick13/lib/startup.o %s %s -L$VBCC/targets/m68k-kick13/lib -lvc -o %s
+-l2v=vlink -bamigahunk -t -x -Bstatic -Cvbcc -nostdlib -Z -mrel %s %s -L$VBCC/targets/m68k-kick13/lib -o %s
+-ldnodb=-s
+-ul=-l%s
+-cf=-F%s
+-ml=1000
+" > $DEST/config/vc.config
     rm -rf vbcc_unix_config.tar.gz
 }
 
