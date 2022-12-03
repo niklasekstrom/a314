@@ -1,5 +1,9 @@
 # A314 Software
 
+**Please note** that these are the instructions for installing the A500/A600 versions of A314.
+
+If you have the clockport version of A314 then you should follow the instructions from the clockport branch: [https://github.com/niklasekstrom/a314/tree/clockport_if/Software](https://github.com/niklasekstrom/a314/tree/clockport_if/Software).
+
 ## How to install
 
 **Note** that there are additional instructions in the [wiki](https://github.com/niklasekstrom/a314/wiki/Installation-instructions) that you should also follow. These instructions are for building and installing the software in this repo, but there are additional steps that should be taken.
