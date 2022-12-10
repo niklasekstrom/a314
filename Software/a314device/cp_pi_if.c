@@ -7,7 +7,7 @@
 #include "debug.h"
 #include "protocol.h"
 
-#define CLOCK_PORT_ADDRESS	0xd80000
+#define CLOCK_PORT_ADDRESS	0xd80001
 
 #define REG_SRAM	0
 #define REG_IRQ		1
@@ -19,7 +19,7 @@
 #define REG_IRQ_PI	0x02
 #define REG_IRQ_CP	0x01
 
-#define CP_REG_PTR(reg) ((volatile UBYTE *)CLOCK_PORT_ADDRESS + (reg << 2) + 3)
+#define CP_REG_PTR(reg) ((volatile UBYTE *)CLOCK_PORT_ADDRESS + (reg << 2))
 
 #define SysBase (*(struct ExecBase **)4)
 
