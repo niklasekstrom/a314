@@ -2,7 +2,6 @@
 #include <exec/memory.h>
 #include <exec/tasks.h>
 #include <hardware/intbits.h>
-#include <devices/timer.h>
 
 #include <proto/exec.h>
 
@@ -77,94 +76,14 @@ static void add_interrupt_handler(struct A314Device *dev)
 	AddIntServer(INTB_EXTER, &dev->exter_interrupt);
 }
 
-static int delay_1s()
-{
-	int success = FALSE;
-
-	struct timerequest *tr = AllocMem(sizeof(struct timerequest), MEMF_CLEAR);
-	if (!tr)
-		goto fail1;
-
-	struct MsgPort *mp = AllocMem(sizeof(struct MsgPort), MEMF_CLEAR);
-	if (!mp)
-		goto fail2;
-
-	mp->mp_Node.ln_Type = NT_MSGPORT;
-	mp->mp_Flags = PA_SIGNAL;
-	mp->mp_SigTask = FindTask(NULL);
-	mp->mp_SigBit = SIGB_SINGLE;
-	NewList(&mp->mp_MsgList);
-
-	if (OpenDevice(TIMERNAME, UNIT_VBLANK, (struct IORequest *)tr, 0))
-		goto fail3;
-
-	tr->tr_node.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
-	tr->tr_node.io_Message.mn_ReplyPort = mp;
-	tr->tr_node.io_Message.mn_Length = sizeof(sizeof(struct timerequest));
-	tr->tr_node.io_Command = TR_ADDREQUEST;
-	tr->tr_time.tv_secs = 1;
-	DoIO((struct IORequest *)tr);
-
-	success = TRUE;
-
-	CloseDevice((struct IORequest *)tr);
-
-fail3:
-	FreeMem(mp, sizeof(struct MsgPort));
-
-fail2:
-	FreeMem(tr, sizeof(struct timerequest));
-
-fail1:
-	return success;
-}
-
-static int probe_interface()
-{
-	int found = FALSE;
-
-	Disable();
-	*CP_REG_PTR(REG_ADDR_HI) = CAP_BASE >> 8;
-	*CP_REG_PTR(REG_ADDR_LO) = 6;
-	*CP_REG_PTR(REG_SRAM) = 0x99;
-	*CP_REG_PTR(REG_SRAM) = 0xbd;
-	*CP_REG_PTR(REG_ADDR_LO) = 7;
-	if (*CP_REG_PTR(REG_SRAM) == 0xbd)
-	{
-		*CP_REG_PTR(REG_ADDR_LO) = 6;
-		if (*CP_REG_PTR(REG_SRAM) == 0x99)
-			found = TRUE;
-	}
-	Enable();
-
-	return found;
-}
-
-static int probe_interface_retries()
-{
-	for (int i = 7; i >= 0; i--)
-	{
-		if (probe_interface())
-			return TRUE;
-
-		if (i == 0 || !delay_1s())
-			break;
-	}
-	return FALSE;
-}
-
 BOOL task_start(struct A314Device *dev)
 {
-	if (!probe_interface_retries())
+	if (!probe_interface())
 		return FALSE;
 
 	memset(&dev->cap, 0, sizeof(dev->cap));
 
-	Disable();
-	set_cp_address(CAP_BASE);
-	for (int i = 0; i < 4; i++)
-		*CP_REG_PTR(REG_SRAM) = 0;
-	Enable();
+	clear_cap();
 
 	init_memory_allocator(dev);
 
@@ -188,15 +107,7 @@ BOOL task_start(struct A314Device *dev)
 	// A third option is for the interface to monitor the RESET_n signal,
 	// and notify a314d that the Amiga has been reset/restarted.
 
-	Disable();
-	set_cp_address(CAP_BASE + 4);
-	UBYTE restart_counter = *CP_REG_PTR(REG_SRAM);
-
-	set_cp_address(CAP_BASE + 4);
-	*CP_REG_PTR(REG_SRAM) = restart_counter + 1;
-	*CP_REG_PTR(REG_SRAM) = 0xa3;
-	*CP_REG_PTR(REG_SRAM) = 0x14;
-	Enable();
+	update_restart_counter();
 
 	set_pi_irq();
 

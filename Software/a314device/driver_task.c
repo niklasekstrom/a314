@@ -30,27 +30,6 @@
 
 #define SysBase (*(struct ExecBase **)4)
 
-static void read_from_r2a(UBYTE *dst, UBYTE offset, int length)
-{
-	if (!length)
-		return;
-
-	volatile UBYTE *p = CP_REG_PTR(REG_SRAM);
-
-	Disable();
-
-	set_cp_address(R2A_BASE + offset);
-
-	for (int i = 0; i < length; i++)
-	{
-		*dst++ = *p;
-		offset++;
-		if (offset == 0)
-			set_cp_address(R2A_BASE);
-	}
-	Enable();
-}
-
 static int used_in_r2a(struct ComAreaPtrs *cap)
 {
 	return (cap->r2a_tail - cap->r2a_head) & 255;
@@ -64,41 +43,6 @@ static int used_in_a2r(struct ComAreaPtrs *cap)
 static BOOL room_in_a2r(struct ComAreaPtrs *cap, int len)
 {
 	return used_in_a2r(cap) + 3 + len <= 255;
-}
-
-static void append_a2r_packet(struct ComAreaPtrs *cap, UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
-{
-	dbg_trace("Enter: append_a2r_packet, type=$b, stream_id=$b, length=$b", type, stream_id, length);
-
-	struct PktHdr hdr = {length, type, stream_id};
-
-	Disable();
-
-	UBYTE index = cap->a2r_tail;
-
-	set_cp_address(A2R_BASE + index);
-
-	volatile UBYTE *p = CP_REG_PTR(REG_SRAM);
-
-	for (int i = 0; i < sizeof(hdr); i++)
-	{
-		*p = ((UBYTE *)&hdr)[i];
-		index++;
-		if (index == 0)
-			set_cp_address(A2R_BASE);
-	}
-
-	for (int i = 0; i < length; i++)
-	{
-		*p = *data++;
-		index++;
-		if (index == 0)
-			set_cp_address(A2R_BASE);
-	}
-
-	cap->a2r_tail = index;
-
-	Enable();
 }
 
 static void close_socket(struct A314Device *dev, struct Socket *s, BOOL should_send_reset)
@@ -159,7 +103,7 @@ static void close_socket(struct A314Device *dev, struct Socket *s, BOOL should_s
 	{
 		if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, 0))
 		{
-			append_a2r_packet(&dev->cap, PKT_RESET, s->stream_id, 0, NULL);
+			write_to_a2r(&dev->cap, PKT_RESET, s->stream_id, 0, NULL);
 		}
 		else
 		{
@@ -189,10 +133,8 @@ static void handle_pkt_connect_response(struct A314Device *dev, UBYTE offset, UB
 	}
 	else
 	{
-		Disable();
-		set_cp_address(R2A_BASE + offset);
-		UBYTE result = *CP_REG_PTR(REG_SRAM);
-		Enable();
+		UBYTE result;
+		read_from_r2a(&result, offset, 1);
 
 		if (result == 0)
 		{
@@ -347,7 +289,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 		{
 			struct A314_IORequest *ior = s->pending_connect;
 			int len = ior->a314_Length;
-			append_a2r_packet(cap, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+			write_to_a2r(cap, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else if (s->pending_write != NULL)
 		{
@@ -356,7 +298,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 
 			if (ior->a314_Request.io_Command == A314_WRITE)
 			{
-				append_a2r_packet(cap, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				write_to_a2r(cap, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
 				ior->a314_Request.io_Error = A314_WRITE_OK;
 				ReplyMsg((struct Message *)ior);
@@ -365,7 +307,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 			}
 			else // A314_EOS
 			{
-				append_a2r_packet(cap, PKT_EOS, s->stream_id, 0, NULL);
+				write_to_a2r(cap, PKT_EOS, s->stream_id, 0, NULL);
 
 				ior->a314_Request.io_Error = A314_EOS_OK;
 				ReplyMsg((struct Message *)ior);
@@ -380,7 +322,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 		}
 		else if (s->flags & SOCKET_SHOULD_SEND_RESET)
 		{
-			append_a2r_packet(cap, PKT_RESET, s->stream_id, 0, NULL);
+			write_to_a2r(cap, PKT_RESET, s->stream_id, 0, NULL);
 			delete_socket(dev, s);
 		}
 		else
@@ -414,7 +356,7 @@ static void handle_app_connect(struct A314Device *dev, struct A314_IORequest *io
 		int len = ior->a314_Length;
 		if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, len))
 		{
-			append_a2r_packet(&dev->cap, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+			write_to_a2r(&dev->cap, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else
 		{
@@ -511,7 +453,7 @@ static void handle_app_write(struct A314Device *dev, struct A314_IORequest *ior,
 		{
 			if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, len))
 			{
-				append_a2r_packet(&dev->cap, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				write_to_a2r(&dev->cap, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
 				ior->a314_Request.io_Error = A314_WRITE_OK;
 				ReplyMsg((struct Message *)ior);
@@ -550,7 +492,7 @@ static void handle_app_eos(struct A314Device *dev, struct A314_IORequest *ior, s
 
 			if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, 0))
 			{
-				append_a2r_packet(&dev->cap, PKT_EOS, s->stream_id, 0, NULL);
+				write_to_a2r(&dev->cap, PKT_EOS, s->stream_id, 0, NULL);
 
 				ior->a314_Request.io_Error = A314_EOS_OK;
 				ReplyMsg((struct Message *)ior);
@@ -629,11 +571,7 @@ void task_main()
 
 		dbg_trace("Returned from Wait() with signal=$l", signal);
 
-		Disable();
-		set_cp_address(CAP_BASE + 0);
-		dev->cap.r2a_tail = *CP_REG_PTR(REG_SRAM);
-		dev->cap.a2r_head = *CP_REG_PTR(REG_SRAM);
-		Enable();
+		read_pi_cap(&dev->cap);
 
 		dbg_trace("Read CAP, r2a_tail=$b, a2r_head=$b", dev->cap.r2a_tail, dev->cap.a2r_head);
 
@@ -660,11 +598,7 @@ void task_main()
 		{
 			dbg_trace("Writing CAP, a2r_tail=$b, r2a_head=$b", dev->cap.a2r_tail, dev->cap.r2a_head);
 
-			Disable();
-			set_cp_address(CAP_BASE + 2);
-			*CP_REG_PTR(REG_SRAM) = dev->cap.a2r_tail;
-			*CP_REG_PTR(REG_SRAM) = dev->cap.r2a_head;
-			Enable();
+			write_amiga_cap(&dev->cap);
 
 			set_pi_irq();
 		}
