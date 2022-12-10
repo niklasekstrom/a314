@@ -1,7 +1,6 @@
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <exec/tasks.h>
-#include <hardware/intbits.h>
 
 #include <proto/exec.h>
 
@@ -22,7 +21,6 @@
 
 extern void task_main();
 extern void init_sockets(struct A314Device *dev);
-extern void IntServer();
 
 void NewList(struct List *l)
 {
@@ -31,7 +29,7 @@ void NewList(struct List *l)
 	l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
-static BOOL create_task(struct A314Device *dev)
+static BOOL setup_task(struct A314Device *dev)
 {
 	char *stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
 	if (stack == NULL)
@@ -47,7 +45,6 @@ static BOOL create_task(struct A314Device *dev)
 	task->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
 	task->tc_UserData = (void *)dev;
 
-	AddTask(task, (void *)task_main, 0);
 	return TRUE;
 }
 
@@ -64,52 +61,24 @@ static void init_message_port(struct A314Device *dev)
 	NewList(&(mp->mp_MsgList));
 }
 
-static void add_interrupt_handler(struct A314Device *dev)
-{
-	memset(&dev->exter_interrupt, 0, sizeof(struct Interrupt));
-	dev->exter_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	dev->exter_interrupt.is_Node.ln_Pri = 0;
-	dev->exter_interrupt.is_Node.ln_Name = device_name;
-	dev->exter_interrupt.is_Data = (APTR)&dev->task;
-	dev->exter_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_EXTER, &dev->exter_interrupt);
-}
-
 BOOL task_start(struct A314Device *dev)
 {
 	if (!probe_interface())
 		return FALSE;
 
-	memset(&dev->cap, 0, sizeof(dev->cap));
-
-	clear_cap();
-
-	init_memory_allocator(dev);
-
-	if (!create_task(dev))
+	if (!setup_task(dev))
 	{
 		dbg("Unable to create task stack\n");
 		return FALSE;
 	}
 
+	init_memory_allocator(dev);
 	init_message_port(dev);
 	init_sockets(dev);
 
-	clear_cp_irq();
+	setup_cp_pi_if(dev);
 
-	add_interrupt_handler(dev);
-
-	// FIXME: The current scheme is that a314d is notified that a314.device
-	// has restarted through a restart counter variable.
-	// Another option would be to have an event that specifically signals that
-	// a314.device has restarted.
-	// A third option is for the interface to monitor the RESET_n signal,
-	// and notify a314d that the Amiga has been reset/restarted.
-
-	update_restart_counter();
-
-	set_pi_irq();
+	AddTask(&dev->task, (void *)task_main, 0);
 
 	return TRUE;
 }

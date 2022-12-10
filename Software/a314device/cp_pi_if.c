@@ -1,10 +1,14 @@
 #include <exec/types.h>
 #include <devices/timer.h>
+#include <hardware/intbits.h>
 
 #include <proto/exec.h>
 
+#include <string.h>
+
 #include "cp_pi_if.h"
 #include "debug.h"
+#include "device.h"
 #include "protocol.h"
 
 #define CLOCK_PORT_ADDRESS	0xd80001
@@ -19,16 +23,18 @@
 #define REG_IRQ_PI	0x02
 #define REG_IRQ_CP	0x01
 
-#define CP_REG_PTR(reg) ((volatile UBYTE *)CLOCK_PORT_ADDRESS + (reg << 2))
+#define CP_REG_PTR(reg) ((volatile UBYTE *)(CLOCK_PORT_ADDRESS + (reg << 2)))
 
 #define SysBase (*(struct ExecBase **)4)
+
+extern void IntServer();
 
 void set_pi_irq()
 {
 	*CP_REG_PTR(REG_IRQ) = REG_IRQ_SET | REG_IRQ_PI;
 }
 
-void clear_cp_irq()
+void clear_amiga_irq()
 {
 	*CP_REG_PTR(REG_IRQ) = REG_IRQ_CLR | REG_IRQ_CP;
 }
@@ -69,38 +75,6 @@ void a314base_read_mem(__reg("a0") UBYTE *dst, __reg("d0") ULONG address, __reg(
 
 	for (int i = 0; i < length; i++)
 		*dst++ = *p;
-
-	Enable();
-}
-
-void clear_cap()
-{
-	Disable();
-
-	*CP_REG_PTR(REG_ADDR_LO) = CAP_BASE & 0xff;
-	*CP_REG_PTR(REG_ADDR_HI) = (CAP_BASE >> 8) & 0xff;
-
-	for (int i = 0; i < 4; i++)
-		*CP_REG_PTR(REG_SRAM) = 0;
-
-	Enable();
-}
-
-void update_restart_counter()
-{
-	Disable();
-
-	*CP_REG_PTR(REG_ADDR_LO) = (CAP_BASE + 4) & 0xff;
-	*CP_REG_PTR(REG_ADDR_HI) = ((CAP_BASE + 4) >> 8) & 0xff;
-
-	UBYTE restart_counter = *CP_REG_PTR(REG_SRAM);
-
-	*CP_REG_PTR(REG_ADDR_LO) = (CAP_BASE + 4) & 0xff;
-	*CP_REG_PTR(REG_ADDR_HI) = ((CAP_BASE + 4) >> 8) & 0xff;
-
-	*CP_REG_PTR(REG_SRAM) = restart_counter + 1;
-	*CP_REG_PTR(REG_SRAM) = 0xa3;
-	*CP_REG_PTR(REG_SRAM) = 0x14;
 
 	Enable();
 }
@@ -273,4 +247,70 @@ int probe_interface()
 			break;
 	}
 	return FALSE;
+}
+
+static void clear_cap()
+{
+	Disable();
+
+	*CP_REG_PTR(REG_ADDR_LO) = CAP_BASE & 0xff;
+	*CP_REG_PTR(REG_ADDR_HI) = (CAP_BASE >> 8) & 0xff;
+
+	for (int i = 0; i < 4; i++)
+		*CP_REG_PTR(REG_SRAM) = 0;
+
+	Enable();
+}
+
+static void update_restart_counter()
+{
+	Disable();
+
+	*CP_REG_PTR(REG_ADDR_LO) = (CAP_BASE + 4) & 0xff;
+	*CP_REG_PTR(REG_ADDR_HI) = ((CAP_BASE + 4) >> 8) & 0xff;
+
+	UBYTE restart_counter = *CP_REG_PTR(REG_SRAM);
+
+	*CP_REG_PTR(REG_ADDR_LO) = (CAP_BASE + 4) & 0xff;
+	*CP_REG_PTR(REG_ADDR_HI) = ((CAP_BASE + 4) >> 8) & 0xff;
+
+	*CP_REG_PTR(REG_SRAM) = restart_counter + 1;
+	*CP_REG_PTR(REG_SRAM) = 0xa3;
+	*CP_REG_PTR(REG_SRAM) = 0x14;
+
+	Enable();
+}
+
+static void add_int6_handler(struct A314Device *dev)
+{
+	memset(&dev->exter_interrupt, 0, sizeof(struct Interrupt));
+	dev->exter_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	dev->exter_interrupt.is_Node.ln_Pri = 0;
+	dev->exter_interrupt.is_Node.ln_Name = device_name;
+	dev->exter_interrupt.is_Data = (APTR)&dev->task;
+	dev->exter_interrupt.is_Code = IntServer;
+
+	AddIntServer(INTB_EXTER, &dev->exter_interrupt);
+}
+
+void setup_cp_pi_if(struct A314Device *dev)
+{
+	memset(&dev->cap, 0, sizeof(dev->cap));
+
+	clear_cap();
+
+	clear_amiga_irq();
+
+	add_int6_handler(dev);
+
+	// FIXME: The current scheme is that a314d is notified that a314.device
+	// has restarted through a restart counter variable.
+	// Another option would be to have an event that specifically signals that
+	// a314.device has restarted.
+	// A third option is for the interface to monitor the RESET_n signal,
+	// and notify a314d that the Amiga has been reset/restarted.
+
+	update_restart_counter();
+
+	set_pi_irq();
 }
