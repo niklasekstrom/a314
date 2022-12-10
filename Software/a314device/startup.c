@@ -63,7 +63,7 @@ static void init_message_port(struct A314Device *dev)
 
 BOOL task_start(struct A314Device *dev)
 {
-	if (!probe_interface())
+	if (!probe_interface(dev))
 		return FALSE;
 
 	if (!setup_task(dev))

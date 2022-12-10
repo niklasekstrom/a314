@@ -103,7 +103,7 @@ static void close_socket(struct A314Device *dev, struct Socket *s, BOOL should_s
 	{
 		if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, 0))
 		{
-			write_to_a2r(&dev->cap, PKT_RESET, s->stream_id, 0, NULL);
+			write_to_a2r(dev, PKT_RESET, s->stream_id, 0, NULL);
 		}
 		else
 		{
@@ -134,7 +134,7 @@ static void handle_pkt_connect_response(struct A314Device *dev, UBYTE offset, UB
 	else
 	{
 		UBYTE result;
-		read_from_r2a(&result, offset, 1);
+		read_from_r2a(dev, &result, offset, 1);
 
 		if (result == 0)
 		{
@@ -170,7 +170,7 @@ static void handle_pkt_data(struct A314Device *dev, UBYTE offset, UBYTE length, 
 		else
 		{
 			UBYTE *dst = ior->a314_Buffer;
-			read_from_r2a(dst, offset, length);
+			read_from_r2a(dev, dst, offset, length);
 			ior->a314_Length = length;
 			ior->a314_Request.io_Error = A314_READ_OK;
 			ReplyMsg((struct Message *)ior);
@@ -185,7 +185,7 @@ static void handle_pkt_data(struct A314Device *dev, UBYTE offset, UBYTE length, 
 		qd->length = length;
 
 		UBYTE *dst = qd->data;
-		read_from_r2a(dst, offset, length);
+		read_from_r2a(dev, dst, offset, length);
 
 		if (s->rq_head == NULL)
 			s->rq_head = qd;
@@ -259,7 +259,7 @@ static void handle_packets_received_r2a(struct A314Device *dev)
 		UBYTE index = dev->cap.r2a_head;
 
 		struct PktHdr hdr;
-		read_from_r2a((UBYTE *)&hdr, index, sizeof(hdr));
+		read_from_r2a(dev, (UBYTE *)&hdr, index, sizeof(hdr));
 
 		index += sizeof(hdr);
 
@@ -289,7 +289,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 		{
 			struct A314_IORequest *ior = s->pending_connect;
 			int len = ior->a314_Length;
-			write_to_a2r(cap, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+			write_to_a2r(dev, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else if (s->pending_write != NULL)
 		{
@@ -298,7 +298,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 
 			if (ior->a314_Request.io_Command == A314_WRITE)
 			{
-				write_to_a2r(cap, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				write_to_a2r(dev, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
 				ior->a314_Request.io_Error = A314_WRITE_OK;
 				ReplyMsg((struct Message *)ior);
@@ -307,7 +307,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 			}
 			else // A314_EOS
 			{
-				write_to_a2r(cap, PKT_EOS, s->stream_id, 0, NULL);
+				write_to_a2r(dev, PKT_EOS, s->stream_id, 0, NULL);
 
 				ior->a314_Request.io_Error = A314_EOS_OK;
 				ReplyMsg((struct Message *)ior);
@@ -322,7 +322,7 @@ static void handle_room_in_a2r(struct A314Device *dev)
 		}
 		else if (s->flags & SOCKET_SHOULD_SEND_RESET)
 		{
-			write_to_a2r(cap, PKT_RESET, s->stream_id, 0, NULL);
+			write_to_a2r(dev, PKT_RESET, s->stream_id, 0, NULL);
 			delete_socket(dev, s);
 		}
 		else
@@ -356,7 +356,7 @@ static void handle_app_connect(struct A314Device *dev, struct A314_IORequest *io
 		int len = ior->a314_Length;
 		if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, len))
 		{
-			write_to_a2r(&dev->cap, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+			write_to_a2r(dev, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 		}
 		else
 		{
@@ -453,7 +453,7 @@ static void handle_app_write(struct A314Device *dev, struct A314_IORequest *ior,
 		{
 			if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, len))
 			{
-				write_to_a2r(&dev->cap, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+				write_to_a2r(dev, PKT_DATA, s->stream_id, (UBYTE)len, ior->a314_Buffer);
 
 				ior->a314_Request.io_Error = A314_WRITE_OK;
 				ReplyMsg((struct Message *)ior);
@@ -492,7 +492,7 @@ static void handle_app_eos(struct A314Device *dev, struct A314_IORequest *ior, s
 
 			if (dev->send_queue_head == NULL && room_in_a2r(&dev->cap, 0))
 			{
-				write_to_a2r(&dev->cap, PKT_EOS, s->stream_id, 0, NULL);
+				write_to_a2r(dev, PKT_EOS, s->stream_id, 0, NULL);
 
 				ior->a314_Request.io_Error = A314_EOS_OK;
 				ReplyMsg((struct Message *)ior);
@@ -571,7 +571,7 @@ void task_main()
 
 		dbg_trace("Returned from Wait() with signal=$l", signal);
 
-		read_pi_cap(&dev->cap);
+		read_pi_cap(dev);
 
 		dbg_trace("Read CAP, r2a_tail=$b, a2r_head=$b", dev->cap.r2a_tail, dev->cap.a2r_head);
 
@@ -598,9 +598,9 @@ void task_main()
 		{
 			dbg_trace("Writing CAP, a2r_tail=$b, r2a_head=$b", dev->cap.a2r_tail, dev->cap.r2a_head);
 
-			write_amiga_cap(&dev->cap);
+			write_amiga_cap(dev);
 
-			set_pi_irq();
+			set_pi_irq(dev);
 		}
 	}
 

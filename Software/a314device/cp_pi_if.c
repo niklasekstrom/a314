@@ -29,17 +29,17 @@
 
 extern void IntServer();
 
-void set_pi_irq()
+void set_pi_irq(struct A314Device *dev)
 {
 	*CP_REG_PTR(REG_IRQ) = REG_IRQ_SET | REG_IRQ_PI;
 }
 
-void clear_amiga_irq()
+void clear_amiga_irq(struct A314Device *dev)
 {
 	*CP_REG_PTR(REG_IRQ) = REG_IRQ_CLR | REG_IRQ_CP;
 }
 
-void a314base_write_mem(__reg("d0") ULONG address, __reg("a0") UBYTE *src, __reg("d1") ULONG length)
+void a314base_write_mem(__reg("a6") struct A314Device *dev, __reg("d0") ULONG address, __reg("a0") UBYTE *src, __reg("d1") ULONG length)
 {
 	dbg_trace("Enter a314base_write_mem, address=$l, length=$l", address, length);
 
@@ -59,7 +59,7 @@ void a314base_write_mem(__reg("d0") ULONG address, __reg("a0") UBYTE *src, __reg
 	Enable();
 }
 
-void a314base_read_mem(__reg("a0") UBYTE *dst, __reg("d0") ULONG address, __reg("d1") ULONG length)
+void a314base_read_mem(__reg("a6") struct A314Device *dev, __reg("a0") UBYTE *dst, __reg("d0") ULONG address, __reg("d1") ULONG length)
 {
 	dbg_trace("Enter a314base_read_mem, address=$l, length=$l", address, length);
 
@@ -79,33 +79,33 @@ void a314base_read_mem(__reg("a0") UBYTE *dst, __reg("d0") ULONG address, __reg(
 	Enable();
 }
 
-void read_pi_cap(struct ComAreaPtrs *cap)
+void read_pi_cap(struct A314Device *dev)
 {
 	Disable();
 
 	*CP_REG_PTR(REG_ADDR_LO) = (CAP_BASE + 0) & 0xff;
 	*CP_REG_PTR(REG_ADDR_HI) = ((CAP_BASE + 0) >> 8) & 0xff;
 
-	cap->r2a_tail = *CP_REG_PTR(REG_SRAM);
-	cap->a2r_head = *CP_REG_PTR(REG_SRAM);
+	dev->cap.r2a_tail = *CP_REG_PTR(REG_SRAM);
+	dev->cap.a2r_head = *CP_REG_PTR(REG_SRAM);
 
 	Enable();
 }
 
-void write_amiga_cap(struct ComAreaPtrs *cap)
+void write_amiga_cap(struct A314Device *dev)
 {
 	Disable();
 
 	*CP_REG_PTR(REG_ADDR_LO) = (CAP_BASE + 2) & 0xff;
 	*CP_REG_PTR(REG_ADDR_HI) = ((CAP_BASE + 2) >> 8) & 0xff;
 
-	*CP_REG_PTR(REG_SRAM) = cap->a2r_tail;
-	*CP_REG_PTR(REG_SRAM) = cap->r2a_head;
+	*CP_REG_PTR(REG_SRAM) = dev->cap.a2r_tail;
+	*CP_REG_PTR(REG_SRAM) = dev->cap.r2a_head;
 
 	Enable();
 }
 
-void read_from_r2a(UBYTE *dst, UBYTE offset, int length)
+void read_from_r2a(struct A314Device *dev, UBYTE *dst, UBYTE offset, int length)
 {
 	if (!length)
 		return;
@@ -131,7 +131,7 @@ void read_from_r2a(UBYTE *dst, UBYTE offset, int length)
 	Enable();
 }
 
-void write_to_a2r(struct ComAreaPtrs *cap, UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
+void write_to_a2r(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data)
 {
 	dbg_trace("Enter: write_to_a2r, type=$b, stream_id=$b, length=$b", type, stream_id, length);
 
@@ -139,7 +139,7 @@ void write_to_a2r(struct ComAreaPtrs *cap, UBYTE type, UBYTE stream_id, UBYTE le
 
 	Disable();
 
-	UBYTE offset = cap->a2r_tail;
+	UBYTE offset = dev->cap.a2r_tail;
 
 	*CP_REG_PTR(REG_ADDR_LO) = (A2R_BASE + offset) & 0xff;
 	*CP_REG_PTR(REG_ADDR_HI) = ((A2R_BASE + offset) >> 8) & 0xff;
@@ -168,7 +168,7 @@ void write_to_a2r(struct ComAreaPtrs *cap, UBYTE type, UBYTE stream_id, UBYTE le
 		}
 	}
 
-	cap->a2r_tail = offset;
+	dev->cap.a2r_tail = offset;
 
 	Enable();
 }
@@ -236,7 +236,7 @@ fail1:
 	return success;
 }
 
-int probe_interface()
+int probe_interface(struct A314Device *dev)
 {
 	for (int i = 7; i >= 0; i--)
 	{
@@ -249,7 +249,7 @@ int probe_interface()
 	return FALSE;
 }
 
-static void clear_cap()
+static void clear_cap(struct A314Device *dev)
 {
 	Disable();
 
@@ -262,7 +262,7 @@ static void clear_cap()
 	Enable();
 }
 
-static void update_restart_counter()
+static void update_restart_counter(struct A314Device *dev)
 {
 	Disable();
 
@@ -297,9 +297,9 @@ void setup_cp_pi_if(struct A314Device *dev)
 {
 	memset(&dev->cap, 0, sizeof(dev->cap));
 
-	clear_cap();
+	clear_cap(dev);
 
-	clear_amiga_irq();
+	clear_amiga_irq(dev);
 
 	add_int6_handler(dev);
 
@@ -310,7 +310,7 @@ void setup_cp_pi_if(struct A314Device *dev)
 	// A third option is for the interface to monitor the RESET_n signal,
 	// and notify a314d that the Amiga has been reset/restarted.
 
-	update_restart_counter();
+	update_restart_counter(dev);
 
-	set_pi_irq();
+	set_pi_irq(dev);
 }
