@@ -11,7 +11,7 @@
 #include "a314.h"
 #include "startup.h"
 #include "memory_allocator.h"
-#include "cp_pi_if.h"
+#include "pi_if.h"
 
 #define SysBase (*(struct ExecBase **)4)
 

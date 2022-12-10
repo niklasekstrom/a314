@@ -2,8 +2,8 @@
 
 #include "device.h"
 
-extern int probe_interface(struct A314Device *dev);
-extern void setup_cp_pi_if(struct A314Device *dev);
+extern int probe_pi_interface(struct A314Device *dev);
+extern void setup_pi_interface(struct A314Device *dev);
 
 extern void read_from_r2a(struct A314Device *dev, UBYTE *dst, UBYTE offset, int length);
 extern void write_to_a2r(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE length, UBYTE *data);

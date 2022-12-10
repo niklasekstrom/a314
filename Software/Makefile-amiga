@@ -11,7 +11,7 @@ bin_dir:
 	mkdir -p ${BIN}/L
 	mkdir -p ${BIN}/C
 
-${BIN}/Devs/a314.device: a314device/a314.h a314device/cp_pi_if.c a314device/cp_pi_if.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/int_server.asm a314device/memory_allocator.c a314device/memory_allocator.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
+${BIN}/Devs/a314.device: a314device/a314.h a314device/cp_pi_if.c a314device/pi_if.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/int_server.asm a314device/memory_allocator.c a314device/memory_allocator.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
 	${VC} a314device/romtag.asm a314device/driver_task.c a314device/debug.c a314device/device.c a314device/startup.c a314device/cp_pi_if.c a314device/memory_allocator.c a314device/sockets.c a314device/int_server.asm -O3 -nostdlib -o ${BIN}/Devs/a314.device
 
 ${BIN}/L/a314fs: a314device/a314.h a314device/proto_a314.h a314fs/messages.h a314fs/a314fs.c a314fs/bcpl_start.asm a314fs/bcpl_end.asm

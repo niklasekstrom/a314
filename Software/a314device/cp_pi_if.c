@@ -6,7 +6,7 @@
 
 #include <string.h>
 
-#include "cp_pi_if.h"
+#include "pi_if.h"
 #include "debug.h"
 #include "device.h"
 #include "protocol.h"
@@ -173,7 +173,7 @@ void write_to_a2r(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE len
 	Enable();
 }
 
-static int probe_interface_once()
+static int probe_pi_interface_once()
 {
 	int found = FALSE;
 
@@ -236,11 +236,11 @@ fail1:
 	return success;
 }
 
-int probe_interface(struct A314Device *dev)
+int probe_pi_interface(struct A314Device *dev)
 {
 	for (int i = 7; i >= 0; i--)
 	{
-		if (probe_interface_once())
+		if (probe_pi_interface_once())
 			return TRUE;
 
 		if (i == 0 || !delay_1s())
@@ -293,7 +293,7 @@ static void add_int6_handler(struct A314Device *dev)
 	AddIntServer(INTB_EXTER, &dev->exter_interrupt);
 }
 
-void setup_cp_pi_if(struct A314Device *dev)
+void setup_pi_interface(struct A314Device *dev)
 {
 	memset(&dev->cap, 0, sizeof(dev->cap));
 

@@ -25,7 +25,7 @@
 #include "device.h"
 #include "protocol.h"
 #include "sockets.h"
-#include "cp_pi_if.h"
+#include "pi_if.h"
 #include "startup.h"
 
 #define SysBase (*(struct ExecBase **)4)

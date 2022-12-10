@@ -11,7 +11,7 @@
 #include "protocol.h"
 #include "startup.h"
 #include "debug.h"
-#include "cp_pi_if.h"
+#include "pi_if.h"
 #include "memory_allocator.h"
 
 #define SysBase (*(struct ExecBase **)4)
@@ -63,7 +63,7 @@ static void init_message_port(struct A314Device *dev)
 
 BOOL task_start(struct A314Device *dev)
 {
-	if (!probe_interface(dev))
+	if (!probe_pi_interface(dev))
 		return FALSE;
 
 	if (!setup_task(dev))
@@ -76,7 +76,7 @@ BOOL task_start(struct A314Device *dev)
 	init_message_port(dev);
 	init_sockets(dev);
 
-	setup_cp_pi_if(dev);
+	setup_pi_interface(dev);
 
 	AddTask(&dev->task, (void *)task_main, 0);
 
