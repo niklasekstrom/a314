@@ -24,6 +24,7 @@ install:
 	cp a314fs/a314fs.py /opt/a314
 	cp picmd/picmd.py /opt/a314
 	cp remote-mouse/remote-mouse.py /opt/a314
+	cp hid/hid.py /opt/a314
 	cp ethernet/ethernet.py /opt/a314
 	cp disk/disk.py /opt/a314
 	mkdir -p /etc/opt/a314
@@ -31,6 +32,7 @@ install:
 	cp a314fs/a314fs.conf /etc/opt/a314
 	cp picmd/picmd.conf /etc/opt/a314
 	cp disk/disk.conf /etc/opt/a314
+	pip3 install pyudev
 	pip3 install python-pytun
 	cp ethernet/pi-config/tap0 /etc/network/interfaces.d
 	cp a314d/a314d.service /lib/systemd/system

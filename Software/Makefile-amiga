@@ -3,7 +3,7 @@
 VC=vc
 BIN=bin_amiga
 
-all: bin_dir ${BIN}/Devs/a314.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/RemoteMouse ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device
+all: bin_dir ${BIN}/Devs/a314.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device
 
 bin_dir:
 	mkdir -p ${BIN}
@@ -32,6 +32,9 @@ ${BIN}/C/PiSetClock: a314device/a314.h a314device/proto_a314.h picmd/pisetclock.
 
 ${BIN}/C/RemoteMouse: a314device/a314.h remote-mouse/remote-mouse.c
 	${VC} remote-mouse/remote-mouse.c -lamiga -o ${BIN}/C/RemoteMouse
+
+${BIN}/C/PiHid: a314device/a314.h hid/hid.c
+	${VC} hid/hid.c -lamiga -o ${BIN}/C/PiHid
 
 ${BIN}/Devs/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c ethernet/sana2.h ethernet/tagitem.h
 	${VC} ethernet/romtag.asm ethernet/device.c -O3 -nostdlib -o ${BIN}/Devs/a314eth.device -lamiga
