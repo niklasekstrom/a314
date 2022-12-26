@@ -173,7 +173,7 @@ void write_to_a2r(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE len
 	Enable();
 }
 
-static int probe_pi_interface_once()
+static int probe_pi_interface_once(struct A314Device *dev)
 {
 	int found = FALSE;
 
@@ -240,7 +240,7 @@ int probe_pi_interface(struct A314Device *dev)
 {
 	for (int i = 7; i >= 0; i--)
 	{
-		if (probe_pi_interface_once())
+		if (probe_pi_interface_once(dev))
 			return TRUE;
 
 		if (i == 0 || !delay_1s())
