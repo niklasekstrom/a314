@@ -2,6 +2,7 @@
 
 #include <proto/exec.h>
 
+#include "a314.h"
 #include "device.h"
 #include "debug.h"
 
@@ -31,7 +32,7 @@ ULONG a314base_translate_address(__reg("a6") struct A314Device *dev, __reg("a0")
 	dbg_trace("Enter: a314base_translate_address");
 
 	// It is an error if the application calls this routine.
-	return -1;
+	return INVALID_A314_ADDRESS;
 }
 
 ULONG a314base_alloc_mem(__reg("a6") struct A314Device *dev, __reg("d0") ULONG length)
@@ -42,7 +43,7 @@ ULONG a314base_alloc_mem(__reg("a6") struct A314Device *dev, __reg("d0") ULONG l
 
 	Forbid();
 
-	ULONG address = 0;
+	ULONG address = INVALID_A314_ADDRESS;
 	struct MyMemChunk *prev = NULL;
 	struct MyMemChunk *mc = dev->first_chunk;
 	while (mc)

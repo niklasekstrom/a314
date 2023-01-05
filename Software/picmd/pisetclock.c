@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 	int start_msg_len = sizeof(start_msg) - 1;
 
 	ULONG buffer_address = AllocMemA314(start_msg_len);
-	if (!buffer_address)
+	if (buffer_address == INVALID_A314_ADDRESS)
 	{
 		printf("Unable to allocate enough shared A314 memory\n");
 		goto fail3;

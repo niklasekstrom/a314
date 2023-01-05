@@ -665,7 +665,7 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
     memcpy(&dev->reset_ior, &dev->read_ior, sizeof(struct A314_IORequest));
 
     dev->track_buffer_address = AllocMemA314(TRACK_SIZE);
-    if (!dev->track_buffer_address)
+    if (dev->track_buffer_address == INVALID_A314_ADDRESS)
         goto fail2;
 
     for (int i = 0; i < UNIT_COUNT; i++)

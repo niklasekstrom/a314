@@ -563,7 +563,7 @@ static void open(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req 
 			goto error;
 
 		bd->bd_BufferAddress = AllocMemA314(RAW_MTU);
-		if (!bd->bd_BufferAddress)
+		if (bd->bd_BufferAddress == INVALID_A314_ADDRESS)
 			goto error;
 
 		if (i < ET_RBUF_CNT)
