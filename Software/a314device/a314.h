@@ -32,6 +32,8 @@
 
 #define MEMF_A314			(1<<7)
 
+#define INVALID_A314_ADDRESS		((ULONG)-1)
+
 struct A314_IORequest
 {
 	struct IORequest a314_Request;

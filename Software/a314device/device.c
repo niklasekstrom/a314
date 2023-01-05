@@ -106,7 +106,11 @@ static ULONG device_vectors[] =
 	0,
 	(ULONG)begin_io,
 	(ULONG)abort_io,
-	(ULONG)translate_address_a314,
+	(ULONG)a314base_translate_address,
+	(ULONG)a314base_alloc_mem,
+	(ULONG)a314base_free_mem,
+	(ULONG)a314base_write_mem,
+	(ULONG)a314base_read_mem,
 	-1,
 };
 
