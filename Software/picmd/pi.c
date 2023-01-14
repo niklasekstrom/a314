@@ -294,60 +294,29 @@ void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short ro
 int main(int argc, char **argv)
 {
 	sync_mp = CreatePort(NULL, 0);
-	if (sync_mp == NULL)
-	{
-		printf("Unable to create sync reply message port\n");
-		return 0;
-	}
-
 	async_mp = CreatePort(NULL, 0);
-	if (async_mp == NULL)
-	{
-		printf("Unable to create async reply message port\n");
-		DeletePort(sync_mp);
-		return 0;
-	}
 
 	sync_ior = (struct A314_IORequest *)CreateExtIO(sync_mp, sizeof(struct A314_IORequest));
-	if (sync_ior == NULL)
-	{
-		printf("Unable to create io request for synchronous commands\n");
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
-	}
-
 	read_ior = (struct A314_IORequest *)CreateExtIO(sync_mp, sizeof(struct A314_IORequest));
-	if (read_ior == NULL)
+
+	if (!sync_mp || !async_mp || !sync_ior || !read_ior)
 	{
-		printf("Unable to create io request for reads\n");
-		DeleteExtIO((struct IORequest *)sync_ior);
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
+		printf("Unable to allocate enough memory\n");
+		goto fail1;
 	}
 
-	if (OpenDevice(A314_NAME, 0, (struct IORequest *)sync_ior, 0) != 0)
+	if (OpenDevice(A314_NAME, 0, (struct IORequest *)sync_ior, 0))
 	{
-		printf("Unable to open a314.device\n");
-		DeleteExtIO((struct IORequest *)read_ior);
-		DeleteExtIO((struct IORequest *)sync_ior);
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
+		printf("Unable to open " A314_NAME "\n");
+		goto fail1;
 	}
 
 	memcpy(read_ior, sync_ior, sizeof(struct A314_IORequest));
 
 	if (a314_connect(PICMD_SERVICE_NAME) != A314_CONNECT_OK)
 	{
-		printf("Unable to connect to picmd service\n");
-		CloseDevice((struct IORequest *)sync_ior);
-		DeleteExtIO((struct IORequest *)read_ior);
-		DeleteExtIO((struct IORequest *)sync_ior);
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
+		printf("Unable to connect to " PICMD_SERVICE_NAME " service\n");
+		goto fail2;
 	}
 
 	struct Process *proc = (struct Process *)FindTask(NULL);
@@ -355,23 +324,19 @@ int main(int argc, char **argv)
 
 	set_screen_mode(DOSTRUE);
 
+	// Window Status Request
 	con_write("\x9b" "0 q", 4);
 
 	int len = con_read(arbuf, 32);	// "\x9b" "1;1;33;77 r"
 	if (len < 10 || arbuf[len - 1] != 'r')
 	{
 		printf("Failure to receive window bounds report\n");
-		set_screen_mode(DOSFALSE);
 		a314_reset();
-		CloseDevice((struct IORequest *)sync_ior);
-		DeleteExtIO((struct IORequest *)read_ior);
-		DeleteExtIO((struct IORequest *)sync_ior);
-		DeletePort(async_mp);
-		DeletePort(sync_mp);
-		return 0;
+		goto fail3;
 	}
 
-	con_write("\x9b" "12{", 4);
+	// Set Raw Events
+	con_write("\x9b" "12{", 4); // 12 = Window resized
 
 	int start = 5;
 	int ind = start;
@@ -413,12 +378,24 @@ int main(int argc, char **argv)
 			break;
 	}
 
+fail3:
 	set_screen_mode(DOSFALSE);
 
+fail2:
 	CloseDevice((struct IORequest *)sync_ior);
-	DeleteExtIO((struct IORequest *)read_ior);
-	DeleteExtIO((struct IORequest *)sync_ior);
-	DeletePort(async_mp);
-	DeletePort(sync_mp);
+
+fail1:
+	if (read_ior)
+		DeleteExtIO((struct IORequest *)read_ior);
+
+	if (sync_ior)
+		DeleteExtIO((struct IORequest *)sync_ior);
+
+	if (async_mp)
+		DeletePort(async_mp);
+
+	if (sync_mp)
+		DeletePort(sync_mp);
+
 	return 0;
 }
