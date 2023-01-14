@@ -186,12 +186,9 @@ class PiCmdSession(object):
             if len(self.start_msg) == length:
                 buf = self.start_msg
 
-                ind = 2
-                rows, cols = struct.unpack('>HH', buf[ind:ind+4])
-                ind += 4
+                rows, cols, component_count, arg_count = struct.unpack_from('>HHBB', buf, 2)
 
-                component_count = buf[ind]
-                ind += 1
+                ind = 8
 
                 components = []
                 for _ in range(component_count):
@@ -199,9 +196,6 @@ class PiCmdSession(object):
                     ind += 1
                     components.append(buf[ind:ind+n].decode('latin-1'))
                     ind += n
-
-                arg_count = buf[ind]
-                ind += 1
 
                 args = []
                 for _ in range(arg_count):

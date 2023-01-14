@@ -24,6 +24,19 @@
 
 #define PICMD_SERVICE_NAME "picmd"
 
+struct StartMsgHeader
+{
+	UWORD length;
+	short rows;
+	short cols;
+	UBYTE component_count;
+	UBYTE arg_count;
+};
+
+static const char picmd_args[] = "\x04" "date" "\x05" "+%s%z";
+#define ARGS_LEN (sizeof(picmd_args) - 1)
+#define START_MSG_LEN (sizeof(struct StartMsgHeader) + ARGS_LEN)
+
 struct MsgPort *sync_mp;
 struct MsgPort *async_mp;
 
@@ -37,10 +50,6 @@ UBYTE arbuf[256];
 
 BOOL pending_a314_read = FALSE;
 BOOL stream_closed = FALSE;
-
-// length, rows, cols, components_count, args_count, args...
-static const char start_msg_const[] = "\x00\x00" "\x00\x19" "\x00\x50" "\x00" "\x02" "\x04" "date" "\x05" "+%s%z";
-#define START_MSG_LEN (sizeof(start_msg_const) - 1)
 
 void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWORD cmd, char *buffer, int length)
 {
@@ -191,8 +200,15 @@ int main(int argc, char **argv)
 	}
 
 	char start_msg[START_MSG_LEN];
-	memcpy(start_msg + 2, start_msg_const + 2, START_MSG_LEN - 2);
-	*(UWORD *)start_msg = START_MSG_LEN;
+
+	struct StartMsgHeader *hdr = (struct StartMsgHeader *)start_msg;
+	hdr->length = START_MSG_LEN;
+	hdr->rows = 25;
+	hdr->cols = 80;
+	hdr->component_count = 0;
+	hdr->arg_count = 2;
+
+	memcpy(hdr + 1, picmd_args, ARGS_LEN);
 
 	a314_write(start_msg, START_MSG_LEN);
 

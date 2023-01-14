@@ -25,6 +25,15 @@
 
 #define ID_314_DISK (('3' << 24) | ('1' << 16) | ('4' << 8))
 
+struct StartMsgHeader
+{
+	UWORD length;
+	short rows;
+	short cols;
+	UBYTE component_count;
+	UBYTE arg_count;
+};
+
 struct MsgPort *sync_mp;
 struct MsgPort *async_mp;
 
@@ -198,7 +207,7 @@ void handle_a314_read_completed()
 
 void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short rows, short cols)
 {
-	int buf_len = 8;
+	int buf_len = sizeof(struct StartMsgHeader);
 
 	int component_count = 0;
 	UBYTE *components[20];
@@ -244,17 +253,15 @@ void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short ro
 
 	UBYTE *buffer = AllocMem(buf_len, 0);
 
-	UBYTE *p = buffer;
+	struct StartMsgHeader *hdr = (struct StartMsgHeader *)buffer;
+	hdr->length = buf_len;
+	hdr->rows = rows;
+	hdr->cols = cols;
+	hdr->component_count = component_count;
+	hdr->arg_count = argc - 1;
 
-	*(UWORD *)p = (UWORD)buf_len;
-	p += 2;
+	UBYTE *p = buffer + sizeof(struct StartMsgHeader);
 
-	*(short *)p = rows;
-	p += 2;
-	*(short *)p = cols;
-	p += 2;
-
-	*p++ = (UBYTE)component_count;
 	for (int i = 0; i < component_count; i++)
 	{
 		UBYTE *q = components[component_count - 1 - i];
@@ -264,7 +271,6 @@ void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short ro
 		FreeMem(q, n + 1);
 	}
 
-	*p++ = (UBYTE)(argc - 1);
 	for (int i = 1; i < argc; i++)
 	{
 		UBYTE *q = (UBYTE *)argv[i];
