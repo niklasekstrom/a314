@@ -34,26 +34,29 @@ struct StartMsgHeader
 	UBYTE arg_count;
 };
 
-struct MsgPort *sync_mp;
-struct MsgPort *async_mp;
+static struct MsgPort *sync_mp;
+static struct MsgPort *async_mp;
 
-struct A314_IORequest *read_ior;
-struct A314_IORequest *sync_ior;
+static struct A314_IORequest *read_ior;
+static struct A314_IORequest *sync_ior;
 
-struct FileHandle *con;
+static BPTR input_file;
+static BPTR output_file;
 
-ULONG socket;
+static struct FileHandle *con;
 
-UBYTE arbuf[256];
+static ULONG socket;
 
-struct StandardPacket sync_sp;
-struct StandardPacket wait_sp;
+static UBYTE arbuf[256];
 
-BOOL pending_a314_read = FALSE;
-BOOL pending_con_wait = FALSE;
-BOOL stream_closed = FALSE;
+static struct StandardPacket sync_sp;
+static struct StandardPacket wait_sp;
 
-void put_con_sp(struct MsgPort *reply_port, struct StandardPacket *sp, LONG action, LONG arg1, LONG arg2, LONG arg3)
+static BOOL pending_a314_read = FALSE;
+static BOOL pending_con_wait = FALSE;
+static BOOL stream_closed = FALSE;
+
+static void put_con_sp(struct MsgPort *reply_port, struct StandardPacket *sp, LONG action, LONG arg1, LONG arg2, LONG arg3)
 {
 	sp->sp_Msg.mn_Node.ln_Type = NT_MESSAGE;
 	sp->sp_Msg.mn_Node.ln_Pri = 0;
@@ -69,7 +72,7 @@ void put_con_sp(struct MsgPort *reply_port, struct StandardPacket *sp, LONG acti
 	PutMsg(con->fh_Type, &(sp->sp_Msg));
 }
 
-LONG set_screen_mode(LONG mode)
+static LONG set_screen_mode(LONG mode)
 {
 	put_con_sp(sync_mp, &sync_sp, ACTION_SCREEN_MODE, mode, 0, 0);
 	Wait(1L << sync_mp->mp_SigBit);
@@ -77,29 +80,23 @@ LONG set_screen_mode(LONG mode)
 	return sync_sp.sp_Pkt.dp_Res1;
 }
 
-LONG con_write(char *s, int length)
-{
-	put_con_sp(sync_mp, &sync_sp, ACTION_WRITE, con->fh_Arg1, (LONG)s, length);
-	Wait(1L << sync_mp->mp_SigBit);
-	GetMsg(sync_mp);
-	return sync_sp.sp_Pkt.dp_Res1;
-}
-
-LONG con_read(char *s, int length)
-{
-	put_con_sp(sync_mp, &sync_sp, ACTION_READ, con->fh_Arg1, (LONG)s, length);
-	Wait(1L << sync_mp->mp_SigBit);
-	GetMsg(sync_mp);
-	return sync_sp.sp_Pkt.dp_Res1;
-}
-
-void start_con_wait()
+static void start_con_wait()
 {
 	put_con_sp(async_mp, &wait_sp, ACTION_WAIT_CHAR, 100000, 0, 0);
 	pending_con_wait = TRUE;
 }
 
-void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWORD cmd, char *buffer, int length)
+static LONG con_read(char *s, int length)
+{
+	return Read(input_file, s, length);
+}
+
+static LONG con_write(char *s, int length)
+{
+	return Write(output_file, s, length);
+}
+
+static void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWORD cmd, char *buffer, int length)
 {
 	ior->a314_Request.io_Message.mn_ReplyPort = reply_port;
 	ior->a314_Request.io_Command = cmd;
@@ -110,7 +107,7 @@ void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWOR
 	SendIO((struct IORequest *)ior);
 }
 
-BYTE a314_connect(char *name)
+static BYTE a314_connect(char *name)
 {
 	socket = time(NULL);
 	start_a314_cmd(sync_mp, sync_ior, A314_CONNECT, name, strlen(name));
@@ -119,7 +116,7 @@ BYTE a314_connect(char *name)
 	return sync_ior->a314_Request.io_Error;
 }
 
-BYTE a314_write(char *buffer, int length)
+static BYTE a314_write(char *buffer, int length)
 {
 	start_a314_cmd(sync_mp, sync_ior, A314_WRITE, buffer, length);
 	Wait(1L << sync_mp->mp_SigBit);
@@ -127,7 +124,7 @@ BYTE a314_write(char *buffer, int length)
 	return sync_ior->a314_Request.io_Error;
 }
 
-BYTE a314_eos()
+static BYTE a314_eos()
 {
 	start_a314_cmd(sync_mp, sync_ior, A314_EOS, NULL, 0);
 	Wait(1L << sync_mp->mp_SigBit);
@@ -135,7 +132,7 @@ BYTE a314_eos()
 	return sync_ior->a314_Request.io_Error;
 }
 
-BYTE a314_reset()
+static BYTE a314_reset()
 {
 	start_a314_cmd(sync_mp, sync_ior, A314_RESET, NULL, 0);
 	Wait(1L << sync_mp->mp_SigBit);
@@ -143,13 +140,13 @@ BYTE a314_reset()
 	return sync_ior->a314_Request.io_Error;
 }
 
-void start_a314_read()
+static void start_a314_read()
 {
 	start_a314_cmd(async_mp, read_ior, A314_READ, arbuf, 255);
 	pending_a314_read = TRUE;
 }
 
-void handle_con_wait_completed()
+static void handle_con_wait_completed()
 {
 	pending_con_wait = FALSE;
 
@@ -178,7 +175,7 @@ void handle_con_wait_completed()
 	}
 }
 
-void handle_a314_read_completed()
+static void handle_a314_read_completed()
 {
 	pending_a314_read = FALSE;
 
@@ -205,7 +202,7 @@ void handle_a314_read_completed()
 	}
 }
 
-void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short rows, short cols)
+static void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short rows, short cols)
 {
 	int buf_len = sizeof(struct StartMsgHeader);
 
@@ -293,6 +290,17 @@ void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short ro
 
 int main(int argc, char **argv)
 {
+	struct Process *proc = (struct Process *)FindTask(NULL);
+
+	input_file = proc->pr_CIS;
+	output_file = proc->pr_COS;
+
+	if (!IsInteractive(input_file))
+	{
+		printf("Unable to handle redirected input\n");
+		goto fail0;
+	}
+
 	sync_mp = CreatePort(NULL, 0);
 	async_mp = CreatePort(NULL, 0);
 
@@ -319,37 +327,45 @@ int main(int argc, char **argv)
 		goto fail2;
 	}
 
-	struct Process *proc = (struct Process *)FindTask(NULL);
-	con = (struct FileHandle *)BADDR(proc->pr_CIS);
+	// The interactions with the console are described here:
+	// https://wiki.amigaos.net/wiki/Console_Device
+
+	con = (struct FileHandle *)BADDR(input_file);
 
 	set_screen_mode(DOSTRUE);
 
-	// Window Status Request
-	con_write("\x9b" "0 q", 4);
+	int rows = 25;
+	int cols = 80;
 
-	int len = con_read(arbuf, 32);	// "\x9b" "1;1;33;77 r"
-	if (len < 10 || arbuf[len - 1] != 'r')
+	if (IsInteractive(output_file))
 	{
-		printf("Failure to receive window bounds report\n");
-		a314_reset();
-		goto fail3;
+		// Window Status Request
+		con_write("\x9b" "0 q", 4);
+
+		int len = con_read(arbuf, 32);	// "\x9b" "1;1;33;77 r"
+		if (len < 10 || arbuf[len - 1] != 'r')
+		{
+			printf("Failure to receive window bounds report\n");
+			a314_reset();
+			goto fail3;
+		}
+
+		// Set Raw Events
+		con_write("\x9b" "12{", 4); // 12 = Window resized
+
+		int start = 5;
+		int ind = start;
+		while (arbuf[ind] != ';')
+			ind++;
+		arbuf[ind] = 0;
+		rows = atoi(arbuf + start);
+		ind++;
+		start = ind;
+		while (arbuf[ind] != ' ')
+			ind++;
+		arbuf[ind] = 0;
+		cols = atoi(arbuf + start);
 	}
-
-	// Set Raw Events
-	con_write("\x9b" "12{", 4); // 12 = Window resized
-
-	int start = 5;
-	int ind = start;
-	while (arbuf[ind] != ';')
-		ind++;
-	arbuf[ind] = 0;
-	int rows = atoi(arbuf + start);
-	ind++;
-	start = ind;
-	while (arbuf[ind] != ' ')
-		ind++;
-	arbuf[ind] = 0;
-	int cols = atoi(arbuf + start);
 
 	create_and_send_start_msg(proc->pr_CurrentDir, argc, argv, (short)rows, (short)cols);
 
@@ -397,5 +413,6 @@ fail1:
 	if (sync_mp)
 		DeletePort(sync_mp);
 
+fail0:
 	return 0;
 }
