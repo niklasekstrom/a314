@@ -31,8 +31,6 @@ struct MsgPort *async_mp;
 struct A314_IORequest *read_ior;
 struct A314_IORequest *sync_ior;
 
-struct Library *A314Base;
-
 struct FileHandle *con;
 
 ULONG socket;
@@ -198,9 +196,9 @@ void handle_a314_read_completed()
 	}
 }
 
-ULONG create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, char **argv, short rows, short cols)
+void create_and_send_start_msg(BPTR current_dir, int argc, char **argv, short rows, short cols)
 {
-	int buf_len = 6;
+	int buf_len = 8;
 
 	int component_count = 0;
 	UBYTE *components[20];
@@ -244,10 +242,12 @@ ULONG create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, cha
 	for (int i = 1; i < argc; i++)
 		buf_len += strlen(argv[i]) + 1;
 
-	ULONG buffer_address = AllocMemA314(buf_len);
 	UBYTE *buffer = AllocMem(buf_len, 0);
 
 	UBYTE *p = buffer;
+
+	*(UWORD *)p = (UWORD)buf_len;
+	p += 2;
 
 	*(short *)p = rows;
 	p += 2;
@@ -274,14 +274,15 @@ ULONG create_and_send_start_msg(int *buffer_len, BPTR current_dir, int argc, cha
 		p += n;
 	}
 
-	WriteMemA314(buffer_address, buffer, buf_len);
+	for (int i = 0; i < buf_len; i += 224)
+	{
+		int to_write = buf_len - i;
+		if (to_write > 224)
+			to_write = 224;
+		a314_write(buffer + i, to_write);
+	}
+
 	FreeMem(buffer, buf_len);
-
-	ULONG buf_desc[2] = {buffer_address, buf_len};
-	a314_write((char *)buf_desc, sizeof(buf_desc));
-
-	*buffer_len = buf_len;
-	return buffer_address;
 }
 
 int main(int argc, char **argv)
@@ -332,8 +333,6 @@ int main(int argc, char **argv)
 
 	memcpy(read_ior, sync_ior, sizeof(struct A314_IORequest));
 
-	A314Base = &(sync_ior->a314_Request.io_Device->dd_Library);
-
 	if (a314_connect(PICMD_SERVICE_NAME) != A314_CONNECT_OK)
 	{
 		printf("Unable to connect to picmd service\n");
@@ -381,8 +380,7 @@ int main(int argc, char **argv)
 	arbuf[ind] = 0;
 	int cols = atoi(arbuf + start);
 
-	int start_msg_len;
-	ULONG start_msg = create_and_send_start_msg(&start_msg_len, proc->pr_CurrentDir, argc, argv, (short)rows, (short)cols);
+	create_and_send_start_msg(proc->pr_CurrentDir, argc, argv, (short)rows, (short)cols);
 
 	start_con_wait();
 	start_a314_read();
@@ -410,8 +408,6 @@ int main(int argc, char **argv)
 	}
 
 	set_screen_mode(DOSFALSE);
-
-	FreeMemA314(start_msg, start_msg_len);
 
 	CloseDevice((struct IORequest *)sync_ior);
 	DeleteExtIO((struct IORequest *)read_ior);

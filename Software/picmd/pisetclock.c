@@ -31,14 +31,16 @@ struct A314_IORequest *read_ior;
 struct A314_IORequest *sync_ior;
 struct timerequest *tr;
 
-struct Library *A314Base;
-
 ULONG socket;
 
 UBYTE arbuf[256];
 
 BOOL pending_a314_read = FALSE;
 BOOL stream_closed = FALSE;
+
+// length, rows, cols, components_count, args_count, args...
+static const char start_msg_const[] = "\x00\x00" "\x00\x19" "\x00\x50" "\x00" "\x02" "\x04" "date" "\x05" "+%s%z";
+#define START_MSG_LEN (sizeof(start_msg_const) - 1)
 
 void start_a314_cmd(struct MsgPort *reply_port, struct A314_IORequest *ior, UWORD cmd, char *buffer, int length)
 {
@@ -182,29 +184,17 @@ int main(int argc, char **argv)
 
 	memcpy(read_ior, sync_ior, sizeof(struct A314_IORequest));
 
-	A314Base = &(sync_ior->a314_Request.io_Device->dd_Library);
-
-	// rows, cols, components_count, args_count, args...
-	char start_msg[] = "\x00\x19" "\x00\x50" "\x00" "\x02" "\x04" "date" "\x05" "+%s%z";
-	int start_msg_len = sizeof(start_msg) - 1;
-
-	ULONG buffer_address = AllocMemA314(start_msg_len);
-	if (buffer_address == INVALID_A314_ADDRESS)
-	{
-		printf("Unable to allocate enough shared A314 memory\n");
-		goto fail3;
-	}
-
 	if (a314_connect(PICMD_SERVICE_NAME) != A314_CONNECT_OK)
 	{
 		printf("Unable to connect to " PICMD_SERVICE_NAME " service\n");
-		goto fail4;
+		goto fail3;
 	}
 
-	WriteMemA314(buffer_address, start_msg, start_msg_len);
+	char start_msg[START_MSG_LEN];
+	memcpy(start_msg + 2, start_msg_const + 2, START_MSG_LEN - 2);
+	*(UWORD *)start_msg = START_MSG_LEN;
 
-	ULONG buf_desc[2] = {buffer_address, start_msg_len};
-	a314_write((char *)buf_desc, sizeof(buf_desc));
+	a314_write(start_msg, START_MSG_LEN);
 
 	start_a314_read();
 
@@ -231,9 +221,6 @@ int main(int argc, char **argv)
 		if (stream_closed && !pending_a314_read)
 			break;
 	}
-
-fail4:
-	FreeMemA314(buffer_address, start_msg_len);
 
 fail3:
 	CloseDevice((struct IORequest *)sync_ior);
