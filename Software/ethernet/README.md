@@ -57,3 +57,18 @@ Autostarting Miami and further configuration is left to the user.
 ## Important note:
 
 After `ethernet.py` starts it waits for 15 seconds before it starts forwarding Ethernet frames. Without this waiting there is something that doesn't work properly (I don't know why this is). So when the Amiga boots for the first time after power off you'll have to wait up to 15 seconds before the Amiga can reach the Internet.
+
+## Networking Tips and Tricks
+
+### Accessing services on your Amiga from other computers on the network
+
+The above described configuration uses a method called masquerading to create a separate network for your Amiga behind the Pi. While this has the advantage of shielding it from attacks from other computers, sometimes you may want to be able to access network services on your Amiga from other computers besides the Pi.
+
+To facilitate that access, the firewall on the Pi needs to be configured to forward incoming traffic on specific ports on the external interface to the Amiga. The example below assumes that the Pi and Amiga have both been setup as described earlier in this document.
+
+```
+iptables -A PREROUTING -t nat -i wlan0 -p tcp --dport 21 -j DNAT --to 192.168.2.2:21
+iptables -A FORWARD -p tcp -d 192.168.2.2 --dport 21 -j ACCEPT
+```
+
+By adding these lines to `/etc/rc.local` directly following the other /iptables/ lines, the Pi firewall will start accepting connections to port 21 (FTP) and forwarding them to port 21 on the Amiga allowing an FTP client to connect to an FTP server running on the Amiga.
