@@ -9,10 +9,11 @@ This SANA-II driver works by copying Ethernet frames back and forth between the 
 - Update `/etc/opt/a314/a314d.conf` with a line that starts `ethernet.py` on demand.
   - In order for `a314d` to pick up the changes in `a314d.conf` you'll have to restart `a314d`, either by `sudo systemctl restart a314d` or by rebooting the Pi.
 - Copy `pi-config/tap0` to `/etc/network/interfaces.d/tap0`. This file creates a tap device with ip address 192.168.2.1 when the Raspberry Pi is booted up.
+- Enable ip forwarding by uncommenting the line in `/etc/sysctl.conf` that says `net.ipv4.ip_forward=1`.
 - Add the lines in `pi-config/rc.local` to the bottom of `/etc/rc.local` just before `exit 0`. This create iptables rules that forwards packets from the `tap0` interface to the `wlan0` interface.
   - Please note that if the Pi is connected using wired ethernet then `wlan0` should be changed to `eth0`.
 
-The first four steps are performed by `sudo make install`. The last step you have to do manually.
+The first four steps are performed by `sudo make install`. The last steps you have to do manually.
 
 ## Configuring the Amiga
 
