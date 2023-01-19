@@ -23,6 +23,7 @@ install:
 	cp a314d/a314d.py /opt/a314
 	cp a314fs/a314fs.py /opt/a314
 	cp picmd/picmd.py /opt/a314
+	cp piaudio/piaudio.py /opt/a314
 	cp remote-mouse/remote-mouse.py /opt/a314
 	cp hid/hid.py /opt/a314
 	cp ethernet/ethernet.py /opt/a314
