@@ -40,6 +40,7 @@ struct A314_IORequest *write_a314_req = NULL;
 struct Library *A314Base;
 
 char *audio_buffers[4] = { NULL, NULL, NULL, NULL };
+ULONG a314_buffers[2] = { INVALID_A314_ADDRESS, INVALID_A314_ADDRESS };
 
 struct IOAudio *sync_audio_req = NULL;
 struct IOAudio *async_audio_req[4] = { NULL, NULL, NULL, NULL };
@@ -50,6 +51,7 @@ BOOL a314_device_open = FALSE;
 BOOL audio_device_open = FALSE;
 BOOL stream_open = FALSE;
 BOOL pending_a314_write = FALSE;
+BOOL has_a314_chip_memory = FALSE;
 
 ULONG socket;
 int back_index = 0;
@@ -161,11 +163,37 @@ int main()
 	memcpy(write_a314_req, sync_a314_req, sizeof(struct A314_IORequest));
 
 	audio_buffers[0] = AllocMem(SAMPLES * 2, MEMF_A314 | MEMF_CHIP | MEMF_CLEAR);
-	audio_buffers[2] = AllocMem(SAMPLES * 2, MEMF_A314 | MEMF_CHIP | MEMF_CLEAR);
-	if (!audio_buffers[0] || !audio_buffers[2])
+	if (audio_buffers[0])
 	{
-		printf("Unable to allocate audio buffers in A314 chip memory\n");
-		goto cleanup;
+		audio_buffers[2] = AllocMem(SAMPLES * 2, MEMF_A314 | MEMF_CHIP | MEMF_CLEAR);
+		if (!audio_buffers[2])
+		{
+			printf("Unable to allocate audio buffers in A314 chip memory\n");
+			goto cleanup;
+		}
+		has_a314_chip_memory = TRUE;
+	}
+	else
+	{
+		audio_buffers[0] = AllocMem(SAMPLES * 2, MEMF_CHIP | MEMF_CLEAR);
+		audio_buffers[2] = AllocMem(SAMPLES * 2, MEMF_CHIP | MEMF_CLEAR);
+		if (!audio_buffers[0] || !audio_buffers[2])
+		{
+			printf("Unable to allocate audio buffers in chip memory\n");
+			goto cleanup;
+		}
+
+		a314_buffers[0] = AllocMemA314(SAMPLES * 2);
+		a314_buffers[1] = AllocMemA314(SAMPLES * 2);
+		if (a314_buffers[0] == INVALID_A314_ADDRESS ||
+			a314_buffers[1] == INVALID_A314_ADDRESS)
+		{
+			printf("Unable to allocate buffers in A314 memory\n");
+			goto cleanup;
+		}
+
+		WriteMemA314(a314_buffers[0], audio_buffers[0], SAMPLES * 2);
+		WriteMemA314(a314_buffers[1], audio_buffers[2], SAMPLES * 2);
 	}
 
 	audio_buffers[1] = audio_buffers[0] + SAMPLES;
@@ -221,8 +249,17 @@ int main()
 	stream_open = TRUE;
 
 	ULONG *buf_ptrs = (ULONG *)awbuf;
-	buf_ptrs[0] = TranslateAddressA314(audio_buffers[0]);
-	buf_ptrs[1] = TranslateAddressA314(audio_buffers[2]);
+	if (has_a314_chip_memory)
+	{
+		buf_ptrs[0] = TranslateAddressA314(audio_buffers[0]);
+		buf_ptrs[1] = TranslateAddressA314(audio_buffers[2]);
+	}
+	else
+	{
+		buf_ptrs[0] = a314_buffers[0];
+		buf_ptrs[1] = a314_buffers[1];
+	}
+
 	if (a314_write(awbuf, 8) != A314_WRITE_OK)
 	{
 		printf("Unable to write buffer pointers\n");
@@ -253,6 +290,13 @@ int main()
 		if (pending_audio_reqs <= 2)
 		{
 			back_index ^= 2;
+
+			if (!has_a314_chip_memory)
+			{
+				char *dst = audio_buffers[back_index];
+				ULONG address = a314_buffers[back_index >> 1];
+				ReadMemA314(dst, address, SAMPLES * 2);
+			}
 
 			submit_async_audio_req(back_index + LEFT);
 			submit_async_audio_req(back_index + RIGHT);
@@ -298,6 +342,10 @@ cleanup:
 			FreeMem(async_audio_req[i], sizeof(struct IOAudio));
 	if (sync_audio_req)
 		DeleteExtIO((struct IORequest *)sync_audio_req);
+	if (a314_buffers[1] != INVALID_A314_ADDRESS)
+		FreeMemA314(a314_buffers[1], SAMPLES * 2);
+	if (a314_buffers[0] != INVALID_A314_ADDRESS)
+		FreeMemA314(a314_buffers[0], SAMPLES * 2);
 	if (audio_buffers[2])
 		FreeMem(audio_buffers[2], SAMPLES * 2);
 	if (audio_buffers[0])
