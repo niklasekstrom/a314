@@ -126,7 +126,7 @@ void submit_async_audio_req(int index)
 
 int main()
 {
-	SetTaskPri(FindTask(NULL), 50);
+	LONG old_priority = SetTaskPri(FindTask(NULL), 50);
 
 	sync_mp = CreatePort(NULL, 0);
 	if (!sync_mp)
@@ -360,6 +360,7 @@ cleanup:
 		DeletePort(async_mp);
 	if (sync_mp)
 		DeletePort(sync_mp);
+	SetTaskPri(FindTask(NULL), old_priority);
 
 	return 0;
 }
