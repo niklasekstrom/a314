@@ -5,6 +5,8 @@
 #include <proto/exec.h>
 #include <proto/graphics.h>
 
+#include <string.h>
+
 #include "a314.h"
 #include "fix_mem_region.h"
 #include "cmem.h"
@@ -292,12 +294,12 @@ BOOL fix_memory(struct A314Device *dev)
 	return TRUE;
 }
 
-ULONG translate_address_a314(__reg("a6") struct A314Device *dev, __reg("a0") void *address)
+static ULONG cpu_to_a314_address(__reg("a6") struct A314Device *dev, __reg("a0") void *address)
 {
 	if (dev->is_a600)
 	{
 		ULONG offset = (ULONG)address;
-		return offset < TWO_MB ? offset : -1;
+		return offset < TWO_MB ? offset : INVALID_A314_ADDRESS;
 	}
 
 	if (dev->bank_address[0] != -1)
@@ -314,5 +316,43 @@ ULONG translate_address_a314(__reg("a6") struct A314Device *dev, __reg("a0") voi
 			return HALF_MB + offset;
 	}
 
-	return -1;
+	return INVALID_A314_ADDRESS;
+}
+
+static void *a314_to_cpu_address(__reg("a6") struct A314Device *dev, __reg("d0") ULONG address)
+{
+	ULONG bank = address >> 19;
+	ULONG offset = address & ((1 << 19) - 1);
+	return (void *)(dev->bank_address[bank] + offset);
+}
+
+ULONG a314base_translate_address(__reg("a6") struct A314Device *dev, __reg("a0") void *address)
+{
+	return cpu_to_a314_address(dev, address);
+}
+
+ULONG a314base_alloc_mem(__reg("a6") struct A314Device *dev, __reg("d0") ULONG length)
+{
+	void *p = AllocMem(length, MEMF_A314);
+	if (!p)
+		return INVALID_A314_ADDRESS;
+	return cpu_to_a314_address(dev, p);
+}
+
+void a314base_free_mem(__reg("a6") struct A314Device *dev, __reg("d0") ULONG address, __reg("d1") ULONG length)
+{
+	void *p = a314_to_cpu_address(dev, address);
+	FreeMem(p, length);
+}
+
+void a314base_write_mem(__reg("a6") struct A314Device *dev, __reg("d0") ULONG address, __reg("a0") UBYTE *src, __reg("d1") ULONG length)
+{
+	UBYTE *dst = a314_to_cpu_address(dev, address);
+	memcpy(dst, src, length);
+}
+
+void a314base_read_mem(__reg("a6") struct A314Device *dev, __reg("a0") UBYTE *dst, __reg("d0") ULONG address, __reg("d1") ULONG length)
+{
+	UBYTE *src = a314_to_cpu_address(dev, address);
+	memcpy(dst, src, length);
 }

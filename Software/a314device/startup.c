@@ -127,7 +127,7 @@ BOOL task_start(struct A314Device *dev)
 	write_cmem_safe(A_ENABLE_ADDRESS, 0);
 	read_cmem_safe(A_EVENTS_ADDRESS);
 
-	write_base_address(translate_address_a314(dev, dev->ca));
+	write_base_address(a314base_translate_address(dev, dev->ca));
 
 	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
 
