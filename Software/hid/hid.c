@@ -139,7 +139,12 @@ static void write_input_event()
 	struct EventMessage *em = (struct EventMessage *)arbuf;
 
 	UWORD qualifier = em->qualifier;
-	if (qualifier & IEQUALIFIER_RELATIVEMOUSE)
+	if (qualifier & IEQUALIFIER_INTERRUPT)
+	{
+		generated_event.ie_Class = IECLASS_RAWKEY;
+		qualifier = (qualifier & 0x7000) | (last_qualifier & 0x00ff);
+	}
+	else if (qualifier & IEQUALIFIER_RELATIVEMOUSE)
 	{
 		generated_event.ie_Class = IECLASS_RAWMOUSE;
 		qualifier |= last_qualifier & 0x00ff; // Last keyboard qualifiers.

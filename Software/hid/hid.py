@@ -37,6 +37,7 @@ EV_MSC = 0x04
 
 REL_X = 0x00
 REL_Y = 0x01
+REL_WHEEL_HI_RES = 0x0b
 
 MSC_SERIAL = 0x00
 MSC_PULSELED = 0x01
@@ -204,6 +205,9 @@ IECODE_LBUTTON = 0x68
 IECODE_RBUTTON = 0x69
 IECODE_MBUTTON = 0x6A
 IECODE_NOBUTTON = 0xFF
+
+NM_WHEEL_UP = 0x7a
+NM_WHEEL_DOWN = 0x7b
 
 MOUSE_CODE_QUAL = {
     BTN_LEFT: (IECODE_LBUTTON, IEQUALIFIER_LEFTBUTTON),
@@ -523,6 +527,14 @@ class HidService(object):
                     elif value == 2:
                         extra_qualifier |= IEQUALIFIER_REPEAT
         elif typ == EV_REL:
+            if code == REL_WHEEL_HI_RES:
+                # Bewarned: The IEQUALIFIER_INTERRUPT qualifier bit
+                # is repurposed to signal a scroll wheel event.
+                # The Amiga side will fix up the qualifier bits.
+                iecode = NM_WHEEL_UP if value > 0 else NM_WHEEL_DOWN
+                self.a314d.send_data(self.current_stream_id, struct.pack('>hhHB', 0, 0, dev.qualifier | IEQUALIFIER_INTERRUPT, iecode))
+                return
+
             dx: int = 0
             dy: int = 0
             if code == REL_X:
