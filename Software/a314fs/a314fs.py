@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 CONFIG_FILE_PATH = '/etc/opt/a314/a314fs.conf'
-
-SHARED_DIRECTORY = '/home/pi/a314shared'
 METAFILE_EXTENSION = ':a314'
 
 with open(CONFIG_FILE_PATH, encoding='utf-8') as f:

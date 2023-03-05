@@ -1,8 +1,38 @@
 .PHONY: bin_dir all
 
+ifndef VERBOSE
+.SILENT:
+endif
+
+A314_SERVICES        = a314d/a314d.py \
+                       a314fs/a314fs.py \
+                       picmd/picmd.py \
+                       piaudio/piaudio.py \
+                       remote-mouse/remote-mouse.py \
+                       hid/hid.py \
+                       ethernet/ethernet.py \
+                       disk/disk.py
+
+A314_SERVICE_CONFIGS = a314fs/a314fs.conf \
+                       picmd/picmd.conf \
+                       disk/disk.conf
+
+A314_PI_BINARIES     = ${BIN}/a314d \
+                       ${BIN}/start_gpclk
+
+
 CPP=g++
 CC=gcc
 BIN=bin_pi
+
+# Figure out the primary group and home directory of the user who used sudo
+SUDO_GROUP=$(shell getent group ${SUDO_GID} | cut -d: -f1)
+SUDO_HOME=$(shell awk -F':' -v U=${SUDO_USER} '$$1==U {print $$6}' /etc/passwd)
+
+# Replace some magic strings in files while installing to work with any username
+define modinstall
+	sed -e s%##USER##%${SUDO_USER}%g -e s%##GROUP##%${SUDO_GROUP}%g -e s%##HOME##%${SUDO_HOME}%g $(1) >$(2)/$(shell basename $(1))
+endef
 
 all: bin_dir ${BIN}/a314d ${BIN}/start_gpclk
 
@@ -10,30 +40,28 @@ bin_dir:
 	mkdir -p ${BIN}
 
 ${BIN}/a314d: a314d/a314d.cc
+	@echo "Building $@"
 	${CPP} a314d/a314d.cc -O3 -o ${BIN}/a314d
 
 ${BIN}/start_gpclk: a314d/start_gpclk.c
+	@echo "Building $@"
 	${CC} a314d/start_gpclk.c -I/opt/vc/include -L/opt/vc/lib -lbcm_host -o ${BIN}/start_gpclk
 
 install:
-	su -c "mkdir -p /home/pi/a314shared" pi
-	mkdir -p /opt/a314
-	cp ${BIN}/a314d /opt/a314
-	cp ${BIN}/start_gpclk /opt/a314
-	cp a314d/a314d.py /opt/a314
-	cp a314fs/a314fs.py /opt/a314
-	cp picmd/picmd.py /opt/a314
-	cp piaudio/piaudio.py /opt/a314
-	cp remote-mouse/remote-mouse.py /opt/a314
-	cp hid/hid.py /opt/a314
-	cp ethernet/ethernet.py /opt/a314
-	cp disk/disk.py /opt/a314
-	mkdir -p /etc/opt/a314
-	cp a314d/a314d.conf /etc/opt/a314
-	cp a314fs/a314fs.conf /etc/opt/a314
-	cp picmd/picmd.conf /etc/opt/a314
-	cp disk/disk.conf /etc/opt/a314
+ifneq ($(shell id -u), 0)
+	@echo "Please run the install using sudo"
+	@exit 1
+endif
+	@echo "Installing A314 files..."
+	install -d ${SUDO_HOME}/a314shared -o ${SUDO_USER} -g ${SUDO_GROUP}
+	install -d /opt/a314
+	install -d /etc/opt/a314
+	install ${A314_SERVICES} /opt/a314
+	install ${A314_PI_BINARIES} /opt/a314
+	install a314d/a314d.conf /etc/opt/a314
+	$(foreach filename, $(A314_SERVICE_CONFIGS), $(call modinstall, $(filename), /etc/opt/a314/);)
 	pip3 install pyudev
 	pip3 install python-pytun
-	cp ethernet/pi-config/tap0 /etc/network/interfaces.d
-	cp a314d/a314d.service /lib/systemd/system
+	install ethernet/pi-config/tap0 /etc/network/interfaces.d
+	$(call modinstall, a314d/a314d.service, /lib/systemd/system)
+	@echo "Installation completed!"

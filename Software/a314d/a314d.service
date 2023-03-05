@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
+User=##USER##
+Group=##GROUP##
 ExecStartPre=+/opt/a314/start_gpclk
 ExecStart=/opt/a314/a314d
 
