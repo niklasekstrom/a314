@@ -54,10 +54,6 @@ Click **Online** and hopefully your Amiga now has internet access.
 
 Autostarting Miami and further configuration is left to the user.
 
-## Important note:
-
-After `ethernet.py` starts it waits for 15 seconds before it starts forwarding Ethernet frames. Without this waiting there is something that doesn't work properly (I don't know why this is). So when the Amiga boots for the first time after power off you'll have to wait up to 15 seconds before the Amiga can reach the Internet.
-
 ## Networking Tips and Tricks
 
 ### Accessing services on your Amiga from other computers on the network

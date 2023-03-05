@@ -6,8 +6,6 @@ Software needs to be built and installed for both the Raspberry Pi side and the 
 
 ### Raspberry Pi
 
-First, note that there are several places where the Linux user is assumed to be named `pi`. Changing this is possible, but multiple files need to be edited.
-
 To build and install on the Pi side, do the following:
 
 - Install Raspberry Pi OS (I tend to use Raspberry Pi OS Lite 64-bit): https://www.raspberrypi.com/software/operating-systems/
