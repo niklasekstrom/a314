@@ -6,5 +6,7 @@ HDL/.qsys_edit/
 HDL/*.bak
 HDL/*.qws
 HDL/*.rpt
-Software/bin
+Software/pi_bin
+Software/amiga_bin
+Software/installer
 Software/**/.vscode
