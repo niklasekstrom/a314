@@ -11,6 +11,7 @@
 #include "fix_mem_region.h"
 #include "cmem.h"
 #include "device.h"
+#include "pi_if.h"
 
 #define SysBase (*(struct ExecBase **)4)
 

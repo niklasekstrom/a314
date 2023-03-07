@@ -8,33 +8,49 @@
 #include <exec/interrupts.h>
 #include <libraries/dos.h>
 
+#include "protocol.h"
+
 struct A314Device
 {
-    struct Library lib;
+	struct Library lib;
 
-    BPTR saved_seg_list;
-    BOOL running;
+	BPTR saved_seg_list;
+	BOOL running;
 
-    ULONG bank_address[4];
-    UWORD is_a600;
+#if defined(MODEL_TD)
+	ULONG bank_address[4];
+	UWORD is_a600;
 
-    ULONG fw_flags;
+	ULONG fw_flags;
 
-    struct ComArea *ca;
+	struct ComArea *ca;
 
-    struct Task task;
-    struct MsgPort task_mp;
+	struct Interrupt vertb_interrupt;
+	struct Interrupt ports_interrupt;
+#elif defined(MODEL_CP)
+	struct ComAreaPtrs cap;
 
-    struct Interrupt vertb_interrupt;
-    struct Interrupt ports_interrupt;
+	void *first_chunk;
 
-    struct List active_sockets;
+	struct Interrupt exter_interrupt;
+#endif
 
-    struct Socket *send_queue_head;
-    struct Socket *send_queue_tail;
+	struct Task task;
+	struct MsgPort task_mp;
 
-    UBYTE next_stream_id;
+	struct List active_sockets;
+
+	struct Socket *send_queue_head;
+	struct Socket *send_queue_tail;
+
+	UBYTE next_stream_id;
 };
+
+#if defined(MODEL_TD)
+#define CAP_PTR(dev) (&(dev->ca->cap))
+#elif defined(MODEL_CP)
+#define CAP_PTR(dev) (&(dev->cap))
+#endif
 
 extern char device_name[];
 extern char id_string[];

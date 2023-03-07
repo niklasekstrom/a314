@@ -1,6 +1,7 @@
 #include <proto/exec.h>
 
 #include "sockets.h"
+#include "debug.h"
 
 #define SysBase (*(struct ExecBase **)4)
 
@@ -16,6 +17,8 @@ void init_sockets(struct A314Device *dev)
 
 struct Socket *find_socket(struct A314Device *dev, void *sig_task, ULONG socket)
 {
+	dbg_trace("Enter: find_socket, socket=$l", socket);
+
 	for (struct Node *node = dev->active_sockets.lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
 	{
 		struct Socket *s = (struct Socket *)node;
@@ -27,6 +30,8 @@ struct Socket *find_socket(struct A314Device *dev, void *sig_task, ULONG socket)
 
 struct Socket *find_socket_by_stream_id(struct A314Device *dev, UBYTE stream_id)
 {
+	dbg_trace("Enter: find_socket_by_stream_id, stream_id=$b", stream_id);
+
 	for (struct Node *node = dev->active_sockets.lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
 	{
 		struct Socket *s = (struct Socket *)node;
@@ -38,25 +43,36 @@ struct Socket *find_socket_by_stream_id(struct A314Device *dev, UBYTE stream_id)
 
 static UBYTE allocate_stream_id(struct A314Device *dev)
 {
-	// Bug: If all stream ids are allocated then this loop won't terminate.
+	dbg_trace("Enter: allocate_stream_id");
 
-	while (1)
+	for (int i = 0; i < 256; i++)
 	{
 		UBYTE stream_id = dev->next_stream_id;
 		dev->next_stream_id += 2;
 		if (find_socket_by_stream_id(dev, stream_id) == NULL)
+		{
+			dbg_trace("Leave: allocate_stream_id, stream_id=$b", stream_id);
 			return stream_id;
+		}
 	}
+
+	// BUG: What to do here? This is quite bad.
+	// Need to propagate this error condition to the calling application.
+	dbg_error("There were no free stream ids, and there is no code to handle this case");
+	return dev->next_stream_id;
 }
 
 static void free_stream_id(struct A314Device *dev, UBYTE stream_id)
 {
+	dbg_trace("Enter: free_stream_id, stream_id=$b", stream_id);
 	// Currently do nothing.
 	// Could speed up allocate_stream_id using a bitmap?
 }
 
 struct Socket *create_socket(struct A314Device *dev, struct Task *task, ULONG id)
 {
+	dbg_trace("Enter: create_socket, socket_id=$l", id);
+
 	struct Socket *s = (struct Socket *)AllocMem(sizeof(struct Socket), MEMF_CLEAR);
 	s->sig_task = task;
 	s->socket = id;
@@ -67,6 +83,8 @@ struct Socket *create_socket(struct A314Device *dev, struct Task *task, ULONG id
 
 void delete_socket(struct A314Device *dev, struct Socket *s)
 {
+	dbg_trace("Enter: delete_socket, socket_id=$l", s->socket);
+
 	Remove((struct Node *)s);
 	free_stream_id(dev, s->stream_id);
 	FreeMem(s, sizeof(struct Socket));
@@ -74,6 +92,8 @@ void delete_socket(struct A314Device *dev, struct Socket *s)
 
 void add_to_send_queue(struct A314Device *dev, struct Socket *s, UWORD required_length)
 {
+	dbg_trace("Enter: add_to_send_queue, socket_id=$l, required_length=$w", s->socket, required_length);
+
 	s->send_queue_required_length = required_length;
 	s->next_in_send_queue = NULL;
 
@@ -88,6 +108,8 @@ void add_to_send_queue(struct A314Device *dev, struct Socket *s, UWORD required_
 
 void remove_from_send_queue(struct A314Device *dev, struct Socket *s)
 {
+	dbg_trace("Enter: remove_from_send_queue, socket_id=$l", s->socket);
+
 	if (s->flags & SOCKET_IN_SEND_QUEUE)
 	{
 		if (dev->send_queue_head == s)

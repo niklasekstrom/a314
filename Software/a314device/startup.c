@@ -1,7 +1,6 @@
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <exec/tasks.h>
-#include <hardware/intbits.h>
 
 #include <proto/exec.h>
 
@@ -11,9 +10,8 @@
 #include "device.h"
 #include "protocol.h"
 #include "startup.h"
-#include "fix_mem_region.h"
-#include "cmem.h"
 #include "debug.h"
+#include "pi_if.h"
 
 #define SysBase (*(struct ExecBase **)4)
 
@@ -22,7 +20,6 @@
 
 extern void task_main();
 extern void init_sockets(struct A314Device *dev);
-extern void IntServer();
 
 void NewList(struct List *l)
 {
@@ -31,7 +28,7 @@ void NewList(struct List *l)
 	l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
-static BOOL create_task(struct A314Device *dev)
+static BOOL setup_task(struct A314Device *dev)
 {
 	char *stack = AllocMem(TASK_STACK_SIZE, MEMF_CLEAR);
 	if (stack == NULL)
@@ -47,7 +44,6 @@ static BOOL create_task(struct A314Device *dev)
 	task->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
 	task->tc_UserData = (void *)dev;
 
-	AddTask(task, (void *)task_main, 0);
 	return TRUE;
 }
 
@@ -64,76 +60,26 @@ static void init_message_port(struct A314Device *dev)
 	NewList(&(mp->mp_MsgList));
 }
 
-static void add_interrupt_handlers(struct A314Device *dev)
-{
-	memset(&dev->vertb_interrupt, 0, sizeof(struct Interrupt));
-	dev->vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	dev->vertb_interrupt.is_Node.ln_Pri = -60;
-	dev->vertb_interrupt.is_Node.ln_Name = device_name;
-	dev->vertb_interrupt.is_Data = (APTR)&dev->task;
-	dev->vertb_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_VERTB, &dev->vertb_interrupt);
-
-	memset(&dev->ports_interrupt, 0, sizeof(struct Interrupt));
-	dev->ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	dev->ports_interrupt.is_Node.ln_Pri = 0;
-	dev->ports_interrupt.is_Node.ln_Name = device_name;
-	dev->ports_interrupt.is_Data = (APTR)&dev->task;
-	dev->ports_interrupt.is_Code = IntServer;
-
-	AddIntServer(INTB_PORTS, &dev->ports_interrupt);
-}
-
-static void detect_and_write_address_swap()
-{
-	// Only looking at VPOSR Agnus identification at this point.
-	// Could add more dynamic identification of address mapping.
-
-	UWORD vposr = *(UWORD *)0xdff004;
-	UWORD agnus = (vposr & 0x7f00) >> 8;
-
-	UBYTE swap = (agnus == 0x00 || agnus == 0x10) ? 0x1 : 0x0;
-
-	write_cmem_safe(CMEM_CFG_ADDRESS, swap);
-}
-
 BOOL task_start(struct A314Device *dev)
 {
-	dev->fw_flags = read_fw_flags();
-
-	if (!fix_memory(dev))
-		return FALSE;
-
-	detect_and_write_address_swap();
-
-	dev->ca = (struct ComArea *)AllocMem(sizeof(struct ComArea), MEMF_A314 | MEMF_CLEAR);
-	if (dev->ca == NULL)
+	if (!setup_task(dev))
 	{
-		debug_printf("Unable to allocate A314 memory for com area\n");
+		dbg_error("Unable to create task stack\n");
 		return FALSE;
 	}
 
-	if (!create_task(dev))
+	if (!probe_pi_interface(dev))
 	{
-		debug_printf("Unable to create task stack\n");
-		FreeMem(dev->ca, sizeof(struct ComArea));
+		FreeMem(dev->task.tc_SPLower, TASK_STACK_SIZE);
 		return FALSE;
 	}
 
 	init_message_port(dev);
 	init_sockets(dev);
 
-	write_cmem_safe(A_ENABLE_ADDRESS, 0);
-	read_cmem_safe(A_EVENTS_ADDRESS);
+	setup_pi_interface(dev);
 
-	write_base_address(a314base_translate_address(dev, dev->ca));
-
-	write_cmem_safe(R_EVENTS_ADDRESS, R_EVENT_BASE_ADDRESS);
-
-	add_interrupt_handlers(dev);
-
-	write_cmem_safe(A_ENABLE_ADDRESS, A_EVENT_R2A_TAIL);
+	AddTask(&dev->task, (void *)task_main, 0);
 
 	return TRUE;
 }
