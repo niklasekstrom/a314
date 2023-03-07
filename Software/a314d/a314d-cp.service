@@ -1,0 +1,13 @@
+[Unit]
+Description=A314 Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+ExecStartPre=+/opt/a314/start_gpclk
+ExecStart=/opt/a314/a314d
+
+[Install]
+WantedBy=multi-user.target
