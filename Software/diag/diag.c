@@ -82,7 +82,7 @@ void print_usage()
 
 int main(int argc, char **argv)
 {
-	printf("Diagnostics for A314\n");
+	printf("Diagnostics for A314-td\n");
 	if (argc == 1)
 	{
 		print_usage();

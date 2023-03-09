@@ -1,1 +1,1 @@
-vc videoplayer.c vblank_server.asm -lamiga -o videoplayer
+vc videoplayer.c vblank_server.asm -lamiga -o VideoPlayer

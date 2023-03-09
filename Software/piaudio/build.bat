@@ -1,1 +1,1 @@
-vc piaudio.c -lamiga -o piaudio
+vc piaudio.c -lamiga -o PiAudio

@@ -1,0 +1,58 @@
+.PHONY: bin_dir all
+
+VC=vc
+BIN=bin_amiga
+
+all: bin_dir ${BIN}/Devs/a314-td.device ${BIN}/Devs/a314-cp.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/PiAudio ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device ${BIN}/C/RemoteWB ${BIN}/C/VideoPlayer ${BIN}/C/DiagA314td
+
+bin_dir:
+	mkdir -p ${BIN}
+	mkdir -p ${BIN}/Devs
+	mkdir -p ${BIN}/L
+	mkdir -p ${BIN}/C
+
+${BIN}/Devs/a314-td.device: a314device/a314.h a314device/check_a314_mapping.asm a314device/cmem.c a314device/cmem.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/fix_mem_region.c a314device/fix_mem_region.h a314device/int_server_td.asm a314device/pi_if_td.c a314device/pi_if.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
+	${VC} -DMODEL_TD=1 a314device/romtag.asm a314device/driver_task.c a314device/debug.c a314device/device.c a314device/startup.c a314device/sockets.c a314device/pi_if_td.c a314device/int_server_td.asm a314device/fix_mem_region.c a314device/cmem.c a314device/check_a314_mapping.asm -O3 -nostdlib -o ${BIN}/Devs/a314-td.device
+
+${BIN}/Devs/a314-cp.device: a314device/a314.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/int_server_cp.asm a314device/memory_allocator.c a314device/memory_allocator.h a314device/pi_if_cp.c a314device/pi_if.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
+	${VC} -DMODEL_CP=1 a314device/romtag.asm a314device/driver_task.c a314device/debug.c a314device/device.c a314device/startup.c a314device/sockets.c a314device/pi_if_cp.c a314device/int_server_cp.asm a314device/memory_allocator.c -O3 -nostdlib -o ${BIN}/Devs/a314-cp.device
+
+${BIN}/L/a314fs: a314device/a314.h a314device/proto_a314.h a314fs/messages.h a314fs/a314fs.c a314fs/bcpl_start.asm a314fs/bcpl_end.asm
+	${VC} a314fs/a314fs.c -S -o ${BIN}/L/a314fs.asm
+	sed -i 's/section/;section/g' ${BIN}/L/a314fs.asm
+	${VC} a314fs/bcpl_start.asm ${BIN}/L/a314fs.asm a314fs/bcpl_end.asm -nostdlib -o ${BIN}/L/a314fs
+	dd if=${BIN}/L/a314fs bs=1 skip=28 count=4 of=${BIN}/L/a314fs seek=32 conv=notrunc
+	rm ${BIN}/L/a314fs.asm
+
+${BIN}/Devs/MountList: a314fs/a314fs-mountlist disk/Mountlist
+	cat a314fs/a314fs-mountlist disk/Mountlist > ${BIN}/Devs/MountList
+
+${BIN}/C/Pi: a314device/a314.h picmd/pi.c
+	${VC} picmd/pi.c -lamiga -o ${BIN}/C/Pi
+
+${BIN}/C/PiSetClock: a314device/a314.h picmd/pisetclock.c
+	${VC} picmd/pisetclock.c -lamiga -o ${BIN}/C/PiSetClock
+
+${BIN}/C/PiAudio: a314device/a314.h a314device/proto_a314.h piaudio/piaudio.c
+	${VC} piaudio/piaudio.c -lamiga -o ${BIN}/C/PiAudio
+
+${BIN}/C/RemoteMouse: a314device/a314.h remote-mouse/remote-mouse.c
+	${VC} remote-mouse/remote-mouse.c -lamiga -o ${BIN}/C/RemoteMouse
+
+${BIN}/C/PiHid: a314device/a314.h hid/hid.c
+	${VC} hid/hid.c -lamiga -o ${BIN}/C/PiHid
+
+${BIN}/Devs/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c ethernet/sana2.h ethernet/tagitem.h
+	${VC} ethernet/romtag.asm ethernet/device.c -O3 -nostdlib -o ${BIN}/Devs/a314eth.device -lamiga
+
+${BIN}/Devs/a314disk.device: a314device/a314.h a314device/proto_a314.h disk/romtag.asm disk/device.c disk/debug.h disk/debug.c
+	${VC} disk/romtag.asm disk/device.c disk/debug.c -O3 -nostdlib -o ${BIN}/Devs/a314disk.device -lamiga
+
+${BIN}/C/RemoteWB: a314device/a314.h a314device/proto_a314.h remotewb/remotewb.c remotewb/vblank_server.asm
+	${VC} remotewb/remotewb.c remotewb/vblank_server.asm -lamiga -o ${BIN}/C/RemoteWB
+
+${BIN}/C/VideoPlayer: a314device/a314.h a314device/proto_a314.h videoplayer/videoplayer.c videoplayer/vblank_server.asm
+	${VC} videoplayer/videoplayer.c videoplayer/vblank_server.asm -lamiga -o ${BIN}/C/VideoPlayer
+
+${BIN}/C/DiagA314td: diag/diag.c
+	${VC} diag/diag.c -o ${BIN}/C/DiagA314td

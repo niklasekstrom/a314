@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
+User=##USER##
+Group=##GROUP##
 ExecStart=/opt/a314/a314d
 
 [Install]

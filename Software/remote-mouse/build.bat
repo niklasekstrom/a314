@@ -1,1 +1,1 @@
-vc remote-mouse.c -lamiga -o remote-mouse
+vc remote-mouse.c -lamiga -o RemoteMouse

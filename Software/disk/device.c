@@ -152,7 +152,7 @@ struct DiskDevice
 
     struct Library *a314_base;
 
-    char *track_buffer;
+    ULONG track_buffer_address;
 
     struct DriveState drive_states[UNIT_COUNT];
 
@@ -242,14 +242,14 @@ static void send_request_if_possible(struct DiskDevice *dev)
 
     case TD_FORMAT:
     case CMD_WRITE:
-        if (buf_address == -1)
-            memcpy(dev->track_buffer, ior->io_Data, ior->io_Length);
+        if (buf_address == INVALID_A314_ADDRESS)
+            WriteMemA314(dev->track_buffer_address, ior->io_Data, ior->io_Length);
         dev->req_msg.kind = MSG_WRITE_TRACK_REQ;
         break;
     }
 
-    if (buf_address == -1)
-        buf_address = TranslateAddressA314(dev->track_buffer);
+    if (buf_address == INVALID_A314_ADDRESS)
+        buf_address = dev->track_buffer_address;
 
     dev->req_msg.length = ior->io_Length;
     dev->req_msg.offset = ior->io_Offset;
@@ -315,8 +315,8 @@ static void handle_response_msg(struct DiskDevice *dev)
         {
         case OP_RES_OK:
             if (dev->res_msg.kind == MSG_READ_TRACK_RES &&
-                    TranslateAddressA314(dev->pending_operation->io_Data) == -1)
-                memcpy(dev->pending_operation->io_Data, dev->track_buffer, dev->pending_operation->io_Length);
+                    TranslateAddressA314(dev->pending_operation->io_Data) == INVALID_A314_ADDRESS)
+                ReadMemA314(dev->pending_operation->io_Data, dev->track_buffer_address, dev->pending_operation->io_Length);
             dev->pending_operation->io_Actual = dev->pending_operation->io_Length;
             break;
 
@@ -457,7 +457,7 @@ static void get_geometry(struct DriveState *ds, struct DriveGeometry *geom)
     geom->dg_CylSectors = ds->sectors_per_track * ds->heads;
     geom->dg_Heads = ds->heads;
     geom->dg_TrackSectors = ds->sectors_per_track;
-    geom->dg_BufMemType = MEMF_A314;
+    geom->dg_BufMemType = 0;
     geom->dg_DeviceType = DG_DIRECT_ACCESS;
     geom->dg_Flags = DGF_REMOVABLE;
 }
@@ -606,7 +606,7 @@ static ULONG env_vec_template[20] = {
     0,              // DE_LOWCYL
     79,             // DE_UPPERCYL
     2,              // DE_NUMBUFFERS
-    MEMF_A314,      // DE_BUFMEMTYPE
+    0,              // DE_BUFMEMTYPE
     TRACK_SIZE,     // DE_MAXTRANSFER
     0x7fffffff,     // DE_MASK
     BOOT_PRIORITY,  // DE_BOOTPRI
@@ -671,8 +671,8 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
     memcpy(&dev->write_ior, &dev->read_ior, sizeof(struct A314_IORequest));
     memcpy(&dev->reset_ior, &dev->read_ior, sizeof(struct A314_IORequest));
 
-    dev->track_buffer = AllocMem(TRACK_SIZE, MEMF_A314);
-    if (!dev->track_buffer)
+    dev->track_buffer_address = AllocMemA314(TRACK_SIZE);
+    if (dev->track_buffer_address == INVALID_A314_ADDRESS)
         goto fail2;
 
     for (int i = 0; i < UNIT_COUNT; i++)
@@ -713,7 +713,7 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
     return &dev->lib;
 
 fail3:
-    FreeMem(dev->track_buffer, TRACK_SIZE);
+    FreeMemA314(dev->track_buffer_address, TRACK_SIZE);
 
 fail2:
     CloseDevice(&dev->read_ior.a314_Request);

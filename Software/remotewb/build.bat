@@ -1,1 +1,1 @@
-vc remotewb.c vblank_server.asm -lamiga -o remotewb
+vc remotewb.c vblank_server.asm -lamiga -o RemoteWB

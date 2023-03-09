@@ -32,6 +32,9 @@
 #include "cmem.h"
 #endif
 
+// VBCC unnecessairly warns when a loop has a single iteration.
+#pragma dontwarn 208
+
 #define SysBase (*(struct ExecBase **)4)
 
 static int used_in_r2a(struct ComAreaPtrs *cap)

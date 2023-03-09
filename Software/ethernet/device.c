@@ -71,6 +71,7 @@ struct BufDesc
 {
 	struct MinNode bd_Node;
 	void *bd_Buffer;
+	ULONG bd_BufferAddress;
 	int bd_Length;
 };
 
@@ -193,6 +194,12 @@ static void do_a314_cmd(struct A314_IORequest *ior, UWORD cmd, char *buffer, int
 
 static void copy_from_bd_and_reply(struct IOSana2Req *ios2, struct BufDesc *bd)
 {
+	// TODO: Use S2_DMACopyToBuff32 instead of S2_CopyToBuff (if possible).
+	// This will avoid copying from A314 shared memory to shadow buffer
+	// before copying to stack's buffer.
+
+	ReadMemA314(bd->bd_Buffer, bd->bd_BufferAddress, bd->bd_Length);
+
 	struct EthHdr *eh = bd->bd_Buffer;
 
 	if (ios2->ios2_Req.io_Flags & SANA2IOF_RAW)
@@ -232,6 +239,10 @@ static void copy_from_bd_and_reply(struct IOSana2Req *ios2, struct BufDesc *bd)
 
 static void copy_to_bd_and_reply(struct BufDesc *bd, struct IOSana2Req *ios2)
 {
+	// TODO: Use S2_DMACopyFromBuff32 instead of S2_CopyFromBuff (if possible).
+	// This will avoid copying to shadow buffer before writing to
+	// A314 shared memory.
+
 	struct EthHdr *eh = bd->bd_Buffer;
 
 	if (ios2->ios2_Req.io_Flags & SANA2IOF_RAW)
@@ -247,6 +258,8 @@ static void copy_to_bd_and_reply(struct BufDesc *bd, struct IOSana2Req *ios2)
 		copyfrom(&eh[1], ios2->ios2_Data, ios2->ios2_DataLength);
 		bd->bd_Length = ios2->ios2_DataLength + sizeof(struct EthHdr);
 	}
+
+	WriteMemA314(bd->bd_BufferAddress, bd->bd_Buffer, bd->bd_Length);
 
 	ios2->ios2_Req.io_Error = 0;
 	ReplyMsg(&ios2->ios2_Req.io_Message);
@@ -325,11 +338,14 @@ static void complete_read_reqs()
 	while (node->ln_Succ)
 	{
 		struct BufDesc *bd = (struct BufDesc *)node;
-		struct EthHdr *eh = (struct EthHdr *)bd->bd_Buffer;
+
+		UWORD eh_type;
+		// Hardcoded offset (12) and size (2) of eh_Type in EthHdr.
+		ReadMemA314(&eh_type, bd->bd_BufferAddress + 12, 2);
 
 		node = node->ln_Succ;
 
-		struct IOSana2Req *ios2 = remove_matching_rbuf(eh->eh_Type);
+		struct IOSana2Req *ios2 = remove_matching_rbuf(eh_type);
 		if (ios2)
 		{
 			copy_from_bd_and_reply(ios2, bd);
@@ -390,7 +406,7 @@ static void maybe_write_req()
 		AddTail(&et_wbuf_pending_list, (struct Node *)bd);
 	}
 
-	a314_write_buf.sm_Address = TranslateAddressA314(bd->bd_Buffer);
+	a314_write_buf.sm_Address = bd->bd_BufferAddress;
 	a314_write_buf.sm_Length = bd->bd_Length;
 	a314_write_buf.sm_Kind = next_req_kind;
 
@@ -542,8 +558,12 @@ static void open(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req 
 	{
 		struct BufDesc *bd = &et_bufs[i];
 
-		bd->bd_Buffer = AllocMem(RAW_MTU, MEMF_A314);
+		bd->bd_Buffer = AllocMem(RAW_MTU, 0);
 		if (!bd->bd_Buffer)
+			goto error;
+
+		bd->bd_BufferAddress = AllocMemA314(RAW_MTU);
+		if (bd->bd_BufferAddress == INVALID_A314_ADDRESS)
 			goto error;
 
 		if (i < ET_RBUF_CNT)
@@ -570,8 +590,13 @@ static void open(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req 
 
 error:
 	for (int i = ET_BUF_CNT - 1; i >= 0; i--)
+	{
+		if (et_bufs[i].bd_BufferAddress)
+			FreeMemA314(et_bufs[i].bd_BufferAddress, RAW_MTU);
+
 		if (et_bufs[i].bd_Buffer)
 			FreeMem(et_bufs[i].bd_Buffer, RAW_MTU);
+	}
 
 	if (A314Base)
 	{
@@ -589,7 +614,10 @@ static BPTR close(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req
 	Wait(SIGF_SINGLE);
 
 	for (int i = ET_BUF_CNT - 1; i >= 0; i--)
+	{
+		FreeMemA314(et_bufs[i].bd_BufferAddress, RAW_MTU);
 		FreeMem(et_bufs[i].bd_Buffer, RAW_MTU);
+	}
 
 	CloseDevice((struct IORequest *)&write_ior);
 	A314Base = NULL;

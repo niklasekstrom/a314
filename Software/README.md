@@ -1,41 +1,40 @@
 # A314 Software
 
-**Please note** that these are the instructions for installing the A500/A600 versions of A314.
-
-If you have the clockport version of A314 then you should follow the instructions from the clockport branch: [https://github.com/niklasekstrom/a314/tree/clockport_if/Software](https://github.com/niklasekstrom/a314/tree/clockport_if/Software).
-
 ## How to install
 
-**Note** that there are additional instructions in the [wiki](https://github.com/niklasekstrom/a314/wiki/Installation-instructions) that you should also follow. These instructions are for building and installing the software in this repo, but there are additional steps that should be taken.
+Software needs to be built and installed for both the Raspberry Pi side and the Amiga side.
 
-On the Raspberry Pi do the following:
-- Install Raspbian: https://www.raspberrypi.org/downloads/raspbian/
-- Install Docker: ```curl -sSL https://get.docker.com | sh```
-- Allow user pi to run Docker: ```sudo usermod -aG docker pi```
-- Log out and then log back in again to make the previous command take effect
-- Install Dependencies: ```sudo apt install python3-dev python3-distutils python3-pip build-essential git```
-- Clone the a314 repo: ```git clone https://github.com/niklasekstrom/a314.git```
-- ```cd a314/Software```
-- Set the build script as executable: ```sudo chmod +x rpi_docker_build.sh```
-- Build software for both the Amiga and Pi: ```./rpi_docker_build.sh```
-- Install software for Pi: ```sudo make install```
-- Manually add the line `dtoverlay=spi-a314` to the end of `/boot/config.txt` (unless it's already added), and reboot
+### Raspberry Pi
+
+To build and install on the Pi side, do the following:
+
+- Install Raspberry Pi OS (I tend to use Raspberry Pi OS Lite 64-bit): https://www.raspberrypi.com/software/operating-systems/
+- Install Dependencies: `sudo apt install python3-dev python3-distutils python3-pip build-essential git`
+- Clone the a314 repo: `git clone https://github.com/niklasekstrom/a314.git`
+- `cd a314/Software`
+- Build binaries: `make -f Makefile-td` or `make -f Makefile-cp` depending on variant of A314
+- Install software: `sudo make -f Makefile-td install` or `sudo make -f Makefile-cp install`
 - Enable and start a314d:
-  - ```sudo systemctl daemon-reload```
-  - ```sudo systemctl enable a314d```
-  - ```sudo systemctl start a314d```
+  - `sudo systemctl daemon-reload`
+  - `sudo systemctl enable a314d`
+  - `sudo systemctl start a314d`
 
-In the a314/Software/bin directory there are a number of binaries that should be copied to the Amiga boot disk:
-- a314/Software/bin/a314.device to DEVS:
-- a314/Software/bin/a314fs to L:
-- a314/Software/a314fs/a314fs-mountlist should be appended to the DEVS:Mountlist file
-- a314/Software/bin/pi to C:
-- a314/Software/bin/piaudio to C:
-- a314/Software/bin/remotewb to C:
-- a314/Software/bin/videoplayer to C:
+### Amiga
 
-After these files are copied it should be possible to mount the PiDisk: by ```Mount PI0:```.
-The pi command can be invoked by pi without any arguments to run bash, or with arguments to run a particular Linux command.
+The binaries for the Amiga side are already built and are available as part of a release on the GitHub page: https://github.com/niklasekstrom/clockport_pi_interface/releases
 
-You can download [this zip file](https://www.dropbox.com/s/g5f5c4zf1x55vx3/her_dither3.zip?dl=0) and unzip
-to /home/pi/player/her_dither3/*.ami in order to play those files back using VideoPlayer.
+There are multiple sub directories in the release archive, and the files in those sub directories should be copied to the corresponding sub directories in the AmigaOS system volume.
+
+It is also possible to build the Amiga binaries from source on the Raspberry Pi. To do so, follow these steps:
+
+- Install Docker: `curl -sSL https://get.docker.com | sh`
+- Allow user pi to run Docker: `sudo usermod -aG docker pi`
+- Log out and then log back in again to make the previous command take effect
+- Clone the a314 repo: `git clone -b clockport_if https://github.com/niklasekstrom/a314.git`
+- `cd a314/Software`
+- Build binaries by running: `./rpi_docker_build.sh`
+
+The binaries are now available in the sub directories of the `bin_amiga` directory.
+
+After these files are copied to the Amiga it should be possible to mount the PiDisk: by `Mount PI0:`.
+The pi command can be invoked by `pi` without any arguments to run bash, or with arguments to run a particular Linux command.

@@ -138,7 +138,7 @@ class PiCmdSession(object):
         self.stream_id = stream_id
         self.pid = 0
 
-        self.first_packet = True
+        self.start_msg = b''
         self.reset_after = None
 
         self.rasp_was_esc = False
@@ -180,20 +180,15 @@ class PiCmdSession(object):
             os.write(self.fd, out.encode('utf-8'))
 
     def process_msg_data(self, data):
-        if self.first_packet:
-            if len(data) != 8:
-                send_reset(self.stream_id)
-                del sessions[self.stream_id]
-            else:
-                address, length = struct.unpack('>II', data)
-                buf = read_mem(address, length)
+        if self.start_msg is not None:
+            self.start_msg += data
+            length = struct.unpack_from('>H', self.start_msg, 0)[0]
+            if len(self.start_msg) == length:
+                buf = self.start_msg
 
-                ind = 0
-                rows, cols = struct.unpack('>HH', buf[ind:ind+4])
-                ind += 4
+                rows, cols, component_count, arg_count = struct.unpack_from('>HHBB', buf, 2)
 
-                component_count = buf[ind]
-                ind += 1
+                ind = 8
 
                 components = []
                 for _ in range(component_count):
@@ -201,9 +196,6 @@ class PiCmdSession(object):
                     ind += 1
                     components.append(buf[ind:ind+n].decode('latin-1'))
                     ind += n
-
-                arg_count = buf[ind]
-                ind += 1
 
                 args = []
                 for _ in range(arg_count):
@@ -230,7 +222,7 @@ class PiCmdSession(object):
                         os.chdir(os.getenv('HOME', '/'))
                     os.execvp(args[0], args)
 
-                self.first_packet = False
+                self.start_msg = None
 
         elif self.pid:
             self.process_amiga_ansi(data)

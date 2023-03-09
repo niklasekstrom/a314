@@ -219,8 +219,8 @@ if not done:
         done = True
 
     start_time = time.time()
-    drop_start = True
-        
+    drop_start = False # This doesn't seem to be needed any longer.
+
 if not done:
     logger.info('Ethernet service is running')
 
