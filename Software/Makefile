@@ -46,6 +46,11 @@ A314D_SERVICE        = a314d/a314d-td.service
 A314_PI_OVERLAYS     = ${BIN}/spi-a314.dtbo
 endif
 
+# Generate a name for the installer
+GIT_TAG=${shell git describe --tags}
+SYS_BITS=${shell getconf LONG_BIT}
+INSTALLER_NAME=a314install_${MODEL}_${SYS_BITS}_${GIT_TAG}.run
+
 # Figure out the primary group and home directory of the user who used sudo
 SUDO_GROUP=$(shell getent group ${SUDO_GID} | cut -d: -f1)
 SUDO_HOME=$(shell awk -F':' -v U=${SUDO_USER} '$$1==U {print $$6}' /etc/passwd)
@@ -76,6 +81,7 @@ help:
 	echo " Extra targets:"
 	echo " --------------"
 	echo " install_depends    - Install build dependencies (this will take some time and should only be needed once)"
+	echo " dist               - Build a self-extracting installer for distribution"
 	echo
 
 
@@ -143,4 +149,106 @@ endif
 
 
 clean:
-	rm -rf ${BIN}
+	rm -rf installer ${BIN}
+
+
+# Below targets are only for those wanting to make a self-extracting installer for A314
+define INSTALL_SCRIPT
+#!/bin/bash
+
+SUDO_GROUP=$$(getent group $$SUDO_GID | cut -d: -f1)
+SUDO_HOME=$$(awk -F':' -v U=$$SUDO_USER '$$1==U {print $$6}' /etc/passwd)
+
+MSG="This will install ${SYS_BITS} bit versions of all the services and configuration files for A314-${MODEL} for user \"$$SUDO_USER\".
+Any custom changes to these files will be overwritten!
+
+Continue?"
+if ! whiptail --yesno "$$MSG" 20 50 ;then
+	exit 1
+fi
+
+echo "Installing A314..."
+find root -type f | xargs -n1 sed -i -e s%##USER##%$$SUDO_USER%g -e s%##GROUP##%$$SUDO_GROUP%g -e s%##HOME##%$$SUDO_HOME%g
+rsync -aK root/ /
+
+install -d $$SUDO_HOME/a314shared -o $$SUDO_USER -g $$SUDO_GROUP
+
+MSG="Do you want to install the following dependencies and enable IP forwarding? These are needed for Amiga networking.
+(If this is the first time you install A314 you probably want to answer Yes)
+
+* python3-pip
+* websockets
+* pyudev
+* python-pytun"
+
+if whiptail --yesno "$$MSG" 20 50 ;then
+	echo "Installing dependencies..."
+	apt -y install python3-pip python3-websockets python3-pyudev
+	su -l $$SUDO_USER -c "pip3 install python-pytun"
+	echo net.ipv4.ip_forward=1 > /etc/sysctl.d/a314eth.conf
+fi
+
+MSG="Do you want to update files in /boot?
+This should only be needed once and this script will attempt to detect if expected changes have already been made."
+
+if [ ${MODEL} == TD ]; then
+	if whiptail --yesno "$$MSG" 20 50 ;then
+		if ! grep -q ^dtparam=spi=on /boot/config.txt; then
+			sed -i -e s/^#dtparam=spi=on$$/dtparam=spi=on/ /boot/config.txt
+		fi
+		if ! grep -q ^force_turbo=1$$ /boot/config.txt; then
+			echo force_turbo=1 >> /boot/config.txt
+		fi
+		if ! grep -q ^dtoverlay=spi-a314$$ /boot/config.txt; then
+			echo dtoverlay=spi-a314 >> /boot/config.txt
+		fi
+		if ! grep -q spidev.bufsiz=65536 /boot/cmdline.txt; then
+			echo -n " spidev.bufsiz=65536" >> /boot/cmdline.txt
+		fi
+	fi
+fi
+
+echo "Starting A314 daemons..."
+systemctl daemon-reload
+systemctl enable a314net a314d
+systemctl restart a314d
+systemctl restart a314net
+systemctl restart networking systemd-sysctl
+
+echo "Installation completed!"
+
+if [ ${MODEL} == TD ]; then
+	echo
+	echo "Note: If this is the initial A314 installation you will need to reboot your Pi"
+fi
+endef
+export INSTALL_SCRIPT
+
+_install_script:
+	mkdir -p installer
+	echo "$$INSTALL_SCRIPT" > installer/install.sh
+	chmod +x installer/install.sh
+
+_fakeroot_install:
+	install -d installer/root/opt/a314
+	install -d installer/root/etc/opt/a314
+	install ${A314_SERVICES} installer/root/opt/a314
+	install ${A314_PI_BINARIES} installer/root/opt/a314
+	install -m644 $(A314_SERVICE_CONFIGS) installer/root/etc/opt/a314
+	install -d installer/root/etc/network/interfaces.d
+	install -m644 ethernet/pi-config/tap0 installer/root/etc/network/interfaces.d
+	install -d installer/root/lib/systemd/system
+	install -m644 ${A314D_SERVICE} installer/root/lib/systemd/system/a314d.service
+	install -m644 ethernet/pi-config/a314net.service installer/root/lib/systemd/system
+
+ifeq ($(A314_MODEL), MODEL_TD)
+	install -d installer/root/boot/overlays
+	install -m644 ${BIN}/spi-a314.dtbo installer/root/boot/overlays
+	cd bpls2gif ; python3 setup.py install --prefix=../installer/root/
+endif
+
+	makeself --needroot installer ${INSTALLER_NAME} "A314 Software Installer" "./install.sh"
+	rm -rf installer
+
+dist: clean all _install_script
+	fakeroot -- ${MAKE} _fakeroot_install

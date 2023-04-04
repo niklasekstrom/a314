@@ -6,6 +6,7 @@ HDL/.qsys_edit/
 HDL/*.bak
 HDL/*.qws
 HDL/*.rpt
+Software/a314install_*.run
 Software/bin_pi
 Software/bin_amiga
 Software/bpls2gif/build/
