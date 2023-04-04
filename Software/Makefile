@@ -8,8 +8,8 @@ CPP=g++
 CC=gcc
 BIN=bin_pi
 
-# Check that MODEL is set, unless target is help or clean
-ifeq (, $(filter $(MAKECMDGOALS), help clean))
+# Check that MODEL is set, unless target is help, clean or install_depends
+ifeq (, $(filter $(MAKECMDGOALS), help clean install_depends))
     ifneq (, $(filter $(MODEL), TD CP))
         A314_MODEL=MODEL_${MODEL}
     else
@@ -73,6 +73,10 @@ help:
 	echo " clean              - Remove temporary and output files"
 	echo " help               - This text"
 	echo
+	echo " Extra targets:"
+	echo " --------------"
+	echo " install_depends    - Install build dependencies (this will take some time and should only be needed once)"
+	echo
 
 
 all: bin_dir ${A314_PI_BINARIES} ${A314_PI_OVERLAYS}
@@ -121,6 +125,21 @@ ifeq ($(A314_MODEL), MODEL_TD)
 	cd bpls2gif ; python3 setup.py install
 endif
 	echo "Installation completed!"
+
+
+install_depends:
+ifneq ($(shell id -u), 0)
+	echo "Please run $@ using sudo"
+	exit 1
+endif
+	echo "Installing dependencies"
+	apt -y install python3-dev python3-distutils python3-pip build-essential git makeself
+	su -l ${SUDO_USER} -c "pip3 install python-pytun"
+
+	echo "Installing docker for building Amiga binaries"
+	curl -sSL https://get.docker.com | sh
+	usermod -aG docker ${SUDO_USER}
+	echo "Done!"
 
 
 clean:
