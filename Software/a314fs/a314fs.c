@@ -24,8 +24,6 @@
 
 #include "messages.h"
 
-#define MKBADDR(x) (((ULONG)x) >> 2)
-
 #define ID_314_DISK (('3' << 24) | ('1' << 16) | ('4' << 8))
 
 #define REQ_RES_BUF_SIZE 256
@@ -298,7 +296,7 @@ LONG a314_reset()
 void create_and_add_volume()
 {
 	my_volume = (struct DeviceList *)DosAllocMem(sizeof(struct DeviceList));
-	my_volume->dl_Name = (BSTR*)MKBADDR(default_volume_name);
+	my_volume->dl_Name = MKBADDR(default_volume_name);
 	my_volume->dl_Type = DLT_VOLUME;
 	my_volume->dl_Task = mp;
 	my_volume->dl_DiskType = ID_314_DISK;

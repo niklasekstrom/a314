@@ -12,6 +12,9 @@
 #include <exec/errors.h>
 #include <exec/ports.h>
 #include <libraries/dos.h>
+#include <devices/sana2.h>
+
+#include <proto/alib.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 
@@ -19,7 +22,6 @@
 
 #include "../a314device/a314.h"
 #include "../a314device/proto_a314.h"
-#include "sana2.h"
 
 // Defines.
 

@@ -1,6 +1,6 @@
 .PHONY: bin_dir all
 
-VC=vc
+VC=vc +kick13 -I${NDK32}/Include_H
 BIN=bin_amiga
 
 all: bin_dir ${BIN}/Devs/a314-td.device ${BIN}/Devs/a314-fe.device ${BIN}/Devs/a314-cp.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/PiAudio ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device ${BIN}/C/RemoteWB ${BIN}/C/VideoPlayer ${BIN}/C/DiagA314td
@@ -45,8 +45,8 @@ ${BIN}/C/RemoteMouse: a314device/a314.h remote-mouse/remote-mouse.c
 ${BIN}/C/PiHid: a314device/a314.h hid/hid.c
 	${VC} hid/hid.c -lamiga -o ${BIN}/C/PiHid
 
-${BIN}/Devs/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c ethernet/sana2.h ethernet/tagitem.h
-	${VC} ethernet/romtag.asm ethernet/device.c -O3 -nostdlib -o ${BIN}/Devs/a314eth.device -lamiga
+${BIN}/Devs/a314eth.device: a314device/a314.h a314device/proto_a314.h ethernet/romtag.asm ethernet/device.c
+	${VC} ethernet/romtag.asm ethernet/device.c -I${NDK32}/SANA+RoadshowTCP-IP/include -O3 -nostdlib -o ${BIN}/Devs/a314eth.device -lamiga
 
 ${BIN}/Devs/a314disk.device: a314device/a314.h a314device/proto_a314.h disk/romtag.asm disk/device.c disk/debug.h disk/debug.c
 	${VC} disk/romtag.asm disk/device.c disk/debug.c -O3 -nostdlib -o ${BIN}/Devs/a314disk.device -lamiga

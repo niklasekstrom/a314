@@ -14,8 +14,8 @@
 #include <libraries/filehandler.h>
 #include <libraries/expansion.h>
 #include <libraries/expansionbase.h>
-#include <libraries/romboot_base.h>
 
+#include <proto/alib.h>
 #include <proto/exec.h>
 #include <proto/expansion.h>
 
@@ -640,7 +640,7 @@ static void add_boot_node(struct ExpansionBase *expansion_base, struct DriveStat
 
     mle->boot_node.bn_Node.ln_Type = NT_BOOTNODE;
     mle->boot_node.bn_Node.ln_Pri = BOOT_PRIORITY;
-    mle->boot_node.bn_DeviceNode = (ULONG)&mle->dev_node;
+    mle->boot_node.bn_DeviceNode = (APTR)&mle->dev_node;
 
     Forbid();
     Enqueue(&expansion_base->MountList, &mle->boot_node.bn_Node);

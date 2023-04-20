@@ -6,7 +6,7 @@ CA_OFFSET	equ	40
 TASK_OFFSET	equ	44
 
 SIGB_INT	equ	14
-SIGF_INT	equ	(1 << SIGB_INT)
+SIGF_INT	equ	(1<<SIGB_INT)
 
 		; a1 points to device struct
 _IntServer:	move.l	CA_OFFSET(a1),a5	; com area pointer

@@ -11,6 +11,7 @@
 #include <libraries/dosextens.h>
 #include <devices/timer.h>
 
+#include <proto/alib.h>
 #include <proto/dos.h>
 #include <proto/exec.h>
 

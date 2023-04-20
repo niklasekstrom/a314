@@ -22,6 +22,7 @@
 
 #include <hardware/intbits.h>
 
+#include <proto/alib.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>

@@ -2,6 +2,7 @@
 #include <devices/timer.h>
 #include <hardware/intbits.h>
 
+#include <proto/alib.h>
 #include <proto/exec.h>
 
 #include <string.h>
@@ -11,6 +12,10 @@
 #include "device.h"
 #include "protocol.h"
 #include "memory_allocator.h"
+
+// Warning 367 says that an eight bit shift will ignore a byte value,
+// which is correct, but intentional.
+#pragma dontwarn 367
 
 #define CLOCK_PORT_ADDRESS	0xd80001
 

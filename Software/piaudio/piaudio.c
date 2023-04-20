@@ -5,6 +5,7 @@
 
 #include <devices/audio.h>
 
+#include <proto/alib.h>
 #include <proto/exec.h>
 
 #include <stdio.h>

@@ -13,7 +13,7 @@ INTENA		equ	$dff09a
 CLOCK_PORT	equ	$dc0000
 
 SIGB_INT	equ	14
-SIGF_INT	equ	(1 << SIGB_INT)
+SIGF_INT	equ	(1<<SIGB_INT)
 
 		; a1 points to driver task
 _IntServer:	lea.l	CLOCK_PORT,a5

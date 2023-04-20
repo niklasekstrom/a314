@@ -15,6 +15,7 @@
 #include <devices/inputevent.h>
 #include <libraries/dos.h>
 
+#include <proto/alib.h>
 #include <proto/exec.h>
 
 #include <stdio.h>
