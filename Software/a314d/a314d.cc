@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Niklas Ekström
+ * Copyright (c) 2018-2023 Niklas Ekström
  */
 
 #include <arpa/inet.h>
@@ -33,8 +33,10 @@
 #include <string>
 #include <vector>
 
-#if !(defined(MODEL_TD) ^ defined(MODEL_CP))
-#error Need to define MODEL_TD xor MODEL_CP
+#if !defined(MODEL_TD) && !defined(MODEL_FE) && !defined(MODEL_CP)
+#error Need to define MODEL_TD, MODEL_FE or MODEL_CP
+#elif defined(MODEL_TD) && defined(MODEL_FE) || defined(MODEL_TD) && defined(MODEL_CP) || defined(MODEL_FE) && defined(MODEL_CP)
+#error The MODEL_XX flags cannot be combined
 #endif
 
 #define LOGGER_TRACE 0
@@ -51,61 +53,6 @@
 
 #define LOGGER_ERROR 1
 #define logger_error(...) do { if (LOGGER_ERROR) fprintf(stderr, __VA_ARGS__); } while (0)
-
-// SPI commands.
-#define READ_SRAM_CMD           0
-#define WRITE_SRAM_CMD          1
-#define READ_CMEM_CMD           2
-#define WRITE_CMEM_CMD          3
-#define SPI_PROTO_VER_CMD       255
-
-#define READ_SRAM_HDR_LEN       4
-
-// Addresses to variables in CMEM.
-#define BASE_ADDRESS_LEN        6
-#define R_EVENTS_ADDRESS        12
-#define R_ENABLE_ADDRESS        13
-#define A_EVENTS_ADDRESS        14
-#define A_ENABLE_ADDRESS        15
-
-// Events that are communicated via IRQ from Amiga to Raspberry.
-#define R_EVENT_A2R_TAIL        1
-#define R_EVENT_R2A_HEAD        2
-#define R_EVENT_BASE_ADDRESS    4
-
-// Events that are communicated from Raspberry to Amiga.
-#define A_EVENT_R2A_TAIL        1
-#define A_EVENT_A2R_HEAD        2
-
-// TODO: These constants should be the same for both TR and CP.
-// Need to update a314.device in order to change these.
-#if defined(MODEL_TD)
-
-// Offset relative to communication area for queue pointers.
-#define A2R_TAIL_OFFSET         0
-#define R2A_HEAD_OFFSET         1
-#define R2A_TAIL_OFFSET         2
-#define A2R_HEAD_OFFSET         3
-
-// Addresses of fixed data structures in shared memory.
-#define CAP_BASE                0
-#define A2R_BASE                4
-#define R2A_BASE                260
-
-#elif defined(MODEL_CP)
-
-// Offset relative to communication area for queue pointers.
-#define R2A_TAIL_OFFSET         0
-#define A2R_HEAD_OFFSET         1
-#define A2R_TAIL_OFFSET         2
-#define R2A_HEAD_OFFSET         3
-
-// Addresses of fixed data structures in shared memory.
-#define A2R_BASE                0
-#define R2A_BASE                256
-#define CAP_BASE                512
-
-#endif
 
 // Packets that are communicated across physical channels (A2R and R2A).
 #define PKT_CONNECT             4
@@ -136,14 +83,120 @@
 #define MSG_SUCCESS             1
 #define MSG_FAIL                0
 
+#define R2A_TAIL_UPDATED        1
+#define A2R_HEAD_UPDATED        2
+
+// TODO: These constants should be the same for both TD/FE and CP.
+// Need to update a314.device in order to change these.
+#if defined(MODEL_TD)
+// Offset relative to communication area for queue pointers.
+#define A2R_TAIL_OFFSET         0
+#define R2A_HEAD_OFFSET         1
+#define R2A_TAIL_OFFSET         2
+#define A2R_HEAD_OFFSET         3
+
+// Addresses of fixed data structures in shared memory.
+#define CAP_BASE                0
+#define A2R_BASE                4
+#define R2A_BASE                260
+#elif defined(MODEL_FE)
+// Offset relative to communication area for queue pointers.
+#define A2R_TAIL_OFFSET         0
+#define R2A_HEAD_OFFSET         1
+#define R2A_TAIL_OFFSET         2
+#define A2R_HEAD_OFFSET         3
+
+// Addresses of fixed data structures in shared memory.
+#define HANDSHAKE_BASE          0
+#define CAP_BASE                4
+#define A2R_BASE                8
+#define R2A_BASE                264
+#elif defined(MODEL_CP)
+// Offset relative to communication area for queue pointers.
+#define R2A_TAIL_OFFSET         0
+#define A2R_HEAD_OFFSET         1
+#define A2R_TAIL_OFFSET         2
+#define R2A_HEAD_OFFSET         3
+
+// Addresses of fixed data structures in shared memory.
+#define A2R_BASE                0
+#define R2A_BASE                256
+#define CAP_BASE                512
+#endif
+
 #if defined(MODEL_TD)
 #define IRQ_GPIO                "25"
 #define IRQ_GPIO_EDGE           "both"
+#elif defined(MODEL_FE)
+#define IRQ_GPIO                "23"
+#define IRQ_GPIO_EDGE           "rising"
 #elif defined(MODEL_CP)
 #define IRQ_GPIO                "2"
 #define IRQ_GPIO_EDGE           "rising"
 #endif
 
+#if defined(MODEL_TD)
+// SPI commands.
+#define READ_SRAM_CMD           0
+#define WRITE_SRAM_CMD          1
+#define READ_CMEM_CMD           2
+#define WRITE_CMEM_CMD          3
+#define SPI_PROTO_VER_CMD       255
+
+#define READ_SRAM_HDR_LEN       4
+
+// Addresses to variables in CMEM.
+#define BASE_ADDRESS_LEN        6
+#define R_EVENTS_ADDRESS        12
+#define R_ENABLE_ADDRESS        13
+#define A_EVENTS_ADDRESS        14
+#define A_ENABLE_ADDRESS        15
+
+// Events that are communicated via IRQ from Amiga to Raspberry.
+#define R_EVENT_A2R_TAIL        1
+#define R_EVENT_R2A_HEAD        2
+#define R_EVENT_BASE_ADDRESS    4
+
+// Events that are communicated from Raspberry to Amiga.
+#define A_EVENT_R2A_TAIL        1
+#define A_EVENT_A2R_HEAD        2
+#elif defined(MODEL_FE)
+#define PIN_D(x)                (4 + x)
+#define PIN_WR                  20
+#define PIN_REQ                 21
+#define PIN_ACK                 22
+#define PIN_IRQ                 23
+#define PIN_A(x)                (24 + x)
+
+#define GPIO_DIR_0_MASK         0x3ffff000
+#define GPIO_DIR_0_DIN          0x00000000
+#define GPIO_DIR_0_DOUT         0x09249000
+#define GPIO_DIR_1_MASK         0x3fffffff
+#define GPIO_DIR_1_DIN          0x00000000
+#define GPIO_DIR_1_DOUT         0x09249249
+#define GPIO_DIR_2_MASK         0x00ffffff
+#define GPIO_DIR_2              0x00249009
+
+#define GPIO_PULL_NONE          0
+#define GPIO_PULL_DOWN          1
+#define GPIO_PULL_UP            2
+
+#define REG_SRAM_BYTE           0
+#define REG_SRAM_WORD           1
+#define REG_ADDR_LO             2
+#define REG_ADDR_HI             3
+#define REG_INT_REQ             4
+#define REG_INT_ENA             5
+#define REG_CA_BASE_ADDR        6
+
+#define IRQ_SET                 0x8000
+#define IRQ_CLR                 0x0000
+#define IRQ_R2A_TAIL            0x0001
+#define IRQ_A2R_HEAD            0x0002
+#define IRQ_A2R_TAIL            0x0004
+#define IRQ_R2A_HEAD            0x0008
+#define IRQ_BASE_ADDRESS        0x0010
+#elif defined(MODEL_CP)
 #define PIN_IRQ                 2
 #define PIN_CLK                 4
 #define PIN_REQ                 14
@@ -174,34 +227,41 @@
 #define REG_IRQ_CLR             0x00
 #define REG_IRQ_PI              0x02
 #define REG_IRQ_CP              0x01
+#endif
 
 // Global variables.
 static sigset_t original_sigset;
-
-static uint8_t mode = SPI_CS_HIGH;
-static uint8_t bits = 8;
-static uint32_t speed = 67000000;
-
-static int spi_fd = -1;
-static int spi_proto_ver = 0;
 
 static uint8_t tx_buf[65536];
 static uint8_t rx_buf[65536];
 
 static volatile unsigned int *gpio;
 
+#if defined(MODEL_TD)
+static uint8_t mode = SPI_CS_HIGH;
+static uint8_t bits = 8;
+static uint32_t speed = 67000000;
+
+static int spi_fd = -1;
+static int spi_proto_ver = 0;
+#elif defined(MODEL_FE)
+static unsigned int low_pins_dir;
+static unsigned int current_address;
+static int current_dir = 0; // 0 = input, 1 = output.
+#elif defined(MODEL_CP)
 static unsigned short current_address;
 static int current_dir = 0; // 0 = input, 1 = output.
 
 static bool read_a314_magic = false;
 static int restart_counter;
+#endif
 
 static bool gpio_irq_exported = false;
 static bool gpio_irq_edge_set = false;
 static int gpio_irq_fd = -1;
 
-static bool auto_clear_cp_irq = false;
-static time_t auto_clear_cp_irq_after;
+static bool auto_clear_irq = false;
+static time_t auto_clear_irq_after;
 
 static int server_socket = -1;
 
@@ -210,7 +270,7 @@ static int epfd = -1;
 static bool have_base_address = false;
 static unsigned int base_address = 0;
 
-#if defined(MODEL_TD)
+#if defined(MODEL_TD) || defined(MODEL_FE)
 #define BASE_ADDRESS base_address
 #elif defined(MODEL_CP)
 #define BASE_ADDRESS 0
@@ -361,6 +421,7 @@ static void load_config_file(const char *filename)
         logger_warn("No registered services\n");
 }
 
+#if defined(MODEL_TD)
 static int init_spi()
 {
     spi_fd = open("/dev/spidev0.0", O_RDWR | O_CLOEXEC);
@@ -479,6 +540,33 @@ static uint8_t spi_ack_irq()
     return spi_read_cmem(R_EVENTS_ADDRESS);
 }
 
+static void spi_read_base_address()
+{
+    have_base_address = false;
+
+    unsigned int ba1 = 0;
+    for (int i = 0; i < BASE_ADDRESS_LEN; i++)
+        ba1 |= spi_read_cmem(i) << (i * 4);
+
+    if ((ba1 & 1) == 1)
+    {
+        unsigned int ba2 = 0;
+        for (int i = 0; i < BASE_ADDRESS_LEN; i++)
+            ba2 |= spi_read_cmem(i) << (i * 4);
+
+        if (ba1 == ba2)
+        {
+            have_base_address = true;
+            base_address = ba1 & ~1;
+        }
+    }
+}
+
+#define read_shm spi_read_shm
+#define write_shm spi_write_shm
+#endif
+
+#if defined(MODEL_FE) || defined(MODEL_CP)
 static int create_dev_gpiomem_mapping()
 {
     int fd = open("/dev/gpiomem", O_RDWR | O_SYNC);
@@ -502,6 +590,230 @@ static int create_dev_gpiomem_mapping()
     return 0;
 }
 
+static void set_gpio_pull_mode(int mask, int mode)
+{
+    *(gpio + 37) = mode;
+    usleep(50);
+    *(gpio + 38) = mask;
+    usleep(50);
+    *(gpio + 38) = 0;
+    *(gpio + 37) = 0;
+    usleep(50);
+}
+#endif
+
+#if defined(MODEL_FE)
+static inline void set_dir_read()
+{
+    if (current_dir == 1)
+    {
+        *(gpio + 0) = GPIO_DIR_0_DIN | low_pins_dir;
+        *(gpio + 1) = GPIO_DIR_1_DIN;
+        current_dir = 0;
+    }
+}
+
+static inline void set_dir_write()
+{
+    if (current_dir == 0)
+    {
+        *(gpio + 0) = GPIO_DIR_0_DOUT | low_pins_dir;
+        *(gpio + 1) = GPIO_DIR_1_DOUT;
+        current_dir = 1;
+    }
+}
+
+static unsigned int read_sram_reg(unsigned int reg)
+{
+    set_dir_read();
+
+    *(gpio + 7) = (reg << PIN_A(0)) | (1 << PIN_REQ);
+
+    // Delay so that the ACK pin is sure to be negated after previous access.
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+
+    // Additional delay to hopefully do only one read when there is no contention.
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+
+    unsigned int value;
+    while (!((value = *(gpio + 13)) & (1 << PIN_ACK)))
+        ;
+
+    value = (value >> PIN_D(0)) & 0xffff;
+
+    *(gpio + 10) = (1 << PIN_REQ);
+    *(gpio + 10) = (15 << PIN_A(0)) | (1 << PIN_WR) | (0xffff << PIN_D(0));
+
+    return value;
+}
+
+static void write_sram_reg(unsigned int reg, unsigned int value)
+{
+    set_dir_write();
+
+    *(gpio + 7) = (reg << PIN_A(0)) | (1 << PIN_REQ) | (1 << PIN_WR) | ((value & 0xffff) << PIN_D(0));
+
+    // Delay so that the ACK pin is sure to be negated after previous access.
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+
+    // Additional delay to hopefully do only one read when there is no contention.
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+
+    while (!(*(gpio + 13) & (1 << PIN_ACK)))
+        ;
+
+    *(gpio + 10) = (1 << PIN_REQ);
+    *(gpio + 10) = (15 << PIN_A(0)) | (1 << PIN_WR) | (0xffff << PIN_D(0));
+}
+
+static unsigned int read_reg(unsigned int reg)
+{
+    set_dir_read();
+
+    *(gpio + 7) = (reg << PIN_A(0)) | (1 << PIN_REQ);
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+    *(gpio + 7) = 0;
+
+    unsigned int value = *(gpio + 13);
+    value = (value >> PIN_D(0)) & 0xffff;
+
+    *(gpio + 10) = (1 << PIN_REQ);
+    *(gpio + 7) = 0;
+    *(gpio + 10) = (15 << PIN_A(0)) | (1 << PIN_WR) | (0xffff << PIN_D(0));
+
+    return value;
+}
+
+static void write_reg(unsigned int reg, unsigned int value)
+{
+    set_dir_write();
+
+    *(gpio + 7) = (reg << PIN_A(0)) | (1 << PIN_REQ) | (1 << PIN_WR) | ((value & 0xffff) << PIN_D(0));
+    *(gpio + 7) = 0;
+    *(gpio + 10) = (1 << PIN_REQ);
+    *(gpio + 7) = 0;
+    *(gpio + 10) = (15 << PIN_A(0)) | (1 << PIN_WR) | (0xffff << PIN_D(0));
+}
+
+static void set_address(unsigned int address)
+{
+    if ((address & 0xffff) != (current_address & 0xffff))
+        write_reg(REG_ADDR_LO, address & 0xffff);
+
+    if (((address >> 16) & 0x3) != ((current_address >> 16) & 0x3))
+        write_reg(REG_ADDR_HI, (address >> 16) & 0x3);
+
+    current_address = address;
+}
+
+static void gpio_read_shm(unsigned char *data, unsigned int address, unsigned int length)
+{
+    set_address(address);
+
+    current_address = (address + length) & 0x3ffff;
+
+    unsigned int v;
+
+    if (address & 1)
+    {
+        v = read_sram_reg(REG_SRAM_BYTE);
+        *data++ = v & 0xff;
+        length--;
+    }
+
+    while (length >= 2)
+    {
+        v = read_sram_reg(REG_SRAM_WORD);
+        *data++ = (v >> 8) & 0xff;
+        *data++ = v & 0xff;
+        length -= 2;
+    }
+
+    if (length)
+    {
+        v = read_sram_reg(REG_SRAM_BYTE);
+        *data++ = (v >> 8) & 0xff;
+    }
+}
+
+static void gpio_write_shm(unsigned int address, unsigned char *data, unsigned int length)
+{
+    set_address(address);
+
+    current_address = (address + length) & 0x3ffff;
+
+    unsigned int v;
+
+    if (address & 1)
+    {
+        v = *data++;
+        write_sram_reg(REG_SRAM_BYTE, v);
+        length--;
+    }
+
+    while (length >= 2)
+    {
+        v = ((*data++) << 8) | (*data++);
+        write_sram_reg(REG_SRAM_WORD, v);
+        length -= 2;
+    }
+
+    if (length)
+    {
+        v = (*data++) << 8;
+        write_sram_reg(REG_SRAM_BYTE, v);
+    }
+}
+
+#define write_shm gpio_write_shm
+#define read_shm gpio_read_shm
+
+static int init_gpio()
+{
+    if (create_dev_gpiomem_mapping())
+        return -1;
+
+    // Set pin directions.
+    low_pins_dir = *(gpio + 0) & 0x00000fff;
+    unsigned int high_pins_dir = *(gpio + 2) & 0x3f000000;
+
+    *(gpio + 0) = GPIO_DIR_0_DIN | low_pins_dir;
+    *(gpio + 1) = GPIO_DIR_1_DIN;
+    *(gpio + 2) = high_pins_dir | GPIO_DIR_2;
+
+    *(gpio + 10) = 0x0ffffff0;
+
+    set_gpio_pull_mode((1 << PIN_ACK) | (1 << PIN_IRQ), GPIO_PULL_DOWN);
+    set_gpio_pull_mode((15 << PIN_A(0)) | (1 << PIN_REQ) | (1 << PIN_WR) | (0xffff << PIN_D(0)), GPIO_PULL_NONE);
+
+    current_dir = 0;
+
+    // Set address pointer.
+    write_reg(REG_ADDR_LO, 0);
+    write_reg(REG_ADDR_HI, 0);
+
+    current_address = 0;
+
+    return 0;
+}
+
+static void shutdown_gpio()
+{
+    // Let Linux take care of this.
+}
+
+#elif defined(MODEL_CP)
 static void gpio_write_reg(unsigned int reg, unsigned int value)
 {
     if (current_dir == 0)
@@ -595,16 +907,8 @@ static void gpio_read_shm(unsigned char *data, unsigned short address, unsigned 
     current_address += length;
 }
 
-static void set_gpio_pull_mode(int mask, int mode)
-{
-    *(gpio + 37) = mode;
-    usleep(50);
-    *(gpio + 38) = mask;
-    usleep(50);
-    *(gpio + 38) = 0;
-    *(gpio + 37) = 0;
-    usleep(50);
-}
+#define write_shm gpio_write_shm
+#define read_shm gpio_read_shm
 
 static int init_gpio()
 {
@@ -637,13 +941,6 @@ static void shutdown_gpio()
 {
     // Let Linux take care of this.
 }
-
-#if defined(MODEL_TD)
-#define read_shm spi_read_shm
-#define write_shm spi_write_shm
-#elif defined(MODEL_CP)
-#define write_shm gpio_write_shm
-#define read_shm gpio_read_shm
 #endif
 
 static int open_write_close(const char *filename, const char *text)
@@ -776,7 +1073,7 @@ static int init_driver()
         return -1;
 
     spi_proto_ver = spi_protocol_version();
-#elif defined(MODEL_CP)
+#elif defined(MODEL_FE) || defined(MODEL_CP)
     if (init_gpio() != 0)
         return -1;
 #endif
@@ -810,7 +1107,7 @@ static void shutdown_driver()
     shutdown_gpio_irq();
 #if defined(MODEL_TD)
     shutdown_spi();
-#elif defined(MODEL_CP)
+#elif defined(MODEL_FE) || defined(MODEL_CP)
     shutdown_gpio();
 #endif
     shutdown_server_socket();
@@ -1355,7 +1652,7 @@ static void receive_from_a2r()
     }
 
     channel_status[A2R_HEAD_OFFSET] = channel_status[A2R_TAIL_OFFSET];
-    channel_status_updated |= A_EVENT_A2R_HEAD;
+    channel_status_updated |= A2R_HEAD_UPDATED;
 }
 
 static void flush_send_queue()
@@ -1414,29 +1711,7 @@ static void flush_send_queue()
     tail = (tail + to_write) & 255;
 
     channel_status[R2A_TAIL_OFFSET] = tail;
-    channel_status_updated |= A_EVENT_R2A_TAIL;
-}
-
-static void read_base_address()
-{
-    have_base_address = false;
-
-    unsigned int ba1 = 0;
-    for (int i = 0; i < BASE_ADDRESS_LEN; i++)
-        ba1 |= spi_read_cmem(i) << (i * 4);
-
-    if ((ba1 & 1) == 1)
-    {
-        unsigned int ba2 = 0;
-        for (int i = 0; i < BASE_ADDRESS_LEN; i++)
-            ba2 |= spi_read_cmem(i) << (i * 4);
-
-        if (ba1 == ba2)
-        {
-            have_base_address = true;
-            base_address = ba1 & ~1;
-        }
-    }
+    channel_status_updated |= R2A_TAIL_UPDATED;
 }
 
 static void read_channel_status()
@@ -1452,12 +1727,27 @@ static void write_channel_status()
         write_shm(BASE_ADDRESS + CAP_BASE + R2A_TAIL_OFFSET, &channel_status[R2A_TAIL_OFFSET], 2);
 
 #if defined(MODEL_TD)
-        spi_write_cmem(A_EVENTS_ADDRESS, channel_status_updated);
+        unsigned int events = 0;
+        if (channel_status_updated & R2A_TAIL_UPDATED)
+            events |= A_EVENT_R2A_TAIL;
+        if (channel_status_updated & A2R_HEAD_UPDATED)
+            events |= A_EVENT_A2R_HEAD;
+        spi_write_cmem(A_EVENTS_ADDRESS, events);
+#elif defined(MODEL_FE)
+        uint32_t irq = 0;
+        if (channel_status_updated & R2A_TAIL_UPDATED)
+            irq |= IRQ_R2A_TAIL;
+        if (channel_status_updated & A2R_HEAD_UPDATED)
+            irq |= IRQ_A2R_HEAD;
+        write_reg(REG_INT_REQ, IRQ_SET | irq);
+
+        auto_clear_irq = true;
+        auto_clear_irq_after = time(NULL) + 3;
 #elif defined(MODEL_CP)
         set_cp_irq();
 
-        auto_clear_cp_irq = true;
-        auto_clear_cp_irq_after = time(NULL) + 3;
+        auto_clear_irq = true;
+        auto_clear_irq_after = time(NULL) + 3;
 #endif
         channel_status_updated = 0;
     }
@@ -1482,7 +1772,8 @@ static void close_all_logical_channels()
     }
 }
 
-static void handle_a314_td_irq()
+#if defined(MODEL_TD)
+static void handle_a314_irq()
 {
     uint8_t events = spi_ack_irq();
     if (events == 0)
@@ -1494,7 +1785,7 @@ static void handle_a314_td_irq()
             logger_info("Base address was updated while logical channels are open -- closing channels\n");
 
         close_all_logical_channels();
-        read_base_address();
+        spi_read_base_address();
     }
 
     if (!have_base_address)
@@ -1507,8 +1798,41 @@ static void handle_a314_td_irq()
 
     write_channel_status();
 }
+#elif defined(MODEL_FE)
+static void handle_a314_irq()
+{
+    write_reg(REG_INT_ENA, 0);
 
-static void handle_a314_cp_irq()
+    uint32_t irq = read_reg(REG_INT_REQ) & (IRQ_BASE_ADDRESS | IRQ_R2A_HEAD | IRQ_A2R_TAIL);
+
+    if (irq)
+        write_reg(REG_INT_REQ, IRQ_CLR | irq);
+
+    if (irq & IRQ_BASE_ADDRESS || !have_base_address)
+    {
+        base_address = read_reg(REG_CA_BASE_ADDR) << 2;
+        have_base_address = base_address != 0x3fffc;
+
+        if (!channels.empty())
+            logger_info("Base address was updated while logical channels are open -- closing channels\n");
+
+        close_all_logical_channels();
+    }
+
+    if (have_base_address)
+    {
+        read_channel_status();
+
+        receive_from_a2r();
+        flush_send_queue();
+
+        write_channel_status();
+    }
+
+    write_reg(REG_INT_ENA, IRQ_BASE_ADDRESS | IRQ_R2A_HEAD | IRQ_A2R_TAIL);
+}
+#elif defined(MODEL_CP)
+static void handle_a314_irq()
 {
     // TODO: Currently there's a single notification event in either direction.
     // Could possibly have two events, one to signal that R2A_TAIL is updated
@@ -1554,11 +1878,6 @@ static void handle_a314_cp_irq()
 
     write_channel_status();
 }
-
-#if defined(MODEL_TD)
-#define handle_a314_irq handle_a314_td_irq
-#elif defined(MODEL_CP)
-#define handle_a314_irq handle_a314_cp_irq
 #endif
 
 static void handle_client_connection_event(ClientConnection *cc, struct epoll_event *ev)
@@ -1721,9 +2040,9 @@ static void main_loop()
     time_t force_shutdown_after;
     bool done = false;
 
-#if defined(MODEL_CP)
-    auto_clear_cp_irq = true;
-    auto_clear_cp_irq_after = time(NULL) + 3;
+#if defined(MODEL_FE) || defined(MODEL_CP)
+    auto_clear_irq = true;
+    auto_clear_irq_after = time(NULL) + 3;
 #endif
 
     while (!done)
@@ -1817,10 +2136,14 @@ static void main_loop()
 
         time_t now = time(NULL);
 
-        if (auto_clear_cp_irq && now > auto_clear_cp_irq_after)
+        if (auto_clear_irq && now > auto_clear_irq_after)
         {
+#if defined(MODEL_FE)
+            write_reg(REG_INT_REQ, IRQ_CLR | IRQ_A2R_HEAD | IRQ_R2A_TAIL);
+#elif defined(MODEL_CP)
             clear_cp_irq();
-            auto_clear_cp_irq = false;
+#endif
+            auto_clear_irq = false;
         }
 
         if (shutting_down && (channels.empty() || now > force_shutdown_after))

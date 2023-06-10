@@ -9,20 +9,26 @@
 
 #include "a314.h"
 #include "fix_mem_region.h"
-#include "cmem.h"
 #include "device.h"
 #include "pi_if.h"
+
+#if defined(MODEL_TD)
+#include "cmem.h"
+
+extern ULONG check_a314_mapping(__reg("a0") void *address);
+#endif
 
 #define SysBase (*(struct ExecBase **)4)
 
 #define FW_FLAG_AUTODETECT	1
 #define FW_FLAG_A600		2
 
+#define QUARTER_MB (256*1024)
 #define HALF_MB (512*1024)
 #define ONE_MB (1024*1024)
 #define TWO_MB (2*1024*1024)
 
-extern ULONG check_a314_mapping(__reg("a0") void *address);
+#define FE_BANK_ADDRESS 0x40000
 
 struct MemChunkList
 {
@@ -98,6 +104,24 @@ static BOOL overlap(struct MemHeader *mh, ULONG lower, ULONG upper)
 	return lower < (ULONG)(mh->mh_Upper) && (ULONG)(mh->mh_Lower) < upper;
 }
 
+BOOL check_overlap_region(ULONG lower, ULONG upper)
+{
+	Forbid();
+
+	for (struct Node *node = SysBase->MemList.lh_Head; node->ln_Succ != NULL; node = node->ln_Succ)
+	{
+		struct MemHeader *mh = (struct MemHeader *)node;
+		if (overlap(mh, lower, upper))
+		{
+			Permit();
+			return TRUE;
+		}
+	}
+
+	Permit();
+	return FALSE;
+}
+
 static void mark_region_a314(ULONG address, ULONG size)
 {
 	struct List *memlist = &(SysBase->MemList);
@@ -130,6 +154,7 @@ static void mark_region_a314(ULONG address, ULONG size)
 	}
 }
 
+#if defined(MODEL_TD)
 static void detect_block_mapping(ULONG present_blocks, ULONG *bank_address)
 {
 	struct GfxBase *GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 0);
@@ -294,9 +319,21 @@ BOOL fix_memory(struct A314Device *dev)
 	Permit();
 	return TRUE;
 }
+#endif
+
+#if defined(MODEL_FE)
+BOOL fix_memory(struct A314Device *dev)
+{
+	Forbid();
+	mark_region_a314(FE_BANK_ADDRESS, QUARTER_MB);
+	Permit();
+	return TRUE;
+}
+#endif
 
 static ULONG cpu_to_a314_address(__reg("a6") struct A314Device *dev, __reg("a0") void *address)
 {
+#if defined(MODEL_TD)
 	if (dev->is_a600)
 	{
 		ULONG offset = (ULONG)address;
@@ -316,15 +353,24 @@ static ULONG cpu_to_a314_address(__reg("a6") struct A314Device *dev, __reg("a0")
 		if (offset < HALF_MB)
 			return HALF_MB + offset;
 	}
+#elif defined(MODEL_FE)
+	ULONG offset = (ULONG)address - FE_BANK_ADDRESS;
+	if (offset < QUARTER_MB)
+		return offset;
+#endif
 
 	return INVALID_A314_ADDRESS;
 }
 
 static void *a314_to_cpu_address(__reg("a6") struct A314Device *dev, __reg("d0") ULONG address)
 {
+#if defined(MODEL_TD)
 	ULONG bank = address >> 19;
 	ULONG offset = address & ((1 << 19) - 1);
 	return (void *)(dev->bank_address[bank] + offset);
+#elif defined(MODEL_FE)
+	return (void *)(FE_BANK_ADDRESS + address);
+#endif
 }
 
 ULONG a314base_translate_address(__reg("a6") struct A314Device *dev, __reg("a0") void *address)

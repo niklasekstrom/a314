@@ -30,6 +30,8 @@
 
 #if defined(MODEL_TD)
 #include "cmem.h"
+#elif defined(MODEL_FE)
+#include "handshake_fe.h"
 #endif
 
 // VBCC unnecessairly warns when a loop has a single iteration.
@@ -628,6 +630,60 @@ void task_main()
 			write_cp_nibble(13, prev_regd);
 			Enable();
 		}
+	}
+
+	// There is currently no way to unload a314.device.
+}
+
+#elif defined(MODEL_FE)
+
+void task_main()
+{
+	struct A314Device *dev = (struct A314Device *)FindTask(NULL)->tc_UserData;
+	struct ComAreaPtrs *cap = CAP_PTR(dev);
+
+	while (TRUE)
+	{
+		dbg_trace("Invoking Wait()");
+
+		ULONG signal = Wait(SIGF_MSGPORT | SIGF_INT);
+
+		dbg_trace("Returned from Wait() with signal=$l", signal);
+
+		// Clear enable and event interrupt bits.
+		dev->ca->interrupt = 0x0303;
+
+		UBYTE prev_a2r_tail = cap->a2r_tail;
+		UBYTE prev_r2a_head = cap->r2a_head;
+
+		if (signal & SIGF_MSGPORT)
+		{
+			struct Message *msg;
+			while (msg = GetMsg(&dev->task_mp))
+				handle_app_request(dev, (struct A314_IORequest *)msg);
+		}
+
+		UWORD set_int_bits = 0;
+		while (!set_int_bits)
+		{
+			handle_packets_received_r2a(dev);
+			handle_room_in_a2r(dev);
+
+			if (cap->r2a_head == cap->r2a_tail)
+			{
+				if (dev->send_queue_head == NULL)
+					set_int_bits = IRQ_R2A_TAIL << 8;
+				else if (!room_in_a2r(cap, dev->send_queue_head->send_queue_required_length))
+					set_int_bits = (IRQ_R2A_TAIL | IRQ_A2R_HEAD) << 8;
+			}
+		}
+
+		if (cap->a2r_tail != prev_a2r_tail)
+			set_int_bits |= IRQ_A2R_TAIL;
+		if (cap->r2a_head != prev_r2a_head)
+			set_int_bits |= IRQ_R2A_HEAD;
+
+		dev->ca->interrupt = 0x8000 | set_int_bits;
 	}
 
 	// There is currently no way to unload a314.device.

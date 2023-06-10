@@ -3,7 +3,7 @@
 VC=vc
 BIN=bin_amiga
 
-all: bin_dir ${BIN}/Devs/a314-td.device ${BIN}/Devs/a314-cp.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/PiAudio ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device ${BIN}/C/RemoteWB ${BIN}/C/VideoPlayer ${BIN}/C/DiagA314td
+all: bin_dir ${BIN}/Devs/a314-td.device ${BIN}/Devs/a314-fe.device ${BIN}/Devs/a314-cp.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/PiAudio ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device ${BIN}/C/RemoteWB ${BIN}/C/VideoPlayer ${BIN}/C/DiagA314td
 
 bin_dir:
 	mkdir -p ${BIN}
@@ -13,6 +13,9 @@ bin_dir:
 
 ${BIN}/Devs/a314-td.device: a314device/a314.h a314device/check_a314_mapping.asm a314device/cmem.c a314device/cmem.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/fix_mem_region.c a314device/fix_mem_region.h a314device/int_server_td.asm a314device/pi_if_td.c a314device/pi_if.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
 	${VC} -DMODEL_TD=1 a314device/romtag.asm a314device/driver_task.c a314device/debug.c a314device/device.c a314device/startup.c a314device/sockets.c a314device/pi_if_td.c a314device/int_server_td.asm a314device/fix_mem_region.c a314device/cmem.c a314device/check_a314_mapping.asm -O3 -nostdlib -o ${BIN}/Devs/a314-td.device
+
+${BIN}/Devs/a314-fe.device: a314device/a314.h a314device/handshake_fe.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/fix_mem_region.c a314device/fix_mem_region.h a314device/int_server_fe.asm a314device/pi_if_fe.c a314device/pi_if.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
+	${VC} -DMODEL_FE=1 a314device/romtag.asm a314device/driver_task.c a314device/debug.c a314device/device.c a314device/startup.c a314device/sockets.c a314device/pi_if_fe.c a314device/int_server_fe.asm a314device/fix_mem_region.c -O3 -nostdlib -o ${BIN}/Devs/a314-fe.device
 
 ${BIN}/Devs/a314-cp.device: a314device/a314.h a314device/debug.c a314device/debug.h a314device/device.c a314device/device.h a314device/driver_task.c a314device/int_server_cp.asm a314device/memory_allocator.c a314device/memory_allocator.h a314device/pi_if_cp.c a314device/pi_if.h a314device/proto_a314.h a314device/protocol.h a314device/romtag.asm a314device/sockets.c a314device/sockets.h a314device/startup.c a314device/startup.h
 	${VC} -DMODEL_CP=1 a314device/romtag.asm a314device/driver_task.c a314device/debug.c a314device/device.c a314device/startup.c a314device/sockets.c a314device/pi_if_cp.c a314device/int_server_cp.asm a314device/memory_allocator.c -O3 -nostdlib -o ${BIN}/Devs/a314-cp.device

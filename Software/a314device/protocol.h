@@ -22,7 +22,7 @@ struct PktHdr
 };
 #pragma pack(pop)
 
-// TODO: These constants should be the same for TR and CP.
+// TODO: These constants should be the same for TD/FE and CP.
 // Must change on both sides at the same time.
 #if defined(MODEL_TD)
 #define CAP_BASE 0
@@ -40,6 +40,28 @@ struct ComAreaPtrs
 // The communication area, used to create the physical channel.
 struct ComArea
 {
+	struct ComAreaPtrs cap;
+	UBYTE a2r_buffer[256];
+	UBYTE r2a_buffer[256];
+};
+#elif defined(MODEL_FE)
+#define HANDSHAKE_BASE 0
+#define CAP_BASE 4
+#define A2R_BASE 8
+#define R2A_BASE 264
+
+struct ComAreaPtrs
+{
+	volatile UBYTE a2r_tail;
+	volatile UBYTE r2a_head;
+	volatile UBYTE r2a_tail;
+	volatile UBYTE a2r_head;
+};
+
+struct ComArea
+{
+	volatile UWORD lock_word;
+	volatile UWORD interrupt;
 	struct ComAreaPtrs cap;
 	UBYTE a2r_buffer[256];
 	UBYTE r2a_buffer[256];

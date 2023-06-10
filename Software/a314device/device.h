@@ -12,22 +12,30 @@
 
 struct A314Device
 {
-	struct Library lib;
+	struct Library lib; // sizeof(struct Library) == 34
 
 	BPTR saved_seg_list;
 	BOOL running;
+
+#if defined(MODEL_TD) || defined(MODEL_FE)
+	struct ComArea *ca; // offsetof(ca) == 40
+#endif
+
+	struct Task task; // offsetof(task) == 44
 
 #if defined(MODEL_TD)
 	ULONG bank_address[4];
 	UWORD is_a600;
 
 	ULONG fw_flags;
+#endif
 
-	struct ComArea *ca;
-
+#if defined(MODEL_TD) || defined(MODEL_FE)
 	struct Interrupt vertb_interrupt;
 	struct Interrupt ports_interrupt;
-#elif defined(MODEL_CP)
+#endif
+
+#if defined(MODEL_CP)
 	struct ComAreaPtrs cap;
 
 	void *first_chunk;
@@ -35,7 +43,6 @@ struct A314Device
 	struct Interrupt exter_interrupt;
 #endif
 
-	struct Task task;
 	struct MsgPort task_mp;
 
 	struct List active_sockets;
@@ -46,7 +53,7 @@ struct A314Device
 	UBYTE next_stream_id;
 };
 
-#if defined(MODEL_TD)
+#if defined(MODEL_TD) || defined(MODEL_FE)
 #define CAP_PTR(dev) (&(dev->ca->cap))
 #elif defined(MODEL_CP)
 #define CAP_PTR(dev) (&(dev->cap))
