@@ -4,6 +4,10 @@ This SANA-II driver works by copying Ethernet frames back and forth between the 
 
 ## Configuring the Raspberry Pi
 
+If the `install-pi.sh` script was run to setup the Raspberry Pi then the following
+steps have already been carried out, and no more configuration should be needed
+unless your network require some special configuration.
+
 - Install pytun: `sudo pip3 install python-pytun`.
 - Copy `ethernet.py` to `/opt/a314/ethernet.py`.
 - Update `/etc/opt/a314/a314d.conf` with a line that starts `ethernet.py` on demand.
@@ -13,17 +17,17 @@ This SANA-II driver works by copying Ethernet frames back and forth between the 
 - Add the lines in `pi-config/rc.local` to the bottom of `/etc/rc.local` just before `exit 0`. This create iptables rules that forwards packets from the `tap0` interface to the `wlan0` interface.
   - Please note that if the Pi is connected using wired ethernet then `wlan0` should be changed to `eth0`.
 
-The first four steps are performed by `sudo make install`. The last steps you have to do manually.
-
 ## Configuring the Amiga
 
 This has been tested with the Roadshow and the MiamiDX TCP/IP stacks. These instructions show how to configure Roadshow and Miami for a314ethernet, they do not describe how to install either.
 
 ### Common
+
 - Build the `a314eth.device` binary, for example using the `rpi_docker_build.sh` script.
 - Copy `bin/a314eth.device` to `DEVS:`.
 
 ### Roadshow
+
 - Copy `amiga-config/A314Eth` to `DEVS:NetInterfaces/A314Eth`.
 - Copy `amiga-config/routes` to `DEVS:Internet/routes`.
 - Copy `amiga-config/name_resolution` to `DEVS:Internet/name_resolution`.
@@ -33,6 +37,7 @@ This has been tested with the Roadshow and the MiamiDX TCP/IP stacks. These inst
 Reboot the Amiga and with some luck you should be able to access the Internet from your Amiga.
 
 ### Miami
+
 - Create new device entry under **Hardware**
   - Click **New** and select **Ethernet**
   - Name it accordingly, for example `a314eth`
@@ -62,7 +67,7 @@ The above described configuration uses a method called masquerading to create a 
 
 To facilitate that access, the firewall on the Pi needs to be configured to forward incoming traffic on specific ports on the external interface to the Amiga. The example below assumes that the Pi and Amiga have both been setup as described earlier in this document.
 
-```
+```bash
 iptables -A PREROUTING -t nat -i wlan0 -p tcp --dport 21 -j DNAT --to 192.168.2.2:21
 iptables -A FORWARD -p tcp -d 192.168.2.2 --dport 21 -j ACCEPT
 ```
