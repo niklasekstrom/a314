@@ -19,6 +19,8 @@ struct A314Device
 
 #if defined(MODEL_TD) || defined(MODEL_FE)
 	struct ComArea *ca; // offsetof(ca) == 40
+#elif defined(MODEL_CP)
+	ULONG clockport_address; // offsetof(clockport_address) == 40
 #endif
 
 	struct Task task; // offsetof(task) == 44
