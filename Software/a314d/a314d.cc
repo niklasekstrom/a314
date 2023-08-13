@@ -39,20 +39,19 @@
 #error The MODEL_XX flags cannot be combined
 #endif
 
-#define LOGGER_TRACE 0
-#define logger_trace(...) do { if (LOGGER_TRACE) fprintf(stdout, __VA_ARGS__); } while (0)
+#define LOGLEVEL_TRACE      10
+#define LOGLEVEL_DEBUG      20
+#define LOGLEVEL_INFO       30
+#define LOGLEVEL_WARNING    40
+#define LOGLEVEL_ERROR      50
 
-#define LOGGER_DEBUG 0
-#define logger_debug(...) do { if (LOGGER_DEBUG) fprintf(stdout, __VA_ARGS__); } while (0)
+static int loglevel = LOGLEVEL_INFO;
 
-#define LOGGER_INFO 1
-#define logger_info(...) do { if (LOGGER_INFO) fprintf(stdout, __VA_ARGS__); } while (0)
-
-#define LOGGER_WARN 1
-#define logger_warn(...) do { if (LOGGER_WARN) fprintf(stdout, __VA_ARGS__); } while (0)
-
-#define LOGGER_ERROR 1
-#define logger_error(...) do { if (LOGGER_ERROR) fprintf(stderr, __VA_ARGS__); } while (0)
+#define logger_trace(...) do { if (loglevel <= LOGLEVEL_TRACE) fprintf(stdout, __VA_ARGS__); } while (0)
+#define logger_debug(...) do { if (loglevel <= LOGLEVEL_DEBUG) fprintf(stdout, __VA_ARGS__); } while (0)
+#define logger_info(...) do { if (loglevel <= LOGLEVEL_INFO) fprintf(stdout, __VA_ARGS__); } while (0)
+#define logger_warning(...) do { if (loglevel <= LOGLEVEL_WARNING) fprintf(stdout, __VA_ARGS__); } while (0)
+#define logger_error(...) do { if (loglevel <= LOGLEVEL_ERROR) fprintf(stderr, __VA_ARGS__); } while (0)
 
 // Packets that are communicated across physical channels (A2R and R2A).
 #define PKT_CONNECT             4
@@ -412,7 +411,7 @@ static void load_config_file(const char *filename)
                 e.arguments.push_back(std::string(parts[i]));
         }
         else if (parts.size() != 0)
-            logger_warn("Invalid number of columns in configuration file line: %s\n", org_line);
+            logger_warning("Invalid number of columns in configuration file line: %s\n", org_line);
 
         parts.clear();
     }
@@ -420,7 +419,7 @@ static void load_config_file(const char *filename)
     fclose(f);
 
     if (on_demand_services.empty())
-        logger_warn("No registered services\n");
+        logger_warning("No registered services\n");
 }
 
 #if defined(MODEL_TD)
@@ -1328,7 +1327,7 @@ static void handle_received_message(ClientConnection *cc)
         break;
     default:
         // This is bad, probably should disconnect from client.
-        logger_warn("Received a message of unknown type from client\n");
+        logger_warning("Received a message of unknown type from client\n");
         break;
     }
 }
@@ -1884,7 +1883,7 @@ static void handle_client_connection_event(ClientConnection *cc, struct epoll_ev
 {
     if (ev->events & EPOLLERR)
     {
-        logger_warn("Received EPOLLERR for client connection\n");
+        logger_warning("Received EPOLLERR for client connection\n");
         close_and_remove_connection(cc);
         return;
     }
@@ -2155,8 +2154,21 @@ int main(int argc, char **argv)
 {
     std::string conf_filename("/etc/opt/a314/a314d.conf");
 
-    if (argc >= 2)
-        conf_filename = argv[1];
+    int used_args = 1;
+
+    if (argc >= 3 && strcmp(argv[1], "--loglevel") == 0)
+    {
+        used_args += 2;
+        if (strcasecmp(argv[2], "trace") == 0) loglevel = LOGLEVEL_TRACE;
+        else if (strcasecmp(argv[2], "debug") == 0) loglevel = LOGLEVEL_DEBUG;
+        else if (strcasecmp(argv[2], "info") == 0) loglevel = LOGLEVEL_INFO;
+        else if (strcasecmp(argv[2], "warning") == 0) loglevel = LOGLEVEL_WARNING;
+        else if (strcasecmp(argv[2], "error") == 0) loglevel = LOGLEVEL_ERROR;
+        else fprintf(stderr, "Invalid log level '%s', defaulting to INFO\n", argv[2]);
+    }
+
+    if (argc > used_args)
+        conf_filename = argv[used_args];
 
     load_config_file(conf_filename.c_str());
 
