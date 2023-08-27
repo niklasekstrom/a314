@@ -8,3 +8,5 @@ HDL/*.qws
 HDL/*.rpt
 Software/bin
 Software/**/.vscode
+Software/bin_pi
+Software/bpls2gif/build
