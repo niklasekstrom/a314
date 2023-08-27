@@ -45,23 +45,12 @@ install_common() {
 	# Enable IP forwarding
 	echo net.ipv4.ip_forward=1 > /etc/sysctl.d/a314eth.conf
 
-	# Add iptable rules
-	RC_LOCAL_FILE=/etc/rc.local
-
-	if ! grep -q "iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE" $RC_LOCAL_FILE
-	then
-		if grep -q "exit 0" $RC_LOCAL_FILE
-		then
-			sed -i "/exit 0/d" $RC_LOCAL_FILE
-			cat ethernet/pi-config/rc.local >> $RC_LOCAL_FILE
-			echo "exit 0" >> $RC_LOCAL_FILE
-		else
-			cat ethernet/pi-config/rc.local >> $RC_LOCAL_FILE
-		fi
-	fi
+	# Add service that sets iptable rules
+	[ -f /lib/systemd/system/a314net.service ] || install -m644 ethernet/pi-config/a314net.service /lib/systemd/system
 
 	systemctl daemon-reload
 	systemctl enable a314d
+	systemctl enable a314net
 
 	echo
 	echo "Installation complete"
