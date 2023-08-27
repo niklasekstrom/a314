@@ -1,0 +1,16 @@
+[Unit]
+Description=A314 Network routing
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
+ExecStart=iptables -A FORWARD -i wlan0 -o tap0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+ExecStart=iptables -A FORWARD -i tap0 -o wlan0 -j ACCEPT
+ExecStop=iptables -t nat -D POSTROUTING -o wlan0 -j MASQUERADE
+ExecStop=iptables -D FORWARD -i wlan0 -o tap0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+ExecStop=iptables -D FORWARD -i tap0 -o wlan0 -j ACCEPT
+
+[Install]
+WantedBy=multi-user.target
