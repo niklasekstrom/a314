@@ -160,6 +160,7 @@
 // Events that are communicated from Raspberry to Amiga.
 #define A_EVENT_R2A_TAIL        1
 #define A_EVENT_A2R_HEAD        2
+
 #elif defined(MODEL_FE)
 #define PIN_D(x)                (4 + x)
 #define PIN_WR                  20
@@ -196,6 +197,7 @@
 #define IRQ_A2R_TAIL            0x0004
 #define IRQ_R2A_HEAD            0x0008
 #define IRQ_BASE_ADDRESS        0x0010
+
 #elif defined(MODEL_CP)
 #define PIN_IRQ                 2
 #define PIN_CLK                 4
@@ -209,6 +211,7 @@
 #define PINS_OUT_NOT_WR     ((0xff << PIN_D(0)) | (3 << PIN_A(0)) | (1 << PIN_REQ))
 
 #define GPIO_DIR_0              0x08004000
+#define GPIO_DIR_0_MASK         0x3f0071c0
 #define GPIO_DIR_1_DIN          0x00001009
 #define GPIO_DIR_1_DOUT         0x09241009
 #define GPIO_DIR_2_DIN          0x08209000
@@ -245,7 +248,6 @@ static uint32_t speed = 67000000;
 static int spi_fd = -1;
 static int spi_proto_ver = 0;
 #elif defined(MODEL_FE)
-static unsigned int low_pins_dir;
 static unsigned int current_address;
 static int current_dir = 0; // 0 = input, 1 = output.
 #elif defined(MODEL_CP)
@@ -607,7 +609,7 @@ static inline void set_dir_read()
 {
     if (current_dir == 1)
     {
-        *(gpio + 0) = GPIO_DIR_0_DIN | low_pins_dir;
+        *(gpio + 0) = (*(gpio + 0) & ~GPIO_DIR_0_MASK) | GPIO_DIR_0_DIN;
         *(gpio + 1) = GPIO_DIR_1_DIN;
         current_dir = 0;
     }
@@ -617,7 +619,7 @@ static inline void set_dir_write()
 {
     if (current_dir == 0)
     {
-        *(gpio + 0) = GPIO_DIR_0_DOUT | low_pins_dir;
+        *(gpio + 0) = (*(gpio + 0) & ~GPIO_DIR_0_MASK) | GPIO_DIR_0_DOUT;
         *(gpio + 1) = GPIO_DIR_1_DOUT;
         current_dir = 1;
     }
@@ -785,12 +787,9 @@ static int init_gpio()
         return -1;
 
     // Set pin directions.
-    low_pins_dir = *(gpio + 0) & 0x00000fff;
-    unsigned int high_pins_dir = *(gpio + 2) & 0x3f000000;
-
-    *(gpio + 0) = GPIO_DIR_0_DIN | low_pins_dir;
-    *(gpio + 1) = GPIO_DIR_1_DIN;
-    *(gpio + 2) = high_pins_dir | GPIO_DIR_2;
+    *(gpio + 0) = (*(gpio + 0) & ~GPIO_DIR_0_MASK) | GPIO_DIR_0_DIN;
+    *(gpio + 1) = (*(gpio + 1) & ~GPIO_DIR_1_MASK) | GPIO_DIR_1_DIN;
+    *(gpio + 2) = (*(gpio + 2) & ~GPIO_DIR_2_MASK) | GPIO_DIR_2;
 
     *(gpio + 10) = 0x0ffffff0;
 
@@ -919,7 +918,8 @@ static int init_gpio()
     // Inputs: PIN_IRQ, PIN_ACK, PIN_D(x), unused pins.
     // Outputs: PIN_REQ, PIN_A(x), PIN_WR, pin 29 (connects to LED on Pi3).
     // Alt0: PIN_CLK.
-    *(gpio + 0) = GPIO_DIR_0;
+    // Directions of pins 0, 1, 3, 5, 6, 7 are left unchanged.
+    *(gpio + 0) = (*(gpio + 0) & ~GPIO_DIR_0_MASK) | GPIO_DIR_0;
     *(gpio + 1) = GPIO_DIR_1_DIN;
     *(gpio + 2) = GPIO_DIR_2_DIN;
 
