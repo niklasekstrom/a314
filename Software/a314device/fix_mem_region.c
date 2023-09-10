@@ -28,8 +28,6 @@ extern ULONG check_a314_mapping(__reg("a0") void *address);
 #define ONE_MB (1024*1024)
 #define TWO_MB (2*1024*1024)
 
-#define FE_BANK_ADDRESS 0x40000
-
 struct MemChunkList
 {
 	struct MemChunk *first;
@@ -325,7 +323,7 @@ BOOL fix_memory(struct A314Device *dev)
 BOOL fix_memory(struct A314Device *dev)
 {
 	Forbid();
-	mark_region_a314(FE_BANK_ADDRESS, QUARTER_MB);
+	mark_region_a314(dev->a314_mem_address, QUARTER_MB);
 	Permit();
 	return TRUE;
 }
@@ -354,7 +352,7 @@ static ULONG cpu_to_a314_address(__reg("a6") struct A314Device *dev, __reg("a0")
 			return HALF_MB + offset;
 	}
 #elif defined(MODEL_FE)
-	ULONG offset = (ULONG)address - FE_BANK_ADDRESS;
+	ULONG offset = (ULONG)address - dev->a314_mem_address;
 	if (offset < QUARTER_MB)
 		return offset;
 #endif
@@ -369,7 +367,7 @@ static void *a314_to_cpu_address(__reg("a6") struct A314Device *dev, __reg("d0")
 	ULONG offset = address & ((1 << 19) - 1);
 	return (void *)(dev->bank_address[bank] + offset);
 #elif defined(MODEL_FE)
-	return (void *)(FE_BANK_ADDRESS + address);
+	return (void *)(dev->a314_mem_address + address);
 #endif
 }
 
