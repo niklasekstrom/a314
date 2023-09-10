@@ -28,6 +28,8 @@ struct A314Device
 	UWORD is_a600;
 
 	ULONG fw_flags;
+#elif defined(MODEL_FE)
+	ULONG a314_mem_address;
 #endif
 
 #if defined(MODEL_TD) || defined(MODEL_FE)

@@ -18,10 +18,11 @@
 
 #define SysBase (*(struct ExecBase **)4)
 
-// TODO: Currently these values are hard coded.
+// TODO: Currently the list of addresses to probe is hard coded.
 // We may want to add more dynamic detection of where the
 // shared memory ends up in the memory space.
-#define FE_BANK_ADDRESS		0x40000
+static ULONG probe_addresses[] = {0x040000, 0xC40000, INVALID_A314_ADDRESS};
+
 #define QUARTER_MB		(256*1024)
 
 extern void IntServer();
@@ -81,13 +82,30 @@ static void set_com_area_base_address(struct A314Device *dev)
 	Enable();
 }
 
-int probe_pi_interface(struct A314Device *dev)
+static int probe_board_address(struct A314Device *dev)
 {
-	if (!check_overlap_region(FE_BANK_ADDRESS, FE_BANK_ADDRESS + QUARTER_MB))
+	if (!check_overlap_region(dev->a314_mem_address, dev->a314_mem_address + QUARTER_MB))
 		return FALSE;
 
-	if (!detect_board_present(FE_BANK_ADDRESS))
+	if (!detect_board_present(dev->a314_mem_address))
 		return FALSE;
+
+	return TRUE;
+}
+
+int probe_pi_interface(struct A314Device *dev)
+{
+	for (int i = 0; ; i++)
+	{
+		ULONG address = probe_addresses[i];
+		if (address == INVALID_A314_ADDRESS)
+			return FALSE;
+
+		dev->a314_mem_address = address;
+
+		if (probe_board_address(dev))
+			break;
+	}
 
 	if (!fix_memory(dev))
 		return FALSE;
