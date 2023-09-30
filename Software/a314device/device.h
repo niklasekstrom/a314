@@ -36,15 +36,15 @@ struct A314Device
 
 #if defined(MODEL_TD) || defined(MODEL_FE)
 	struct Interrupt vertb_interrupt;
-	struct Interrupt ports_interrupt;
 #endif
+
+	struct Interrupt int_x_interrupt;
+	UWORD interrupt_number;
 
 #if defined(MODEL_CP)
 	struct ComAreaPtrs cap;
 
 	void *first_chunk;
-
-	struct Interrupt exter_interrupt;
 #endif
 
 	struct MsgPort task_mp;

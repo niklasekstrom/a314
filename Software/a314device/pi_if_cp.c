@@ -256,6 +256,7 @@ fail1:
 int probe_pi_interface(struct A314Device *dev)
 {
 	dev->clockport_address = DEFAULT_CLOCKPORT_ADDRESS;
+	dev->interrupt_number = 6;
 
 	read_and_parse_config_file(dev);
 
@@ -304,16 +305,18 @@ static void update_restart_counter(struct A314Device *dev)
 	Enable();
 }
 
-static void add_int6_handler(struct A314Device *dev)
+static void add_interrupt_handler(struct A314Device *dev)
 {
-	memset(&dev->exter_interrupt, 0, sizeof(struct Interrupt));
-	dev->exter_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	dev->exter_interrupt.is_Node.ln_Pri = 0;
-	dev->exter_interrupt.is_Node.ln_Name = device_name;
-	dev->exter_interrupt.is_Data = (APTR)dev;
-	dev->exter_interrupt.is_Code = IntServer;
+	memset(&dev->int_x_interrupt, 0, sizeof(struct Interrupt));
+	dev->int_x_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	dev->int_x_interrupt.is_Node.ln_Pri = 0;
+	dev->int_x_interrupt.is_Node.ln_Name = device_name;
+	dev->int_x_interrupt.is_Data = (APTR)dev;
+	dev->int_x_interrupt.is_Code = IntServer;
 
-	AddIntServer(INTB_EXTER, &dev->exter_interrupt);
+	LONG int_num = dev->interrupt_number == 6 ? INTB_EXTER :
+		(dev->interrupt_number == 2 ? INTB_PORTS : INTB_VERTB);
+	AddIntServer(int_num, &dev->int_x_interrupt);
 }
 
 void setup_pi_interface(struct A314Device *dev)
@@ -326,7 +329,7 @@ void setup_pi_interface(struct A314Device *dev)
 
 	clear_amiga_irq(dev);
 
-	add_int6_handler(dev);
+	add_interrupt_handler(dev);
 
 	// FIXME: The current scheme is that a314d is notified that a314.device
 	// has restarted through a restart counter variable.

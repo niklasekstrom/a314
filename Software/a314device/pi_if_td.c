@@ -31,14 +31,15 @@ static void add_interrupt_handlers(struct A314Device *dev)
 
 	AddIntServer(INTB_VERTB, &dev->vertb_interrupt);
 
-	memset(&dev->ports_interrupt, 0, sizeof(struct Interrupt));
-	dev->ports_interrupt.is_Node.ln_Type = NT_INTERRUPT;
-	dev->ports_interrupt.is_Node.ln_Pri = 0;
-	dev->ports_interrupt.is_Node.ln_Name = device_name;
-	dev->ports_interrupt.is_Data = (APTR)&dev->task;
-	dev->ports_interrupt.is_Code = IntServer;
+	memset(&dev->int_x_interrupt, 0, sizeof(struct Interrupt));
+	dev->int_x_interrupt.is_Node.ln_Type = NT_INTERRUPT;
+	dev->int_x_interrupt.is_Node.ln_Pri = 0;
+	dev->int_x_interrupt.is_Node.ln_Name = device_name;
+	dev->int_x_interrupt.is_Data = (APTR)&dev->task;
+	dev->int_x_interrupt.is_Code = IntServer;
 
-	AddIntServer(INTB_PORTS, &dev->ports_interrupt);
+	LONG int_num = dev->interrupt_number == 6 ? INTB_EXTER : INTB_PORTS;
+	AddIntServer(int_num, &dev->int_x_interrupt);
 }
 
 static void detect_and_write_address_swap()
@@ -56,6 +57,8 @@ static void detect_and_write_address_swap()
 
 int probe_pi_interface(struct A314Device *dev)
 {
+	dev->interrupt_number = 2;
+
 	dev->fw_flags = read_fw_flags();
 
 	if (!fix_memory(dev))

@@ -68,6 +68,12 @@ static void parse_config_file(struct A314Device *dev, char *buf)
 						dev->clockport_address = value;
 #endif
 				}
+				else if (strcmp(key_ptr, "Interrupt") == 0)
+				{
+					ULONG value = str_to_ulong(value_ptr);
+					if (value == 2 || value == 3 || value == 6)
+						dev->interrupt_number = value;
+				}
 			}
 
 			p++;
