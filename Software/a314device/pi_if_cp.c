@@ -12,6 +12,7 @@
 #include "device.h"
 #include "protocol.h"
 #include "memory_allocator.h"
+#include "config_file.h"
 
 // Warning 367 says that an eight bit shift will ignore a byte value,
 // which is correct, but intentional.
@@ -255,6 +256,8 @@ fail1:
 int probe_pi_interface(struct A314Device *dev)
 {
 	dev->clockport_address = DEFAULT_CLOCKPORT_ADDRESS;
+
+	read_and_parse_config_file(dev);
 
 	for (int i = 7; i >= 0; i--)
 	{
