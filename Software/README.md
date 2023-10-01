@@ -9,7 +9,7 @@ The variants of the software use the following acronyms:
 
 ## How to install
 
-Software needs to be built and installed for both the Raspberry Pi side and the Amiga side.
+Software needs to be installed on both the Raspberry Pi side and on the Amiga side.
 
 ### Raspberry Pi
 
@@ -42,6 +42,23 @@ Copy only the version that matches your A314 hardware and rename it to `a314.dev
 After these files are copied to the Amiga it should be possible to run the pi command.
 The pi command can be invoked by `pi` without any arguments to get an interactive bash terminal,
 or with arguments to run a particular Linux command.
+
+#### Configuration file
+
+For the a314-cp driver it is possible to write a configuration file to `DEVS:a314.config`.
+The configuration file is a text file, where each line has the format `<key> = <value>`.
+The keys are:
+
+- `ClockportAddress`: the address (in hexadecimal) of the clock port.
+- `Interrupt`: the interrupt number used, either: 2 (INT2), 3 (Vertical blank), or 6 (INT6).
+
+If the configuration file is not present then the default values are used, which for
+a314-cp are:
+
+```text
+ClockportAddress = D80001
+Interrupt = 6
+```
 
 #### Building
 
