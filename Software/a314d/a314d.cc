@@ -444,6 +444,23 @@ static void shutdown_spi()
         close(spi_fd);
 }
 
+static int check_spidev_bufsiz()
+{
+    int fd = open("/sys/module/spidev/parameters/bufsiz", O_RDONLY);
+    if (fd == -1)
+        return -1;
+
+    char buf[32];
+    auto actual = read(fd, buf, strlen(buf));
+
+    close(fd);
+
+    if (strncmp(buf, "65536", actual) != 0)
+        return -2;
+
+    return 0;
+}
+
 static int spi_transfer(int len)
 {
     struct spi_ioc_transfer tr =
@@ -1070,6 +1087,9 @@ static int init_driver()
 #if defined(MODEL_TD)
     if (init_spi() != 0)
         return -1;
+
+    if (check_spidev_bufsiz())
+        logger_warning("The spidev.bufsiz argument in /boot/cmdline.txt is set incorrectly, it should be 65536\n");
 
     spi_proto_ver = spi_protocol_version();
 #elif defined(MODEL_FE) || defined(MODEL_CP)
