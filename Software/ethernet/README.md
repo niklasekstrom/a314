@@ -23,8 +23,7 @@ This has been tested with the Roadshow and the MiamiDX TCP/IP stacks. These inst
 
 ### Common
 
-- Build the `a314eth.device` binary, for example using the `rpi_docker_build.sh` script.
-- Copy `bin/a314eth.device` to `DEVS:`.
+- Copy `a314eth.device` to `DEVS:`.
 
 ### Roadshow
 
