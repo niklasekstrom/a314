@@ -36,7 +36,7 @@ install_common() {
 	# Add shared directory for a314fs
 	sudo -u $A314_USER mkdir -p ${A314_HOME}/a314shared
 
-	cd bpls2gif ; python3 setup.py install ; cd ..
+	PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install bpls2gif/
 
 	PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install python-pytun
 

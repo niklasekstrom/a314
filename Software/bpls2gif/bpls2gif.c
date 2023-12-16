@@ -6,34 +6,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #define COLORS 8
 #define CHUNKLEN 255
 
-typedef unsigned char uchar;
-typedef unsigned short ushort;
-typedef unsigned int uint;
-
 struct _Node
 {
-	ushort children[COLORS];
+	uint16_t children[COLORS];
 };
 typedef struct _Node Node;
 
 static Node *nodes;
 
-static void init_node(ushort code)
+static void init_node(uint16_t code)
 {
 	Node *node = &nodes[code];
 	for (int i = 0; i < COLORS; i++)
 		node->children[i] = 0xffff;
 }
 
-static uchar *buffer;
+static uint8_t *buffer;
 static int capacity;
 static int length;
 
-static void append_byte(uchar b)
+static void append_byte(uint8_t b)
 {
 	if (length == capacity)
 	{
@@ -46,7 +43,7 @@ static void append_byte(uchar b)
 
 static int chunk_left = 0;
 
-static void flush_byte(uchar b)
+static void flush_byte(uint8_t b)
 {
 	if (!chunk_left)
 	{
@@ -59,15 +56,15 @@ static void flush_byte(uchar b)
 }
 
 #define c2p(c) &nodes[c]
-#define p2c(p) (((uint)p - (uint)nodes) / sizeof(Node))
+#define p2c(p) (((uint32_t)((intptr_t)p - (intptr_t)nodes)) / sizeof(Node))
 
-static const uint clear_code = 256;
-static const uint eoi_code = 257;
-static uint next_code = 258;
+static const uint32_t clear_code = 256;
+static const uint32_t eoi_code = 257;
+static uint32_t next_code = 258;
 
 static int clen;
 
-static uint buf;
+static uint32_t buf;
 static int blen;
 
 static Node *prefix;
@@ -113,17 +110,17 @@ static void end_encode(void)
 	}
 }
 
-static void encode(uchar *pixels, int count)
+static void encode(uint8_t *pixels, int count)
 {
-	uint *cp = (uint *)pixels;
-	uint *end = (uint *)(pixels + (count / 2));
+	uint32_t *cp = (uint32_t *)pixels;
+	uint32_t *end = (uint32_t *)(pixels + (count / 2));
 
-	uint ibuf = *cp++;
+	uint32_t ibuf = *cp++;
 	int ilen = 8;
 
 	if (!prefix)
 	{
-		uchar K = ibuf & 0xf;
+		uint8_t K = ibuf & 0xf;
 		ibuf >>= 4;
 		ilen--;
 		prefix = &nodes[K];
@@ -137,7 +134,7 @@ static void encode(uchar *pixels, int count)
 			ilen = 8;
 		}
 
-		uchar K = ibuf & 0xf;
+		uint8_t K = ibuf & 0xf;
 		ibuf >>= 4;
 		ilen--;
 
@@ -151,7 +148,7 @@ static void encode(uchar *pixels, int count)
 			init_node(next_code);
 			prefix->children[K] = next_code;
 
-			if (next_code == (1 << clen))
+			if (next_code == (1U << clen))
 				clen++;
 			next_code++;
 
@@ -185,24 +182,24 @@ static void encode(uchar *pixels, int count)
 #define BPL_SIZE (W * H / 8)
 #define BPL_COUNT 3
 
-static uchar pal[8*3] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+static uint8_t pal[8*3] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-static void copy_bpls_to_pixels(uchar *pixels, uchar *bpls, int b)
+static void copy_bpls_to_pixels(uint8_t *pixels, uint8_t *bpls, int b)
 {
 	memset(pixels, 0, W * BLOCK_HEIGHT / 2);
 
 	bpls += b * BLOCK_HEIGHT * W / 8;
 	for (int i = 0; i < BPL_COUNT; i++)
 	{
-		uchar *src = bpls;
-		uint *dst = (uint *)pixels;
+		uint8_t *src = bpls;
+		uint32_t *dst = (uint32_t *)pixels;
 
 		int shift = 28 - (7 - i);
 
 		for (int j = 0; j < BLOCK_HEIGHT * W / 8; j++)
 		{
-			uchar x = *src++;
-			uint bits = 0;
+			uint8_t x = *src++;
+			uint32_t bits = 0;
 			for (int k = 0; k < 8; k++)
 			{
 				bits = (bits >> 4) | ((x & 0x80) << shift);
@@ -214,11 +211,11 @@ static void copy_bpls_to_pixels(uchar *pixels, uchar *bpls, int b)
 	}
 }
 
-static uchar *pixels;
+static uint8_t *pixels;
 
-static void write_gif(uchar *bpls)
+static void write_gif(uint8_t *bpls)
 {
-	uchar *p = buffer;
+	uint8_t *p = buffer;
 	memcpy(p, "GIF89a", 6);
 	p += 6;
 	*((short *)p) = W;
@@ -294,7 +291,7 @@ static PyObject *b2g_encode(PyObject *self, PyObject *args)
 		return NULL;
 	}
 
-	write_gif((uchar *)buf);
+	write_gif((uint8_t *)buf);
 
 	return Py_BuildValue(BYTEARRAY_FORMAT, buffer, length);
 }
