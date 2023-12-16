@@ -18,7 +18,8 @@ To build and install the software on the Raspberry Pi side, do the following:
 - Install Raspberry Pi OS (I tend to use Raspberry Pi OS Lite 64-bit,
   but any recent version should work):
   <https://www.raspberrypi.com/software/operating-systems/>
-- Install Dependencies: `sudo apt install python3-dev python3-distutils python3-pip build-essential git iptables`
+- Update apt package lists: `sudo apt update`
+- Install Dependencies: `sudo apt install python3-dev python3-distutils python3-pip python3-pyudev python3-websockets build-essential git iptables libraspberrypi-dev`
 - Obtain a copy of the repository, either:
   - Clone the a314 repository: `git clone https://github.com/niklasekstrom/a314.git`, or
   - Download the sources from a release. Pick a release from

@@ -37,7 +37,8 @@ install_common() {
 	sudo -u $A314_USER mkdir -p ${A314_HOME}/a314shared
 
 	cd bpls2gif ; python3 setup.py install ; cd ..
-	pip3 install websockets python-pytun pyudev
+
+	PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install python-pytun
 
 	# Add tap0 interface
 	modinstall ethernet/pi-config/tap0 /etc/network/interfaces.d
