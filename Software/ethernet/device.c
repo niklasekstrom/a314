@@ -17,6 +17,7 @@
 #include <proto/alib.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <proto/timer.h>
 
 #include <string.h>
 
@@ -80,7 +81,7 @@ struct BufDesc
 // Constants.
 
 const char device_name[] = DEVICE_NAME;
-const char id_string[] = DEVICE_NAME " 1.0 (20 July 2020)";
+const char id_string[] = DEVICE_NAME " 1.1 (3.3.2024)";
 
 static const char service_name[] = SERVICE_NAME;
 static const char a314_device_name[] = A314_NAME;
@@ -132,6 +133,10 @@ volatile struct Task *init_task;
 
 struct Process *device_process;
 volatile int device_start_error;
+
+struct Sana2DeviceStats global_stats;
+
+BOOL is_online;
 
 // External declarations.
 
@@ -237,6 +242,8 @@ static void copy_from_bd_and_reply(struct IOSana2Req *ios2, struct BufDesc *bd)
 
 	ios2->ios2_Req.io_Error = 0;
 	ReplyMsg(&ios2->ios2_Req.io_Message);
+
+	global_stats.PacketsReceived++;
 }
 
 static void copy_to_bd_and_reply(struct BufDesc *bd, struct IOSana2Req *ios2)
@@ -265,6 +272,8 @@ static void copy_to_bd_and_reply(struct BufDesc *bd, struct IOSana2Req *ios2)
 
 	ios2->ios2_Req.io_Error = 0;
 	ReplyMsg(&ios2->ios2_Req.io_Message);
+
+	global_stats.PacketsSent++;
 }
 
 static void handle_a314_reply(struct A314_IORequest *ior)
@@ -349,9 +358,9 @@ static void complete_read_reqs()
 
 		struct IOSana2Req *ios2 = remove_matching_rbuf(eh_type);
 		if (ios2)
-		{
 			copy_from_bd_and_reply(ios2, bd);
-		}
+		else
+			global_stats.UnknownTypesReceived++;
 
 		Remove((struct Node *)bd);
 		AddTail(&et_rbuf_free_list, (struct Node *)bd);
@@ -537,6 +546,9 @@ static void open(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req 
 	memcpy(&read_ior, &write_ior, sizeof(read_ior));
 	memcpy(&reset_ior, &write_ior, sizeof(reset_ior));
 
+	memset(&global_stats, 0, sizeof(global_stats));
+	is_online = FALSE;
+
 	struct DateStamp ds;
 	DateStamp(&ds);
 	a314_socket = (ds.ds_Minute * 60 * TICKS_PER_SECOND) + ds.ds_Tick;
@@ -658,6 +670,20 @@ static void device_query(struct IOSana2Req *req)
 	query->SizeSupplied = query->SizeAvailable < 30 ? query->SizeAvailable : 30;
 }
 
+static void set_last_start()
+{
+	struct IORequest req;
+	memset(&req, 0, sizeof(req));
+	req.io_Message.mn_Length = sizeof(req);
+
+	if (OpenDevice(TIMERNAME, UNIT_MICROHZ, &req, 0) == 0)
+	{
+		struct Device *TimerBase = req.io_Device;
+		GetSysTime(&global_stats.LastStart);
+		CloseDevice(&req);
+	}
+}
+
 static void begin_io(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2Req *ios2)
 {
 	ios2->ios2_Req.io_Error = S2ERR_NO_ERROR;
@@ -712,14 +738,23 @@ static void begin_io(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2
 		Signal(&device_process->pr_Task, sana2_sigmask);
 		break;
 
-	case S2_ONLINE:
-	case S2_OFFLINE:
 	case S2_CONFIGINTERFACE:
+		/* Fall through */
+
+	case S2_ONLINE:
+		set_last_start();
+		is_online = TRUE;
 		break;
+
+	case S2_OFFLINE:
+		is_online = FALSE;
+		break;
+
 	case S2_GETSTATIONADDRESS:
 		memcpy(ios2->ios2_SrcAddr, macaddr, sizeof(macaddr));
 		memcpy(ios2->ios2_DstAddr, macaddr, sizeof(macaddr));
 		break;
+
 	case S2_DEVICEQUERY:
 		device_query(ios2);
 		break;
@@ -729,8 +764,12 @@ static void begin_io(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2
 	case S2_UNTRACKTYPE:
 	case S2_GETTYPESTATS:
 	case S2_READORPHAN:
-	case S2_GETGLOBALSTATS:
 	case S2_GETSPECIALSTATS:
+		break;
+
+	case S2_GETGLOBALSTATS:
+		if (ios2->ios2_StatData)
+			memcpy(ios2->ios2_StatData, &global_stats, sizeof(struct Sana2DeviceStats));
 		break;
 
 	default:
