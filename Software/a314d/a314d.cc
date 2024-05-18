@@ -6,6 +6,7 @@
 
 #include <linux/spi/spidev.h>
 #include <linux/types.h>
+#include <linux/gpio.h>
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -124,14 +125,14 @@ static int loglevel = LOGLEVEL_INFO;
 #endif
 
 #if defined(MODEL_TD)
-#define IRQ_GPIO                "25"
-#define IRQ_GPIO_EDGE           "both"
+#define IRQ_GPIO                25
+#define IRQ_GPIO_EDGE           GPIO_V2_LINE_FLAG_EDGE_RISING | GPIO_V2_LINE_FLAG_EDGE_FALLING
 #elif defined(MODEL_FE)
-#define IRQ_GPIO                "23"
-#define IRQ_GPIO_EDGE           "rising"
+#define IRQ_GPIO                23
+#define IRQ_GPIO_EDGE           GPIO_V2_LINE_FLAG_EDGE_RISING
 #elif defined(MODEL_CP)
-#define IRQ_GPIO                "2"
-#define IRQ_GPIO_EDGE           "rising"
+#define IRQ_GPIO                2
+#define IRQ_GPIO_EDGE           GPIO_V2_LINE_FLAG_EDGE_RISING
 #endif
 
 #if defined(MODEL_TD)
@@ -257,8 +258,6 @@ static bool read_a314_magic = false;
 static int restart_counter;
 #endif
 
-static bool gpio_irq_exported = false;
-static bool gpio_irq_edge_set = false;
 static int gpio_irq_fd = -1;
 
 static bool auto_clear_irq = false;
@@ -959,71 +958,35 @@ static void shutdown_gpio()
 }
 #endif
 
-static int open_write_close(const char *filename, const char *text)
-{
-    int fd = open(filename, O_WRONLY);
-    if (fd == -1)
-        return -1;
-
-    write(fd, text, strlen(text));
-    close(fd);
-    return 0;
-}
-
-static void sleep_100ms()
-{
-    struct timespec delay;
-    delay.tv_sec = 0;
-    delay.tv_nsec = 100000000L;
-    nanosleep(&delay, NULL);
-}
-
-static void set_direction()
-{
-    for (int retry = 0; retry < 100; retry++)
-    {
-        int fd = open("/sys/class/gpio/gpio" IRQ_GPIO "/direction", O_WRONLY);
-        if (fd != -1)
-        {
-            write(fd, "in", 2);
-            close(fd);
-            break;
-        }
-        sleep_100ms();
-    }
-}
-
 static int init_gpio_irq()
 {
-    if (open_write_close("/sys/class/gpio/export", IRQ_GPIO) != 0)
+    int chip_fd = open("/dev/gpiochip0", O_RDWR);
+    if (chip_fd < 0)
         return -1;
 
-    gpio_irq_exported = true;
+    struct gpio_v2_line_request line_req = {
+        .offsets = {IRQ_GPIO},
+        .consumer = {'a', '3', '1', '4', 'd', 0},
+        .config = {
+            .flags = GPIO_V2_LINE_FLAG_INPUT | IRQ_GPIO_EDGE,
+        },
+        .num_lines = 1,
+    };
 
-    set_direction();
+    int err = ioctl(chip_fd, GPIO_V2_GET_LINE_IOCTL, &line_req);
+    if (err == -1)
+        return -2;
 
-    if (open_write_close("/sys/class/gpio/gpio" IRQ_GPIO "/edge", IRQ_GPIO_EDGE) == -1)
-        return -1;
-
-    gpio_irq_edge_set = true;
-
-    gpio_irq_fd = open("/sys/class/gpio/gpio" IRQ_GPIO "/value", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    if (gpio_irq_fd == -1)
-        return -1;
+    gpio_irq_fd = line_req.fd;
+    if (gpio_irq_fd < 0)
+        return -3;
 
     return 0;
 }
 
 static void shutdown_gpio_irq()
 {
-    if (gpio_irq_fd != -1)
-        close(gpio_irq_fd);
-
-    if (gpio_irq_edge_set)
-        open_write_close("/sys/class/gpio/gpio" IRQ_GPIO "/edge", "none");
-
-    if (gpio_irq_exported)
-        open_write_close("/sys/class/gpio/unexport", IRQ_GPIO);
+    // No-op, Linux releases resources.
 }
 
 static int init_server_socket()
@@ -1105,7 +1068,7 @@ static int init_driver()
         return -1;
 
     struct epoll_event ev;
-    ev.events = EPOLLPRI | EPOLLERR;
+    ev.events = EPOLLIN;
     ev.data.fd = gpio_irq_fd;
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, gpio_irq_fd, &ev) != 0)
         return -1;
@@ -2064,6 +2027,8 @@ static void main_loop()
     auto_clear_irq_after = time(NULL) + 3;
 #endif
 
+    logger_trace("Entering main loop\n");
+
     while (!done)
     {
         struct epoll_event ev;
@@ -2101,27 +2066,17 @@ static void main_loop()
         {
             if (ev.data.fd == gpio_irq_fd)
             {
-                logger_trace("Epoll event: gpio is ready, events = %d\n", ev.events);
+                struct gpio_v2_line_event ev;
+                ssize_t rd = read(gpio_irq_fd, &ev, sizeof(ev));
 
-                lseek(gpio_irq_fd, 0, SEEK_SET);
-
-                char buf;
-                if (read(gpio_irq_fd, &buf, 1) != 1)
+                if (rd != sizeof(ev))
                 {
-                    logger_error("Read from GPIO value file, and unexpectedly didn't return 1 byte\n");
+                    logger_error("Read GPIO event, got %d bytes but expected %d\n", rd, sizeof(ev));
                     exit(-1);
                 }
 
-                if (first_gpio_event)
-                {
-                    logger_debug("Received first GPIO event, which is ignored\n");
-                    first_gpio_event = false;
-                }
-                else
-                {
-                    logger_trace("GPIO interupted\n");
-                    handle_a314_irq();
-                }
+                logger_trace("GPIO interupted\n");
+                handle_a314_irq();
             }
             else if (ev.data.fd == server_socket)
             {
