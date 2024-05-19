@@ -63,16 +63,22 @@ install_trapdoor() {
 	sudo -u $A314_USER make ${BIN}/a314d-td
 	sudo -u $A314_USER make ${BIN}/spi-a314.dtbo
 
+	if [ -d /boot/firmware ]; then
+		BOOT_FW_DIR=/boot/firmware
+	else
+		BOOT_FW_DIR=/boot
+	fi
+
 	install -d /opt/a314
 	install -d /etc/opt/a314
 	install ${BIN}/a314d-td /opt/a314/a314d
-	install ${BIN}/spi-a314.dtbo /boot/overlays
+	install ${BIN}/spi-a314.dtbo $BOOT_FW_DIR/overlays
 
 	modinstall a314d/a314d-td.service /lib/systemd/system
 	mv /lib/systemd/system/a314d-td.service /lib/systemd/system/a314d.service
 
 	# Set dtparam=spi=on
-	CONFIG_FILE=/boot/config.txt
+	CONFIG_FILE=$BOOT_FW_DIR/config.txt
 
 	PREV_DTPARAM_SPI=`grep ^dtparam=spi= $CONFIG_FILE`
 
@@ -110,7 +116,7 @@ install_trapdoor() {
 	esac
 
 	# Add spidev.bufsiz=65536
-	CMDLINE_FILE=/boot/cmdline.txt
+	CMDLINE_FILE=$BOOT_FW_DIR/cmdline.txt
 
 	if ! grep -q "spidev.bufsiz=65536" $CMDLINE_FILE
 	then
