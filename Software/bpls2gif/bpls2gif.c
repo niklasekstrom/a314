@@ -2,6 +2,8 @@
  * Copyright (c) 2018 Niklas Ekström
  */
 
+#define PY_SSIZE_T_CLEAN
+
 #include <Python.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -262,7 +264,7 @@ static void write_gif(uint8_t *bpls)
 static PyObject *b2g_set_palette(PyObject *self, PyObject *args)
 {
 	char *buf;
-	int len;
+	Py_ssize_t len;
 
 	if (!PyArg_ParseTuple(args, BYTEARRAY_FORMAT, &buf, &len))
 		return NULL;
@@ -281,7 +283,7 @@ static PyObject *b2g_set_palette(PyObject *self, PyObject *args)
 static PyObject *b2g_encode(PyObject *self, PyObject *args)
 {
 	char *buf;
-	int len;
+	Py_ssize_t len;
 
 	if (!PyArg_ParseTuple(args, BYTEARRAY_FORMAT, &buf, &len))
 		return NULL;
