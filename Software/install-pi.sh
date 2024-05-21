@@ -36,9 +36,9 @@ install_common() {
 	# Add shared directory for a314fs
 	sudo -u $A314_USER mkdir -p ${A314_HOME}/a314shared
 
-	PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install bpls2gif/
-
-	PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install python-pytun
+	# Install Python packages in virtual environment
+	python3 -m virtualenv /opt/a314/venv
+	/opt/a314/venv/bin/pip install pyudev websockets python-pytun bpls2gif/
 
 	# Add tap0 interface
 	modinstall ethernet/pi-config/tap0 /etc/network/interfaces.d
