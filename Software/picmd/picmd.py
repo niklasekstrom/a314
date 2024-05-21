@@ -209,10 +209,10 @@ class PiCmdSession(object):
 
                 self.pid, self.fd = pty.fork()
                 if self.pid == 0:
-                    for key, val in env_vars.items():
-                        os.putenv(key, val)
                     os.putenv('PATH', search_path)
                     os.putenv('TERM', 'ansi')
+                    for key, val in env_vars.items():
+                        os.putenv(key, val)
                     winsize = struct.pack('HHHH', rows, cols, 0, 0)
                     fcntl.ioctl(sys.stdin, termios.TIOCSWINSZ, winsize)
                     if component_count != 0 and components[0] in volume_paths:
