@@ -1,0 +1,393 @@
+{
+    "library-name": "bsdsocket.library",
+    "service-name": "bsl",
+    "library-base": "SocketBase",
+    "funcs": [
+        {
+            "name": "socket",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "domain", "LONG"],
+                ["d1", "type", "LONG"],
+                ["d2", "protocol", "LONG"]
+            ]
+        },
+        {
+            "name": "bind",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "name", "struct sockaddr *"],
+                ["d1", "namelen", "socklen_t"]
+            ]
+        },
+        {
+            "name": "listen",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["d1", "backlog", "LONG"]
+            ]
+        },
+        {
+            "name": "accept",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "addr", "struct sockaddr *"],
+                ["a1", "addrlen", "socklen_t *"]
+            ]
+        },
+        {
+            "name": "connect",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "name", "struct sockaddr *"],
+                ["d1", "namelen", "socklen_t"]
+            ]
+        },
+        {
+            "name": "sendto",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "buf", "APTR"],
+                ["d1", "len", "LONG"],
+                ["d2", "flags", "LONG"],
+                ["a1", "to", "struct sockaddr *"],
+                ["d3", "tolen", "socklen_t"]
+            ]
+        },
+        {
+            "name": "send",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "buf", "APTR"],
+                ["d1", "len", "LONG"],
+                ["d2", "flags", "LONG"]
+            ]
+        },
+        {
+            "name": "recvfrom",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "buf", "APTR"],
+                ["d1", "len", "LONG"],
+                ["d2", "flags", "LONG"],
+                ["a1", "addr", "struct sockaddr *"],
+                ["a2", "addrlen", "socklen_t *"]
+            ]
+        },
+        {
+            "name": "recv",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "buf", "APTR"],
+                ["d1", "len", "LONG"],
+                ["d2", "flags", "LONG"]
+            ]
+        },
+        {
+            "name": "shutdown",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["d1", "how", "LONG"]
+            ]
+        },
+        {
+            "name": "setsockopt",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["d1", "level", "LONG"],
+                ["d2", "optname", "LONG"],
+                ["a0", "optval", "APTR"],
+                ["d3", "optlen", "socklen_t"]
+            ]
+        },
+        {
+            "name": "getsockopt",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["d1", "level", "LONG"],
+                ["d2", "optname", "LONG"],
+                ["a0", "optval", "APTR"],
+                ["a1", "optlen", "socklen_t *"]
+            ]
+        },
+        {
+            "name": "getsockname",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "name", "struct sockaddr *"],
+                ["a1", "namelen", "socklen_t *"]
+            ]
+        },
+        {
+            "name": "getpeername",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "name", "struct sockaddr *"],
+                ["a1", "namelen", "socklen_t *"]
+            ]
+        },
+        {
+            "name": "IoctlSocket",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["d1", "req", "ULONG"],
+                ["a0", "argp", "APTR"]
+            ]
+        },
+        {
+            "name": "CloseSocket",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"]
+            ]
+        },
+        {
+            "name": "WaitSelect",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "nfds", "LONG"],
+                ["a0", "read_fds", "APTR"],
+                ["a1", "write_fds", "APTR"],
+                ["a2", "except_fds", "APTR"],
+                ["a3", "_timeout", "struct timeval *"],
+                ["d1", "signals", "ULONG *"]
+            ]
+        },
+        {
+            "name": "SetSocketSignals",
+            "return-type": "VOID",
+            "args": [
+                ["d0", "int_mask", "ULONG"],
+                ["d1", "io_mask", "ULONG"],
+                ["d2", "urgent_mask", "ULONG"]
+            ]
+        },
+        {
+            "name": "getdtablesize",
+            "return-type": "LONG",
+            "args": [
+            ]
+        },
+        {
+            "name": "ObtainSocket",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "id", "LONG"],
+                ["d1", "domain", "LONG"],
+                ["d2", "type", "LONG"],
+                ["d3", "protocol", "LONG"]
+            ]
+        },
+        {
+            "name": "ReleaseSocket",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["d1", "id", "LONG"]
+            ]
+        },
+        {
+            "name": "ReleaseCopyOfSocket",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["d1", "id", "LONG"]
+            ]
+        },
+        {
+            "name": "Errno",
+            "return-type": "LONG",
+            "args": [
+            ]
+        },
+        {
+            "name": "SetErrnoPtr",
+            "return-type": "VOID",
+            "args": [
+                ["a0", "errno_ptr", "APTR"],
+                ["d0", "size", "LONG"]
+            ]
+        },
+        {
+            "name": "Inet_NtoA",
+            "return-type": "STRPTR",
+            "args": [
+                ["d0", "ip", "in_addr_t"]
+            ]
+        },
+        {
+            "name": "inet_addr",
+            "return-type": "in_addr_t",
+            "args": [
+                ["a0", "cp", "STRPTR"]
+            ]
+        },
+        {
+            "name": "Inet_LnaOf",
+            "return-type": "in_addr_t",
+            "args": [
+                ["d0", "in", "in_addr_t"]
+            ]
+        },
+        {
+            "name": "Inet_NetOf",
+            "return-type": "in_addr_t",
+            "args": [
+                ["d0", "in", "in_addr_t"]
+            ]
+        },
+        {
+            "name": "Inet_MakeAddr",
+            "return-type": "in_addr_t",
+            "args": [
+                ["d0", "net", "in_addr_t"],
+                ["d1", "host", "in_addr_t"]
+            ]
+        },
+        {
+            "name": "inet_network",
+            "return-type": "in_addr_t",
+            "args": [
+                ["a0", "cp", "STRPTR"]
+            ]
+        },
+        {
+            "name": "gethostbyname",
+            "return-type": "struct hostent *",
+            "args": [
+                ["a0", "name", "STRPTR"]
+            ]
+        },
+        {
+            "name": "gethostbyaddr",
+            "return-type": "struct hostent *",
+            "args": [
+                ["a0", "addr", "STRPTR"],
+                ["d0", "len", "LONG"],
+                ["d1", "type", "LONG"]
+            ]
+        },
+        {
+            "name": "getnetbyname",
+            "return-type": "struct netent *",
+            "args": [
+                ["a0", "name", "STRPTR"]
+            ]
+        },
+        {
+            "name": "getnetbyaddr",
+            "return-type": "struct netent *",
+            "args": [
+                ["d0", "net", "in_addr_t"],
+                ["d1", "type", "LONG"]
+            ]
+        },
+        {
+            "name": "getservbyname",
+            "return-type": "struct servent *",
+            "args": [
+                ["a0", "name", "STRPTR"],
+                ["a1", "proto", "STRPTR"]
+            ]
+        },
+        {
+            "name": "getservbyport",
+            "return-type": "struct servent *",
+            "args": [
+                ["d0", "port", "LONG"],
+                ["a0", "proto", "STRPTR"]
+            ]
+        },
+        {
+            "name": "getprotobyname",
+            "return-type": "struct protoent *",
+            "args": [
+                ["a0", "name", "STRPTR"]
+            ]
+        },
+        {
+            "name": "getprotobynumber",
+            "return-type": "struct protoent *",
+            "args": [
+                ["d0", "proto", "LONG"]
+            ]
+        },
+        {
+            "name": "vsyslog",
+            "return-type": "VOID",
+            "args": [
+                ["d0", "pri", "LONG"],
+                ["a0", "msg", "STRPTR"],
+                ["a1", "args", "APTR"]
+            ]
+        },
+        {
+            "name": "Dup2Socket",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "old_socket", "LONG"],
+                ["d1", "new_socket", "LONG"]
+            ]
+        },
+        {
+            "name": "sendmsg",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "msg", "struct msghdr *"],
+                ["d1", "flags", "LONG"]
+            ]
+        },
+        {
+            "name": "recvmsg",
+            "return-type": "LONG",
+            "args": [
+                ["d0", "sock", "LONG"],
+                ["a0", "msg", "struct msghdr *"],
+                ["d1", "flags", "LONG"]
+            ]
+        },
+        {
+            "name": "gethostname",
+            "return-type": "LONG",
+            "args": [
+                ["a0", "name", "STRPTR"],
+                ["d0", "namelen", "LONG"]
+            ]
+        },
+        {
+            "name": "gethostid",
+            "return-type": "in_addr_t",
+            "args": [
+            ]
+        },
+        {
+            "name": "SocketBaseTagList",
+            "return-type": "LONG",
+            "args": [
+                ["a0", "tags", "struct TagItem *"]
+            ]
+        },
+        {
+            "name": "GetSocketEvents",
+            "return-type": "LONG",
+            "args": [
+                ["a0", "event_ptr", "ULONG *"]
+            ]
+        }
+    ]
+}
