@@ -1,6 +1,7 @@
 import json
+import sys
 
-with open('libdecl.json', 'rt') as f:
+with open(sys.argv[1], 'rt') as f:
     libdecl = json.load(f)
 
 funcs = libdecl['funcs']
