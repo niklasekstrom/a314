@@ -1,0 +1,21 @@
+{
+    "library-name": "example.library",
+    "service-name": "example",
+    "library-base": "ExampleBase",
+    "funcs": [
+        {
+            "name": "EvalExpr",
+            "return-type": "int",
+            "args": [
+                ["a0", "expr", "char *"]
+            ]
+        },
+        {
+            "name": "Sleep",
+            "return-type": "ULONG",
+            "args": [
+                ["d0", "secs", "int"]
+            ]
+        }
+    ]
+}
