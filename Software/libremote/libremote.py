@@ -56,7 +56,7 @@ SIGBREAKF_CTRL_D = (1 << SIGBREAKB_CTRL_D)
 SIGBREAKF_CTRL_E = (1 << SIGBREAKB_CTRL_E)
 SIGBREAKF_CTRL_F = (1 << SIGBREAKB_CTRL_F)
 
-class ExampleInstance:
+class LibInstance:
     def __init__(self, service: 'LibRemoteService', stream_id: int) -> None:
         self.service = service
         self.stream_id = stream_id
@@ -184,14 +184,14 @@ class ExampleInstance:
                     (secs,) = struct.unpack('>I', args)
                     self.handle_sleep_op(secs)
         except InterruptedError:
-            logger.info('ExampleInstance thread was RESET')
+            logger.info('LibInstance thread was RESET')
         except:
-            logger.exception('ExampleInstance thread crashed')
+            logger.exception('LibInstance thread crashed')
 
 class LibRemoteService:
     def __init__(self):
         self.a314d = A314d(SERVICE_NAME)
-        self.instances: Dict[int, ExampleInstance] = {}
+        self.instances: Dict[int, LibInstance] = {}
         self.read_mem_queue = []
         self.write_mem_queue = []
         self.send_lock = threading.Lock()
@@ -240,7 +240,7 @@ class LibRemoteService:
     def process_stream_connect(self, stream_id: int, name: bytes):
         if name == SERVICE_NAME.encode():
             logger.info('Amiga connected to LibRemote service')
-            self.instances[stream_id] = ExampleInstance(self, stream_id)
+            self.instances[stream_id] = LibInstance(self, stream_id)
             self.a314d.send_connect_response(stream_id, 0)
         else:
             self.a314d.send_connect_response(stream_id, 3)
