@@ -24,7 +24,7 @@
 #define BOUNCE_BUFFER_SIZE  (4*1024)
 
 // Must keep VERSION in romtag.asm in sync.
-#define LIB_VERSION     1
+#define LIB_VERSION     3
 #define LIB_REVISION    0
 #define LIB_DATE        "28.5.2024"
 
@@ -32,7 +32,7 @@
 #define STR(s) #s
 
 const char library_name[] = LIBRARY_NAME;
-const char id_string[] = LIBRARY_NAME " " VSTR(LIB_VERSION) "." VSTR(LIB_REVISION) " (" LIB_DATE ")";
+const char id_string[] = LIBRARY_NAME " " VSTR(LIB_VERSION) "." VSTR(LIB_REVISION) " (" LIB_DATE ")\n\r";
 const char service_name[] = SERVICE_NAME;
 
 static BPTR saved_seg_list;

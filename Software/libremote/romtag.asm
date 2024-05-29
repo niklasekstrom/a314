@@ -5,7 +5,7 @@
 RTC_MATCHWORD:  equ     $4afc
 RTF_AUTOINIT:   equ     (1<<7)
 NT_LIBRARY:     equ     9
-VERSION:        equ     1
+VERSION:        equ     3
 PRIORITY:       equ     0
 
     section CODE,CODE
