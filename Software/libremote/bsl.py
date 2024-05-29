@@ -4,15 +4,16 @@
 # Copyright (c) 2024 Niklas Ekström
 
 import logging
-logging.basicConfig(format='%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s', level=logging.DEBUG)
 
 from a314d import A314d
 import queue
 import select
+import socket
 import struct
 import threading
 import time
-from typing import Dict
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,41 @@ FN_GETHOSTID = 43
 FN_SOCKETBASETAGLIST = 44
 FN_GETSOCKETEVENTS = 45
 
+TAG_DONE = 0
+TAG_IGNORE = 1
+TAG_MORE = 2
+TAG_SKIP = 3
+TAG_USER = 0x80000000
+SBTF_REF = 0x8000
+
+SBTC_BREAKMASK      = 1
+SBTC_SIGIOMASK      = 2
+SBTC_SIGURGMASK     = 3
+SBTC_SIGEVENTMASK   = 4
+SBTC_ERRNO          = 6
+SBTC_HERRNO         = 7
+SBTC_DTABLESIZE     = 8
+SBTC_FDCALLBACK     = 9
+SBTC_LOGSTAT        = 10
+SBTC_LOGTAGPTR      = 11
+SBTC_LOGFACILITY    = 12
+SBTC_LOGMASK        = 13
+SBTC_ERRNOSTRPTR    = 14
+SBTC_HERRNOSTRPTR   = 15
+SBTC_IOERRNOSTRPTR  = 16
+SBTC_S2ERRNOSTRPTR  = 17
+SBTC_S2WERRNOSTRPTR = 18
+SBTC_ERRNOBYTEPTR   = 21
+SBTC_ERRNOWORDPTR   = 22
+SBTC_ERRNOLONGPTR   = 24
+SBTC_HERRNOLONGPTR  = 25
+SBTC_RELEASESTRPTR  = 29
+
+class AmSocket:
+    def __init__(self, slot: int, sock: socket.socket) -> None:
+        self.slot = slot
+        self.sock = sock
+
 class LibInstance:
     def __init__(self, service: 'LibRemoteService', stream_id: int) -> None:
         self.service = service
@@ -103,6 +139,15 @@ class LibInstance:
         self.wait_first_message = True
         self.bb_address = 0
         self.bb_size = 0
+
+        self.break_mask = 4096 # SIGBREAKF_CTRL_C
+        self.log_tag_ptr = 0
+        self.errno_ptr = 0
+        self.errno_size = 0
+        self.herrno_ptr = None
+
+        self.return_mem_address = 0
+        self.sockets: Dict[int, AmSocket] = {}
 
         threading.Thread(target=self.run).start()
 
@@ -203,10 +248,35 @@ class LibInstance:
         data = self.read_mem(self.bb_address, length)
         return data.decode('latin-1')
 
+    def read_tag_list(self, address: int) -> List[Tuple[int, int]]:
+        length = self.copy_tag_list_to_bounce(self.bb_address, address)
+        data = self.read_mem(self.bb_address, length)
+        arr = struct.unpack(f'>{len(data) // 4}I', data)
+        return list(zip(arr[0::2], arr[1::2]))
+
     # The implemented library functions.
     def handle_socket_op(self, domain: int, type_: int, protocol: int):
         logger.debug('handle_socket_op(domain=%s, type_=%s, protocol=%s)', domain, type_, protocol)
+        AF_INET         = 2
+
+        SOCK_STREAM     = 1
+        SOCK_DGRAM      = 2
+        SOCK_RAW        = 3
+        SOCK_RDM        = 4
+        SOCK_SEQPACKET  = 5
+
         result = 2**32 - 1
+
+        slot = min(i for i in range(64) if i not in self.sockets)
+
+        if domain == AF_INET:
+            if type_ == SOCK_STREAM:
+                self.sockets[slot] = AmSocket(slot, socket.socket())
+                result = slot
+            elif type_ == SOCK_DGRAM:
+                self.sockets[slot] = AmSocket(slot, socket.socket(type=socket.SOCK_DGRAM))
+                result = slot
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_bind_op(self, sock: int, name: int, namelen: int):
@@ -226,7 +296,29 @@ class LibInstance:
 
     def handle_connect_op(self, sock: int, name: int, namelen: int):
         logger.debug('handle_connect_op(sock=%s, name=%s, namelen=%s)', sock, name, namelen)
-        result = 2**32 - 1
+        self.copy_to_bounce(self.bb_address, name, namelen)
+        data = self.read_mem(self.bb_address, namelen)
+
+        (port,) = struct.unpack('>H', data[2:4])
+        host = '.'.join(map(str, data[4:8]))
+        addr = (host, port)
+        logger.debug('addr=%s', addr)
+
+        # TODO: Handle break signal.
+        # TODO: Handle non blocking operation.
+
+        s = self.sockets.get(sock)
+        if not s:
+            # TODO: Set/write errno.
+            result = 2**32 - 1
+        else:
+            try:
+                s.sock.connect(addr)
+                result = 0
+            except:
+                # TODO: Set/write errno.
+                result = 2**32 - 1
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_sendto_op(self, sock: int, buf: int, len_: int, flags: int, to: int, tolen: int):
@@ -281,7 +373,19 @@ class LibInstance:
 
     def handle_closesocket_op(self, sock: int):
         logger.debug('handle_closesocket_op(sock=%s)', sock)
-        result = 2**32 - 1
+
+        s = self.sockets.get(sock)
+        if not s:
+            # TODO: Set/write errno.
+            result = 2**32 - 1
+        else:
+            try:
+                s.sock.close()
+            except:
+                pass
+            del self.sockets[sock]
+            result = 0
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_waitselect_op(self, nfds: int, read_fds: int, write_fds: int, except_fds: int, _timeout: int, signals: int):
@@ -326,12 +430,29 @@ class LibInstance:
 
     def handle_inet_ntoa_op(self, ip: int):
         logger.debug('handle_inet_ntoa_op(ip=%s)', ip)
-        result = 0
+
+        if not self.return_mem_address:
+            self.return_mem_address = self.alloc_mem(512)
+
+        if self.return_mem_address:
+            data = struct.pack('>I', ip)
+            data = '.'.join(str(x) for x in data)
+            data = data.encode('latin-1') + b'\x00'
+            #logger.debug('data=%s', data)
+            self.write_mem(self.bb_address, data)
+            self.copy_from_bounce(self.return_mem_address, self.bb_address, len(data))
+
+        result = self.return_mem_address
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_inet_addr_op(self, cp: int):
         logger.debug('handle_inet_addr_op(cp=%s)', cp)
-        result = 0
+        s = self.read_str(cp)
+        #logger.debug('cp=%s', s)
+        try:
+            (result,) = struct.unpack('>I', bytes(map(int, s.split('.'))))
+        except:
+            result = 2**32 - 1
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_inet_lnaof_op(self, in_: int):
@@ -426,7 +547,43 @@ class LibInstance:
 
     def handle_socketbasetaglist_op(self, tags: int):
         logger.debug('handle_socketbasetaglist_op(tags=%s)', tags)
-        result = 2**32 - 1
+        tl = self.read_tag_list(tags)
+
+        #logger.debug('Tag list: %s', tl)
+
+        result = 0
+
+        for i, (key, value) in enumerate(tl):
+            if key & TAG_USER:
+                key &= 0xffff
+                is_ref = (key & SBTF_REF) != 0
+                key &= 0x7fff
+                is_set = (key & 1) != 0
+                key >>= 1
+
+                #logger.debug('Tag: key=%s, is_ref=%s, is_set=%s, value=%s', key, is_ref, is_set, value)
+
+                if not is_set or is_ref:
+                    result = i + 1
+                    break
+
+                if key == SBTC_BREAKMASK:
+                    self.break_mask = value
+                elif key == SBTC_LOGTAGPTR:
+                    self.log_tag_ptr = value
+                elif key == SBTC_ERRNOLONGPTR:
+                    self.errno_ptr = value
+                    self.errno_size = 4
+                elif key == SBTC_HERRNOLONGPTR:
+                    self.herrno_ptr = value
+                else:
+                    result = i + 1
+                    break
+            elif key not in (TAG_DONE, TAG_MORE):
+                logger.debug('Unknown tag: key=%s, value=%s', key, value)
+                result = i + 1
+                break
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_getsocketevents_op(self, event_ptr: int):
