@@ -328,7 +328,25 @@ class LibInstance:
 
     def handle_send_op(self, sock: int, buf: int, len_: int, flags: int):
         logger.debug('handle_send_op(sock=%s, buf=%s, len_=%s, flags=%s)', sock, buf, len_, flags)
-        result = 2**32 - 1
+
+        s = self.sockets.get(sock)
+        if not s:
+            # TODO: Set/write errno.
+            result = 2**32 - 1
+        else:
+            data = b''
+            addr = buf
+
+            while len(data) < len_:
+                take = min(len_ - len(data), self.bb_size)
+                self.copy_to_bounce(self.bb_address, addr, take)
+                data += self.read_mem(self.bb_address, take)
+                addr += take
+
+            sent = s.sock.send(data)
+            #logger.debug('Sent %d bytes (of %d), data: %s', sent, len(data), data)
+            result = sent
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_recvfrom_op(self, sock: int, buf: int, len_: int, flags: int, addr: int, addrlen: int):
@@ -338,7 +356,34 @@ class LibInstance:
 
     def handle_recv_op(self, sock: int, buf: int, len_: int, flags: int):
         logger.debug('handle_recv_op(sock=%s, buf=%s, len_=%s, flags=%s)', sock, buf, len_, flags)
-        result = 2**32 - 1
+
+        MSG_PEEK = 2
+
+        s = self.sockets.get(sock)
+        if not s:
+            # TODO: Set/write errno.
+            result = 2**32 - 1
+        else:
+            recv_flags = 0
+            if flags & MSG_PEEK:
+                recv_flags |= socket.MSG_PEEK
+
+            data = s.sock.recv(len_, recv_flags)
+
+            addr = buf
+            offset = 0
+
+            while offset < len(data):
+                take = min(len(data) - offset, self.bb_size)
+
+                self.write_mem(self.bb_address, data[offset:offset + take])
+                self.copy_from_bounce(addr, self.bb_address, take)
+
+                offset += take
+                addr += take
+
+            result = len(data)
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_shutdown_op(self, sock: int, how: int):
@@ -390,7 +435,147 @@ class LibInstance:
 
     def handle_waitselect_op(self, nfds: int, read_fds: int, write_fds: int, except_fds: int, _timeout: int, signals: int):
         logger.debug('handle_waitselect_op(nfds=%s, read_fds=%s, write_fds=%s, except_fds=%s, _timeout=%s, signals=%s)', nfds, read_fds, write_fds, except_fds, _timeout, signals)
-        result = 2**32 - 1
+
+        # NOTE: FD_SETSIZE is currently hardcoded to 32 bits (one ULONG).
+
+        bb = self.bb_address
+
+        copy_reqs = []
+
+        if read_fds:
+            copy_reqs.append((bb, read_fds, 4))
+            bb += 4
+
+        if write_fds:
+            copy_reqs.append((bb, write_fds, 4))
+            bb += 4
+
+        if except_fds:
+            copy_reqs.append((bb, except_fds, 4))
+            bb += 4
+
+        if _timeout:
+            copy_reqs.append((bb, _timeout, 8))
+            bb += 8
+
+        if signals:
+            copy_reqs.append((bb, signals, 4))
+            bb += 4
+
+        # TODO: Send one request with all of these.
+        for dst, src, length in copy_reqs:
+            self.copy_to_bounce(dst, src, length)
+
+        data = self.read_mem(self.bb_address, bb - self.bb_address)
+
+        # Extract.
+        offset = 0
+        rfds = 0
+        wfds = 0
+        xfds = 0
+        timeout_val = None
+        signals_val = 0
+
+        if read_fds:
+            (rfds,) = struct.unpack('>I', data[offset:offset+4])
+            offset += 4
+
+        if write_fds:
+            (wfds,) = struct.unpack('>I', data[offset:offset+4])
+            offset += 4
+
+        if except_fds:
+            (xfds,) = struct.unpack('>I', data[offset:offset+4])
+            offset += 4
+
+        if _timeout:
+            sec, usec = struct.unpack('>II', data[offset:offset+8])
+            timeout_val = sec + usec / 1e6
+            offset += 8
+
+        if signals:
+            (signals_val,) = struct.unpack('>I', data[offset:offset+4])
+            offset += 4
+
+        logger.debug('rfds=%s, wfds=%s, xfds=%s, timeout=%s, signals=%s)', rfds, wfds, xfds, timeout_val, signals_val)
+
+        # TODO: Validate that these sockets are available.
+
+        rlist = []
+        wlist = []
+        xlist = []
+
+        for s in self.sockets.values():
+            if rfds & (1 << s.slot):
+                rlist.append(s.sock)
+
+            if wfds & (1 << s.slot):
+                wlist.append(s.sock)
+
+            if xfds & (1 << s.slot):
+                xlist.append(s.sock)
+
+        # TODO: Handle signals, both break signals and signals given in the function call.
+
+        rlist_out, wlist_out, xlist_out = select.select(rlist, wlist, xlist, timeout_val)
+
+        rfds_out = 0
+        wfds_out = 0
+        xfds_out = 0
+
+        for s in self.sockets.values():
+            if s.sock in rlist_out:
+                rfds_out |= 1 << s.slot
+
+            if s.sock in wlist_out:
+                wfds_out |= 1 << s.slot
+
+            if s.sock in xlist_out:
+                xfds_out |= 1 << s.slot
+
+        # Uppdatera Xfds.
+        data = b''
+
+        if read_fds:
+            data += struct.pack('>I', rfds_out)
+
+        if write_fds:
+            data += struct.pack('>I', wfds_out)
+
+        if except_fds:
+            data += struct.pack('>I', xfds_out)
+
+        if signals:
+            data += struct.pack('>I', 0)
+
+        if data:
+            self.write_mem(self.bb_address, data)
+
+            bb = self.bb_address
+
+            copy_reqs = []
+
+            if read_fds:
+                copy_reqs.append((read_fds, bb, 4))
+                bb += 4
+
+            if write_fds:
+                copy_reqs.append((write_fds, bb, 4))
+                bb += 4
+
+            if except_fds:
+                copy_reqs.append((except_fds, bb, 4))
+                bb += 4
+
+            if signals:
+                copy_reqs.append((signals, bb, 4))
+                bb += 4
+
+        # TODO: Send one request with all of these.
+        for dst, src, length in copy_reqs:
+            self.copy_from_bounce(dst, src, length)
+
+        result = len(set(rlist_out) | set(wlist_out) | set(xlist_out))
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_setsocketsignals_op(self, int_mask: int, io_mask: int, urgent_mask: int):
@@ -438,7 +623,7 @@ class LibInstance:
             data = struct.pack('>I', ip)
             data = '.'.join(str(x) for x in data)
             data = data.encode('latin-1') + b'\x00'
-            #logger.debug('data=%s', data)
+            logger.debug('data=%s', data)
             self.write_mem(self.bb_address, data)
             self.copy_from_bounce(self.return_mem_address, self.bb_address, len(data))
 
@@ -477,7 +662,26 @@ class LibInstance:
 
     def handle_gethostbyname_op(self, name: int):
         logger.debug('handle_gethostbyname_op(name=%s)', name)
+        data = self.read_str(name)
+        host_addr = socket.gethostbyname(data)
+        logger.debug('host_addr=%s', host_addr)
+
         result = 0
+
+        if not self.return_mem_address:
+            self.return_mem_address = self.alloc_mem(512)
+
+        if self.return_mem_address:
+            # Create hostent struct.
+            data = struct.pack('>IIIII', name, 0, 2, 4, self.return_mem_address + 20)
+            data += struct.pack('>II', self.return_mem_address + 28, 0)
+            data += bytes(map(int, host_addr.split('.')))
+
+            self.write_mem(self.bb_address, data)
+            self.copy_from_bounce(self.return_mem_address, self.bb_address, len(data))
+
+            result = self.return_mem_address
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_gethostbyaddr_op(self, addr: int, len_: int, type_: int):
