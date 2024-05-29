@@ -16,6 +16,8 @@
 #define MSG_COPY_TO_BOUNCE_RES      11
 #define MSG_COPY_STR_TO_BOUNCE_REQ  12
 #define MSG_COPY_STR_TO_BOUNCE_RES  13
+#define MSG_COPY_TAG_LIST_TO_BOUNCE_REQ 14
+#define MSG_COPY_TAG_LIST_TO_BOUNCE_RES 15
 
 struct CopyDesc
 {
@@ -102,6 +104,21 @@ struct CopyStrToBounceReqMsg // Pi -> Amiga
 };
 
 struct CopyStrToBounceResMsg // Amiga -> Pi
+{
+    uint8_t kind;
+    uint8_t pad;
+    uint32_t length;
+};
+
+struct CopyTagListToBounceReqMsg // Pi -> Amiga
+{
+    uint8_t kind;
+    uint8_t pad;
+    uint32_t bounce_address;
+    uint32_t tag_list_address;
+};
+
+struct CopyTagListToBounceResMsg // Amiga -> Pi
 {
     uint8_t kind;
     uint8_t pad;

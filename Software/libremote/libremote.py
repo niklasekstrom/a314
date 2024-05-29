@@ -30,17 +30,20 @@ MSG_COPY_TO_BOUNCE_REQ      = 10
 MSG_COPY_TO_BOUNCE_RES      = 11
 MSG_COPY_STR_TO_BOUNCE_REQ  = 12
 MSG_COPY_STR_TO_BOUNCE_RES  = 13
+MSG_COPY_TAG_LIST_TO_BOUNCE_REQ = 14
+MSG_COPY_TAG_LIST_TO_BOUNCE_RES = 15
 
-QITEM_SIGNALS = 1
-QITEM_OP_REQ = 2
-QITEM_ALLOC_MEM_RES = 3
-QITEM_FREE_MEM_RES = 4
-QITEM_COPY_FROM_BOUNCE_RES = 5
-QITEM_COPY_TO_BOUNCE_RES = 6
-QITEM_COPY_STR_TO_BOUNCE_RES = 7
-QITEM_READ_MEM_COMPLETE = 8
-QITEM_WRITE_MEM_COMPLETE = 9
-QITEM_RESET = 10
+QITEM_RESET = 1
+QITEM_READ_MEM_COMPLETE = 2
+QITEM_WRITE_MEM_COMPLETE = 3
+QITEM_SIGNALS = 4
+QITEM_OP_REQ = 5
+QITEM_ALLOC_MEM_RES = 6
+QITEM_FREE_MEM_RES = 7
+QITEM_COPY_FROM_BOUNCE_RES = 8
+QITEM_COPY_TO_BOUNCE_RES = 9
+QITEM_COPY_STR_TO_BOUNCE_RES = 10
+QITEM_COPY_TAG_LIST_TO_BOUNCE_RES = 11
 
 SERVICE_NAME = 'example'
 
@@ -69,6 +72,15 @@ class LibInstance:
         threading.Thread(target=self.run).start()
 
     # Put items on queue.
+    def process_stream_reset(self):
+        self.queue.put((QITEM_RESET, None))
+
+    def process_read_mem_complete(self, address: int, data: bytes):
+        self.queue.put((QITEM_READ_MEM_COMPLETE, data))
+
+    def process_write_mem_complete(self, address: int):
+        self.queue.put((QITEM_WRITE_MEM_COMPLETE, None))
+
     def process_signals(self, signals: int):
         self.queue.put((QITEM_SIGNALS, signals))
 
@@ -90,14 +102,8 @@ class LibInstance:
     def process_copy_str_to_bounce_res(self, length: int):
         self.queue.put((QITEM_COPY_STR_TO_BOUNCE_RES, length))
 
-    def process_read_mem_complete(self, address: int, data: bytes):
-        self.queue.put((QITEM_READ_MEM_COMPLETE, data))
-
-    def process_write_mem_complete(self, address: int):
-        self.queue.put((QITEM_WRITE_MEM_COMPLETE, None))
-
-    def process_stream_reset(self):
-        self.queue.put((QITEM_RESET, None))
+    def process_copy_tag_list_to_bounce_res(self, length: int):
+        self.queue.put((QITEM_COPY_TAG_LIST_TO_BOUNCE_RES, length))
 
     # Wait for specific queue item.
     def wait_qitem(self, match_qitem: int):
@@ -143,6 +149,10 @@ class LibInstance:
     def copy_str_to_bounce(self, bounce_address: int, str_address: int) -> int:
         self.service.send_copy_str_to_bounce_req(self.stream_id, bounce_address, str_address)
         return self.wait_qitem(QITEM_COPY_STR_TO_BOUNCE_RES)
+
+    def copy_tag_list_to_bounce(self, bounce_address: int, tag_list_address: int) -> int:
+        self.service.send_copy_tag_list_to_bounce_req(self.stream_id, bounce_address, tag_list_address)
+        return self.wait_qitem(QITEM_COPY_TAG_LIST_TO_BOUNCE_RES)
 
     # Read from/write to bounce buffer.
     def read_mem(self, address: int, length: int) -> bytes:
@@ -237,6 +247,11 @@ class LibRemoteService:
             data = struct.pack('>BBII', MSG_COPY_STR_TO_BOUNCE_REQ, 0, bounce_address, str_address)
             self.a314d.send_data(stream_id, data)
 
+    def send_copy_tag_list_to_bounce_req(self, stream_id: int, bounce_address: int, tag_list_address: int):
+        with self.send_lock:
+            data = struct.pack('>BBII', MSG_COPY_TAG_LIST_TO_BOUNCE_REQ, 0, bounce_address, tag_list_address)
+            self.a314d.send_data(stream_id, data)
+
     def process_stream_connect(self, stream_id: int, name: bytes):
         if name == SERVICE_NAME.encode():
             logger.info('Amiga connected to LibRemote service')
@@ -274,6 +289,9 @@ class LibRemoteService:
         elif kind == MSG_COPY_STR_TO_BOUNCE_RES:
             (length,) = struct.unpack('>I', payload[2:])
             inst.process_copy_str_to_bounce_res(length)
+        elif kind == MSG_COPY_TAG_LIST_TO_BOUNCE_RES:
+            (length,) = struct.unpack('>I', payload[2:])
+            inst.process_copy_tag_list_to_bounce_res(length)
 
     def process_stream_eos(self, stream_id: int):
         raise AssertionError('EOS is not supposed to be used')

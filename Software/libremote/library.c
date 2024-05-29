@@ -6,6 +6,7 @@
 #include <exec/libraries.h>
 #include <exec/semaphores.h>
 #include <dos/dos.h>
+#include <utility/tagitem.h>
 
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -144,6 +145,17 @@ static void free_chunk(__reg("a6") struct LibRemote *lib, uint32_t address)
     FreeMem(chunk, chunk->size);
 }
 
+static int get_tag_list_length(struct TagItem *tag_list)
+{
+    int count = 1;
+    while (tag_list->ti_Tag != TAG_DONE && tag_list->ti_Tag != TAG_MORE)
+    {
+        tag_list++;
+        count++;
+    }
+    return count * sizeof(struct TagItem);
+}
+
 static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *msg, uint32_t length)
 {
     lib->read_req.a314_Buffer = lib->read_buf;
@@ -230,6 +242,14 @@ static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *msg, ui
                             msg_to_send = MSG_COPY_STR_TO_BOUNCE_RES;
                             done_arg = len;
                         }
+                        else if (kind == MSG_COPY_TAG_LIST_TO_BOUNCE_REQ)
+                        {
+                            struct CopyTagListToBounceReqMsg *req = (struct CopyTagListToBounceReqMsg *)lib->read_buf;
+                            uint32_t len = get_tag_list_length((void *)req->tag_list_address);
+                            WriteMemA314(req->bounce_address, (void *)req->tag_list_address, len);
+                            msg_to_send = MSG_COPY_TAG_LIST_TO_BOUNCE_RES;
+                            done_arg = len;
+                        }
 
                         lib->read_req.a314_Buffer = lib->read_buf;
                         lib->read_req.a314_Length = sizeof(lib->read_buf);
@@ -248,7 +268,7 @@ static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *msg, ui
             {
                 send_buf[0] = msg_to_send;
                 length = 1;
-                if (msg_to_send == MSG_ALLOC_MEM_RES || msg_to_send == MSG_COPY_STR_TO_BOUNCE_RES)
+                if (msg_to_send == MSG_ALLOC_MEM_RES || msg_to_send == MSG_COPY_STR_TO_BOUNCE_RES || msg_to_send == MSG_COPY_TAG_LIST_TO_BOUNCE_RES)
                 {
                     *(uint32_t *)&send_buf[2] = done_arg;
                     length = 6;
