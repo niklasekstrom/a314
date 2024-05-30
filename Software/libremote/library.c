@@ -21,7 +21,7 @@
 
 #define LIB_NEG_SIZE        (LVO_COUNT*6)
 
-#define BOUNCE_BUFFER_SIZE  (4*1024)
+#define BOUNCE_BUFFER_SIZE  (16*1024)
 
 // Must keep VERSION in romtag.asm in sync.
 #define LIB_VERSION     3
