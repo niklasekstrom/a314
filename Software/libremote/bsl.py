@@ -13,7 +13,7 @@ import socket
 import struct
 import threading
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,11 @@ SBTC_ERRNOLONGPTR   = 24
 SBTC_HERRNOLONGPTR  = 25
 SBTC_RELEASESTRPTR  = 29
 
+EINTR = 4
+EBADF = 9
+ETIMEDOUT = 60
+ECONNREFUSED = 61
+
 class AmSocket:
     def __init__(self, slot: int, sock: socket.socket) -> None:
         self.slot = slot
@@ -135,6 +140,7 @@ class LibInstance:
         self.service = service
         self.stream_id = stream_id
         self.queue = queue.Queue()
+        self.notify_sock, self.wait_sock = socket.socketpair()
 
         self.wait_first_message = True
         self.bb_address = 0
@@ -146,6 +152,9 @@ class LibInstance:
         self.errno_size = 0
         self.herrno_ptr = None
 
+        # Store the latest errno value locally, as it may be asked for.
+        self.errno = 0
+
         self.return_mem_address = 0
         self.sockets: Dict[int, AmSocket] = {}
 
@@ -154,60 +163,64 @@ class LibInstance:
     # Put items on queue.
     def process_stream_reset(self):
         self.queue.put((QITEM_RESET, None))
+        self.notify_sock.send(b'#')
 
     def process_read_mem_complete(self, address: int, data: bytes):
         self.queue.put((QITEM_READ_MEM_COMPLETE, data))
+        self.notify_sock.send(b'#')
 
     def process_write_mem_complete(self, address: int):
         self.queue.put((QITEM_WRITE_MEM_COMPLETE, None))
+        self.notify_sock.send(b'#')
 
     def process_signals(self, signals: int):
         self.queue.put((QITEM_SIGNALS, signals))
+        self.notify_sock.send(b'#')
 
     def process_op_req(self, op: int, args: bytes):
         self.queue.put((QITEM_OP_REQ, (op, args)))
+        self.notify_sock.send(b'#')
 
     def process_alloc_mem_res(self, address: int):
         self.queue.put((QITEM_ALLOC_MEM_RES, address))
+        self.notify_sock.send(b'#')
 
     def process_free_mem_res(self):
         self.queue.put((QITEM_FREE_MEM_RES, None))
+        self.notify_sock.send(b'#')
 
     def process_copy_from_bounce_res(self):
         self.queue.put((QITEM_COPY_FROM_BOUNCE_RES, None))
+        self.notify_sock.send(b'#')
 
     def process_copy_to_bounce_res(self):
         self.queue.put((QITEM_COPY_TO_BOUNCE_RES, None))
+        self.notify_sock.send(b'#')
 
     def process_copy_str_to_bounce_res(self, length: int):
         self.queue.put((QITEM_COPY_STR_TO_BOUNCE_RES, length))
+        self.notify_sock.send(b'#')
 
     def process_copy_tag_list_to_bounce_res(self, length: int):
         self.queue.put((QITEM_COPY_TAG_LIST_TO_BOUNCE_RES, length))
+        self.notify_sock.send(b'#')
 
-    # Wait for specific queue item.
+    # Wait for queue item.
+    def wait_any_qitem(self, timeout: Optional[float] = None) -> Tuple[int, Any]:
+        rl, _, _ = select.select([self.wait_sock], [], [], timeout)
+        if self.wait_sock not in rl:
+            raise queue.Empty()
+        hash = self.wait_sock.recv(1)
+        assert hash == b'#'
+        return self.queue.get(block=False)
+
     def wait_qitem(self, match_qitem: int):
         while True:
-            qitem, arg = self.queue.get()
+            qitem, arg = self.wait_any_qitem()
             if qitem == QITEM_RESET:
                 raise InterruptedError()
             elif qitem == match_qitem:
                 return arg
-
-    def wait_signals(self, signals_mask: int, timeout_secs: int) -> int:
-        end_time = time.time() + timeout_secs
-        while True:
-            try:
-                time_left = max(end_time - time.time(), 0)
-                qitem, arg = self.queue.get(timeout=time_left)
-                if qitem == QITEM_RESET:
-                    raise InterruptedError()
-                elif qitem == QITEM_SIGNALS:
-                    arg &= signals_mask
-                    if arg:
-                        return arg
-            except queue.Empty:
-                return 0
 
     # Blocking functions to run commands on Amiga.
     def alloc_mem(self, length: int) -> int:
@@ -260,16 +273,24 @@ class LibInstance:
         arr = struct.unpack(f'>{len(data) // 4}I', data)
         return list(zip(arr[0::2], arr[1::2]))
 
+    def set_errno(self, errno: Optional[int]):
+        if errno is not None:
+            self.errno = errno
+
+            if self.errno_ptr:
+                size = self.errno_size
+                fmt = '>B' if size == 1 else ('>H' if size == 2 else '>I')
+                data = struct.pack(fmt, errno)
+                self.write_mem(self.bb_address, data)
+                self.copy_from_bounce(self.errno_ptr, self.bb_address, len(data))
+
     # The implemented library functions.
     def handle_socket_op(self, domain: int, type_: int, protocol: int):
         logger.debug('handle_socket_op(domain=%s, type_=%s, protocol=%s)', domain, type_, protocol)
-        AF_INET         = 2
 
+        AF_INET         = 2
         SOCK_STREAM     = 1
         SOCK_DGRAM      = 2
-        SOCK_RAW        = 3
-        SOCK_RDM        = 4
-        SOCK_SEQPACKET  = 5
 
         result = 2**32 - 1
 
@@ -308,24 +329,52 @@ class LibInstance:
         (port,) = struct.unpack('>H', data[2:4])
         host = '.'.join(map(str, data[4:8]))
         addr = (host, port)
-        logger.debug('addr=%s', addr)
+        #logger.debug('addr=%s', addr)
 
-        # TODO: Handle break signal.
         # TODO: Handle non blocking operation.
+
+        result = 2**32 - 1
+        signals_consumed = 0
+        errno = None
 
         s = self.sockets.get(sock)
         if not s:
-            # TODO: Set/write errno.
-            result = 2**32 - 1
+            errno = EBADF
         else:
+            s.sock.setblocking(False)
+
             try:
                 s.sock.connect(addr)
-                result = 0
-            except:
-                # TODO: Set/write errno.
-                result = 2**32 - 1
+            except BlockingIOError:
+                while True:
+                    rl, wl, _ = select.select([s.sock, self.wait_sock], [s.sock], [])
 
-        self.service.send_op_res(self.stream_id, result, 0)
+                    if s.sock in rl or s.sock in wl:
+                        try:
+                            s.sock.getpeername()
+                            result = 0
+                        except:
+                            # TODO: What errno should be returned here?
+                            errno = ETIMEDOUT
+                        break
+
+                    if self.wait_sock in rl:
+                        hash = self.wait_sock.recv(1)
+                        assert hash == b'#'
+                        qitem, signals = self.queue.get(block=False)
+                        assert qitem == QITEM_SIGNALS
+                        signals_consumed = signals & self.break_mask
+                        if signals_consumed:
+                            errno = EINTR
+                            break
+            except:
+                # TODO: What errno should be returned here?
+                errno = ECONNREFUSED
+
+            s.sock.setblocking(True)
+
+        self.set_errno(errno)
+        self.service.send_op_res(self.stream_id, result, signals_consumed)
 
     def handle_sendto_op(self, sock: int, buf: int, len_: int, flags: int, to: int, tolen: int):
         logger.debug('handle_sendto_op(sock=%s, buf=%s, len_=%s, flags=%s, to=%s, tolen=%s)', sock, buf, len_, flags, to, tolen)
@@ -626,7 +675,7 @@ class LibInstance:
             data = struct.pack('>I', ip)
             data = '.'.join(str(x) for x in data)
             data = data.encode('latin-1') + b'\x00'
-            logger.debug('data=%s', data)
+            #logger.debug('data=%s', data)
             self.write_mem(self.bb_address, data)
             self.copy_from_bounce(self.return_mem_address, self.bb_address, len(data))
 
@@ -899,6 +948,9 @@ class LibInstance:
             logger.info('LibInstance thread was RESET')
         except:
             logger.exception('LibInstance thread crashed')
+
+        self.wait_sock.close()
+        self.notify_sock.close()
 
 class LibRemoteService:
     def __init__(self):
