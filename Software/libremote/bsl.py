@@ -219,11 +219,17 @@ class LibInstance:
         return self.wait_qitem(QITEM_FREE_MEM_RES)
 
     def copy_from_bounce(self, mem_address: int, bounce_address: int, length: int) -> None:
-        self.service.send_copy_from_bounce_req(self.stream_id, mem_address, bounce_address, length)
+        self.multi_copy_from_bounce([(mem_address, bounce_address, length)])
+
+    def multi_copy_from_bounce(self, copies: List[Tuple[int, int, int]]) -> None:
+        self.service.send_copy_from_bounce_req(self.stream_id, copies)
         self.wait_qitem(QITEM_COPY_FROM_BOUNCE_RES)
 
     def copy_to_bounce(self, bounce_address: int, mem_address: int, length: int) -> None:
-        self.service.send_copy_to_bounce_req(self.stream_id, bounce_address, mem_address, length)
+        self.multi_copy_to_bounce([(bounce_address, mem_address, length)])
+
+    def multi_copy_to_bounce(self, copies: List[Tuple[int, int, int]]) -> None:
+        self.service.send_copy_to_bounce_req(self.stream_id, copies)
         self.wait_qitem(QITEM_COPY_TO_BOUNCE_RES)
 
     def copy_str_to_bounce(self, bounce_address: int, str_address: int) -> int:
@@ -437,6 +443,7 @@ class LibInstance:
         logger.debug('handle_waitselect_op(nfds=%s, read_fds=%s, write_fds=%s, except_fds=%s, _timeout=%s, signals=%s)', nfds, read_fds, write_fds, except_fds, _timeout, signals)
 
         # NOTE: FD_SETSIZE is currently hardcoded to 32 bits (one ULONG).
+        # TODO: Look at nfds to see how many ULONGs to copy.
 
         bb = self.bb_address
 
@@ -462,11 +469,9 @@ class LibInstance:
             copy_reqs.append((bb, signals, 4))
             bb += 4
 
-        # TODO: Send one request with all of these.
-        for dst, src, length in copy_reqs:
-            self.copy_to_bounce(dst, src, length)
-
-        data = self.read_mem(self.bb_address, bb - self.bb_address)
+        if copy_reqs:
+            self.multi_copy_to_bounce(copy_reqs)
+            data = self.read_mem(self.bb_address, bb - self.bb_address)
 
         # Extract.
         offset = 0
@@ -533,7 +538,7 @@ class LibInstance:
             if s.sock in xlist_out:
                 xfds_out |= 1 << s.slot
 
-        # Uppdatera Xfds.
+        # Update Xfds.
         data = b''
 
         if read_fds:
@@ -571,9 +576,7 @@ class LibInstance:
                 copy_reqs.append((signals, bb, 4))
                 bb += 4
 
-        # TODO: Send one request with all of these.
-        for dst, src, length in copy_reqs:
-            self.copy_from_bounce(dst, src, length)
+            self.multi_copy_from_bounce(copy_reqs)
 
         result = len(set(rlist_out) | set(wlist_out) | set(xlist_out))
         self.service.send_op_res(self.stream_id, result, 0)
@@ -931,14 +934,18 @@ class LibRemoteService:
             data = struct.pack('>BBI', MSG_FREE_MEM_REQ, 0, address)
             self.a314d.send_data(stream_id, data)
 
-    def send_copy_from_bounce_req(self, stream_id: int, dst: int, src: int, length: int):
+    def send_copy_from_bounce_req(self, stream_id: int, copies: List[Tuple[int, int, int]]):
+        data = struct.pack('>BB', MSG_COPY_FROM_BOUNCE_REQ, len(copies))
+        for dst, src, length in copies:
+            data += struct.pack('>III', dst, src, length)
         with self.send_lock:
-            data = struct.pack('>BBIII', MSG_COPY_FROM_BOUNCE_REQ, 1, dst, src, length)
             self.a314d.send_data(stream_id, data)
 
-    def send_copy_to_bounce_req(self, stream_id: int, dst: int, src: int, length: int):
+    def send_copy_to_bounce_req(self, stream_id: int, copies: List[Tuple[int, int, int]]):
+        data = struct.pack('>BB', MSG_COPY_TO_BOUNCE_REQ, len(copies))
+        for dst, src, length in copies:
+            data += struct.pack('>III', dst, src, length)
         with self.send_lock:
-            data = struct.pack('>BBIII', MSG_COPY_TO_BOUNCE_REQ, 1, dst, src, length)
             self.a314d.send_data(stream_id, data)
 
     def send_copy_str_to_bounce_req(self, stream_id: int, bounce_address: int, str_address: int):
