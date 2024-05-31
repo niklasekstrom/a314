@@ -15,7 +15,7 @@ contents += '''struct LibRemote;
 static ULONG null_func();
 static BPTR expunge();
 static BPTR close(__reg("a6") struct LibRemote *lib);
-static ULONG send_request(__reg("a6") struct LibRemote *lib, UBYTE *msg, ULONG length);
+static ULONG send_request(__reg("a6") struct LibRemote *lib, UBYTE *write_buf, ULONG write_length);
 
 '''
 
@@ -33,12 +33,12 @@ for i, func in enumerate(funcs):
     if len(args):
         contents += ', ' + ', '.join(gen_param(reg) for reg, _, _ in args)
     contents += ')\n{\n'
-    contents += f'    UBYTE msg[{2 + len(args)*4}];\n'
+    contents += f'    UBYTE write_buf[256];\n'
     for j, (reg, _, _) in enumerate(args):
-        contents += f'    *(ULONG *)&msg[{2 + j*4}] = (ULONG){reg};\n'
-    contents += '    msg[0] = MSG_OP_REQ;\n'
-    contents += f'    msg[1] = {i};\n'
-    contents += '    return send_request(lib, msg, sizeof(msg));\n'
+        contents += f'    *(ULONG *)&write_buf[{2 + j*4}] = (ULONG){reg};\n'
+    contents += '    write_buf[0] = MSG_OP_REQ;\n'
+    contents += f'    write_buf[1] = {i};\n'
+    contents += f'    return send_request(lib, write_buf, {2 + len(args)*4});\n'
     contents += '}\n\n'
 
 contents += '''static ULONG funcs_vector[] =

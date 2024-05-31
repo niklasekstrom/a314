@@ -10,14 +10,18 @@
 #define MSG_ALLOC_MEM_RES           5
 #define MSG_FREE_MEM_REQ            6
 #define MSG_FREE_MEM_RES            7
-#define MSG_COPY_FROM_BOUNCE_REQ    8
-#define MSG_COPY_FROM_BOUNCE_RES    9
-#define MSG_COPY_TO_BOUNCE_REQ      10
-#define MSG_COPY_TO_BOUNCE_RES      11
-#define MSG_COPY_STR_TO_BOUNCE_REQ  12
-#define MSG_COPY_STR_TO_BOUNCE_RES  13
-#define MSG_COPY_TAG_LIST_TO_BOUNCE_REQ 14
-#define MSG_COPY_TAG_LIST_TO_BOUNCE_RES 15
+#define MSG_READ_MEM_REQ            8
+#define MSG_READ_MEM_RES            9
+#define MSG_WRITE_MEM_REQ           10
+#define MSG_WRITE_MEM_RES           11
+#define MSG_COPY_FROM_BOUNCE_REQ    12
+#define MSG_COPY_FROM_BOUNCE_RES    13
+#define MSG_COPY_TO_BOUNCE_REQ      14
+#define MSG_COPY_TO_BOUNCE_RES      15
+#define MSG_COPY_STR_TO_BOUNCE_REQ  16
+#define MSG_COPY_STR_TO_BOUNCE_RES  17
+#define MSG_COPY_TAG_LIST_TO_BOUNCE_REQ 18
+#define MSG_COPY_TAG_LIST_TO_BOUNCE_RES 19
 
 struct CopyDesc
 {
@@ -71,6 +75,30 @@ struct FreeMemReqMsg // Pi -> Amiga
 struct FreeMemResMsg // Amiga -> Pi
 {
     uint8_t kind;
+};
+
+struct ReadMemReqMsg // Pi -> Amiga
+{
+    uint8_t kind;
+    uint8_t pad;
+};
+
+struct ReadMemResMsg // Amiga -> Pi
+{
+    uint8_t kind;
+    uint8_t pad;
+};
+
+struct WriteMemReqMsg // Pi -> Amiga
+{
+    uint8_t kind;
+    uint8_t pad;
+};
+
+struct WriteMemResMsg // Amiga -> Pi
+{
+    uint8_t kind;
+    uint8_t pad;
 };
 
 struct CopyFromBounceReqMsg // Pi -> Amiga

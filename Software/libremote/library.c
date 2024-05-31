@@ -53,7 +53,7 @@ struct LibRemote
     struct A314_IORequest read_req;
     uint32_t bounce_buffer_address;
     struct MemChunkHdr *chunks;
-    uint8_t read_buf[128];
+    uint8_t read_buf[256];
 };
 
 static uint32_t null_func()
@@ -156,29 +156,27 @@ static int get_tag_list_length(struct TagItem *tag_list)
     return count * sizeof(struct TagItem);
 }
 
-static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *msg, uint32_t length)
+static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *write_buf, uint32_t write_length)
 {
-    lib->read_req.a314_Buffer = lib->read_buf;
+    uint8_t *read_buf = lib->read_buf;
+
+    lib->read_req.a314_Buffer = read_buf;
     lib->read_req.a314_Length = sizeof(lib->read_buf);
     lib->read_req.a314_Request.io_Command = A314_READ;
     SendIO(&lib->read_req.a314_Request);
 
-    lib->write_req.a314_Buffer = msg;
-    lib->write_req.a314_Length = length;
+    lib->write_req.a314_Buffer = write_buf;
+    lib->write_req.a314_Length = write_length;
     lib->write_req.a314_Request.io_Command = A314_WRITE;
     SendIO(&lib->write_req.a314_Request);
-
-    uint8_t send_buf[8];
 
     BOOL pending_read = TRUE;
     BOOL pending_write = TRUE;
 
     uint32_t signals_received = 0;
     uint32_t signals_to_send = 0;
-    uint8_t msg_to_send = 0;
-    uint32_t done_arg;
 
-    while (pending_read || pending_write)
+    while (TRUE)
     {
         uint32_t new_signals = Wait(-1);
 
@@ -193,115 +191,189 @@ static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *msg, ui
                 if (req == &lib->write_req)
                     pending_write = FALSE;
                 else // if (req == &lib->read_req)
-                {
-                    uint8_t kind = lib->read_buf[0];
-
-                    if (kind == MSG_OP_RES)
-                        pending_read = FALSE;
-                    else
-                    {
-                        if (kind == MSG_ALLOC_MEM_REQ)
-                        {
-                            struct AllocMemReqMsg *req = (struct AllocMemReqMsg *)lib->read_buf;
-                            done_arg = alloc_chunk(lib, req->length);
-                            msg_to_send = MSG_ALLOC_MEM_RES;
-                        }
-                        else if (kind == MSG_FREE_MEM_REQ)
-                        {
-                            struct FreeMemReqMsg *req = (struct FreeMemReqMsg *)lib->read_buf;
-                            free_chunk(lib, req->address);
-                            msg_to_send = MSG_FREE_MEM_RES;
-                        }
-                        else if (kind == MSG_COPY_FROM_BOUNCE_REQ)
-                        {
-                            struct CopyFromBounceReqMsg *req = (struct CopyFromBounceReqMsg *)lib->read_buf;
-                            struct CopyDesc *cd = (struct CopyDesc *)&req[1];
-                            for (int i = 0; i < req->copy_count; i++)
-                            {
-                                ReadMemA314((void *)cd->dst, cd->src, cd->len);
-                                cd++;
-                            }
-                            msg_to_send = MSG_COPY_FROM_BOUNCE_RES;
-                        }
-                        else if (kind == MSG_COPY_TO_BOUNCE_REQ)
-                        {
-                            struct CopyToBounceReqMsg *req = (struct CopyToBounceReqMsg *)lib->read_buf;
-                            struct CopyDesc *cd = (struct CopyDesc *)&req[1];
-                            for (int i = 0; i < req->copy_count; i++)
-                            {
-                                WriteMemA314(cd->dst, (void *)cd->src, cd->len);
-                                cd++;
-                            }
-                            msg_to_send = MSG_COPY_TO_BOUNCE_RES;
-                        }
-                        else if (kind == MSG_COPY_STR_TO_BOUNCE_REQ)
-                        {
-                            struct CopyStrToBounceReqMsg *req = (struct CopyStrToBounceReqMsg *)lib->read_buf;
-                            uint32_t len = strlen((void *)req->str_address);
-                            WriteMemA314(req->bounce_address, (void *)req->str_address, len);
-                            msg_to_send = MSG_COPY_STR_TO_BOUNCE_RES;
-                            done_arg = len;
-                        }
-                        else if (kind == MSG_COPY_TAG_LIST_TO_BOUNCE_REQ)
-                        {
-                            struct CopyTagListToBounceReqMsg *req = (struct CopyTagListToBounceReqMsg *)lib->read_buf;
-                            uint32_t len = get_tag_list_length((void *)req->tag_list_address);
-                            WriteMemA314(req->bounce_address, (void *)req->tag_list_address, len);
-                            msg_to_send = MSG_COPY_TAG_LIST_TO_BOUNCE_RES;
-                            done_arg = len;
-                        }
-
-                        lib->read_req.a314_Buffer = lib->read_buf;
-                        lib->read_req.a314_Length = sizeof(lib->read_buf);
-                        lib->read_req.a314_Request.io_Command = A314_READ;
-                        SendIO(&lib->read_req.a314_Request);
-                    }
-                }
+                    pending_read = FALSE;
             }
         }
 
-        if (pending_read && !pending_write)
+        if (!pending_write && !pending_read)
         {
-            int16_t length = 0;
+            uint8_t kind = read_buf[0];
 
-            if (msg_to_send)
+            if (kind == MSG_OP_RES)
+                break;
+
+            if (kind == MSG_ALLOC_MEM_REQ)
             {
-                send_buf[0] = msg_to_send;
-                length = 1;
-                if (msg_to_send == MSG_ALLOC_MEM_RES || msg_to_send == MSG_COPY_STR_TO_BOUNCE_RES || msg_to_send == MSG_COPY_TAG_LIST_TO_BOUNCE_RES)
+                struct AllocMemReqMsg *req = (struct AllocMemReqMsg *)read_buf;
+                uint32_t addr = alloc_chunk(lib, req->length);
+
+                write_buf[0] = MSG_ALLOC_MEM_RES;
+                *(uint32_t *)&write_buf[2] = addr;
+                write_length = 6;
+            }
+            else if (kind == MSG_FREE_MEM_REQ)
+            {
+                struct FreeMemReqMsg *req = (struct FreeMemReqMsg *)read_buf;
+                free_chunk(lib, req->address);
+
+                write_buf[0] = MSG_FREE_MEM_RES;
+                write_length = 1;
+            }
+            else if (kind == MSG_READ_MEM_REQ)
+            {
+                uint8_t *read_mem_desc = &read_buf[2];
+
+                write_buf[0] = MSG_READ_MEM_RES;
+                write_length = 2;
+                uint8_t *write_to = &write_buf[2];
+
+                while (read_mem_desc - read_buf < lib->read_req.a314_Length)
                 {
-                    *(uint32_t *)&send_buf[2] = done_arg;
-                    length = 6;
+                    uint32_t src = *(uint32_t *)read_mem_desc;
+                    read_mem_desc += 4;
+
+                    uint8_t len = *read_mem_desc++;
+                    read_mem_desc++;
+
+                    memcpy(write_to, (void *)src, len);
+
+                    write_to += len;
+                    write_length += len;
                 }
-                msg_to_send = 0;
             }
-            else if (signals_to_send)
+            else if (kind == MSG_WRITE_MEM_REQ)
             {
-                send_buf[0] = MSG_SIGNALS;
-                *(uint32_t *)&send_buf[2] = signals_to_send;
-                length = 6;
-                signals_to_send = 0;
+                uint8_t *write_mem_desc = &read_buf[2];
+
+                while (write_mem_desc - read_buf < lib->read_req.a314_Length)
+                {
+                    uint32_t dst = *(uint32_t *)write_mem_desc;
+                    write_mem_desc += 4;
+
+                    uint8_t len = *write_mem_desc++;
+                    if ((len & 1) == 0)
+                        write_mem_desc++;
+
+                    memcpy((void *)dst, write_mem_desc, len);
+
+                    write_mem_desc += len;
+                }
+
+                write_buf[0] = MSG_WRITE_MEM_RES;
+                write_length = 1;
+            }
+            else if (kind == MSG_COPY_FROM_BOUNCE_REQ)
+            {
+                struct CopyFromBounceReqMsg *req = (struct CopyFromBounceReqMsg *)read_buf;
+                struct CopyDesc *cd = (struct CopyDesc *)&req[1];
+
+                for (int i = 0; i < req->copy_count; i++)
+                {
+                    ReadMemA314((void *)cd->dst, cd->src, cd->len);
+                    cd++;
+                }
+
+                write_buf[0] = MSG_COPY_FROM_BOUNCE_RES;
+                write_length = 1;
+            }
+            else if (kind == MSG_COPY_TO_BOUNCE_REQ)
+            {
+                struct CopyToBounceReqMsg *req = (struct CopyToBounceReqMsg *)read_buf;
+                struct CopyDesc *cd = (struct CopyDesc *)&req[1];
+
+                for (int i = 0; i < req->copy_count; i++)
+                {
+                    WriteMemA314(cd->dst, (void *)cd->src, cd->len);
+                    cd++;
+                }
+
+                write_buf[0] = MSG_COPY_TO_BOUNCE_RES;
+                write_length = 1;
+            }
+            else if (kind == MSG_COPY_STR_TO_BOUNCE_REQ)
+            {
+                struct CopyStrToBounceReqMsg *req = (struct CopyStrToBounceReqMsg *)read_buf;
+                uint32_t len = strlen((void *)req->str_address);
+
+                WriteMemA314(req->bounce_address, (void *)req->str_address, len);
+
+                write_buf[0] = MSG_COPY_STR_TO_BOUNCE_RES;
+                *(uint32_t *)&write_buf[2] = len;
+                write_length = 6;
+            }
+            else if (kind == MSG_COPY_TAG_LIST_TO_BOUNCE_REQ)
+            {
+                struct CopyTagListToBounceReqMsg *req = (struct CopyTagListToBounceReqMsg *)read_buf;
+                uint32_t len = get_tag_list_length((void *)req->tag_list_address);
+
+                WriteMemA314(req->bounce_address, (void *)req->tag_list_address, len);
+
+                write_buf[0] = MSG_COPY_TAG_LIST_TO_BOUNCE_RES;
+                *(uint32_t *)&write_buf[2] = len;
+                write_length = 6;
+            }
+            else
+            {
+                // TODO: Should handle this severe error in some other way.
+                // This means that received an unknown message.
+                write_buf[0] = kind + 1;
+                write_length = 1;
             }
 
-            if (length)
-            {
-                lib->write_req.a314_Buffer = send_buf;
-                lib->write_req.a314_Length = length;
-                lib->write_req.a314_Request.io_Command = A314_WRITE;
-                SendIO(&lib->write_req.a314_Request);
+            lib->read_req.a314_Buffer = read_buf;
+            lib->read_req.a314_Length = sizeof(lib->read_buf);
+            lib->read_req.a314_Request.io_Command = A314_READ;
+            SendIO(&lib->read_req.a314_Request);
 
-                pending_write = TRUE;
-            }
+            lib->write_req.a314_Buffer = write_buf;
+            lib->write_req.a314_Length = write_length;
+            lib->write_req.a314_Request.io_Command = A314_WRITE;
+            SendIO(&lib->write_req.a314_Request);
+
+            pending_read = TRUE;
+            pending_write = TRUE;
+        }
+
+        if (!pending_write && signals_to_send)
+        {
+            write_buf[0] = MSG_SIGNALS;
+            *(uint32_t *)&write_buf[2] = signals_to_send;
+            write_length = 6;
+
+            signals_to_send = 0;
+
+            lib->write_req.a314_Buffer = write_buf;
+            lib->write_req.a314_Length = write_length;
+            lib->write_req.a314_Request.io_Command = A314_WRITE;
+            SendIO(&lib->write_req.a314_Request);
+
+            pending_write = TRUE;
         }
     }
 
-    struct OpResMsg *op_msg = (struct OpResMsg *)lib->read_buf;
+    struct OpResMsg *op_msg = (struct OpResMsg *)read_buf;
     struct CopyDesc *cd = (struct CopyDesc *)&op_msg[1];
 
     for (int i = 0; i < op_msg->copy_count; i++)
     {
         ReadMemA314((void *)cd->dst, cd->src, cd->len);
         cd++;
+    }
+
+    uint8_t *write_mem_desc = (uint8_t *)cd;
+
+    while (write_mem_desc - read_buf < lib->read_req.a314_Length)
+    {
+        uint32_t dst = *(uint32_t *)write_mem_desc;
+        write_mem_desc += 4;
+
+        uint8_t len = *write_mem_desc++;
+        if ((len & 1) == 0)
+            write_mem_desc++;
+
+        memcpy((void *)dst, write_mem_desc, len);
+
+        write_mem_desc += len;
     }
 
     Signal(FindTask(NULL), signals_received & ~(op_msg->signals_consumed));
