@@ -4,7 +4,7 @@
 
 #include <stdio.h>
 
-#include "proto_lib.h"
+#include "proto_example.h"
 
 struct Library *ExampleBase;
 

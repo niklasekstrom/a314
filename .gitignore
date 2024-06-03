@@ -11,6 +11,7 @@ Software/bin_amiga
 Software/bin_pi
 Software/bpls2gif/build
 Software/libremote/stubs.h
-Software/libremote/proto_lib.h
 Software/libremote/example.library
+Software/libremote/bsdsocket.library
+Software/libremote/proto_example.h
 Software/libremote/ExampleClient

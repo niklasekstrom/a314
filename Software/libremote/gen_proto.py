@@ -1,7 +1,10 @@
 import json
 import sys
 
-with open(sys.argv[1], 'rt') as f:
+in_file = f'libdecl-{sys.argv[1]}.json'
+out_file = f'proto_{sys.argv[1]}.h'
+
+with open(in_file, 'rt') as f:
     libdecl = json.load(f)
 
 funcs = libdecl['funcs']
@@ -44,5 +47,5 @@ for i, func in enumerate(funcs):
 
 contents += f'#endif /* {guard} */\n'
 
-with open('proto_lib.h', 'wt') as f:
+with open(out_file, 'wt') as f:
     f.write(contents)
