@@ -1,11 +1,3 @@
-HDL/db/
-HDL/incremental_db/
-HDL/output_files/
-HDL/greybox_tmp/
-HDL/.qsys_edit/
-HDL/*.bak
-HDL/*.qws
-HDL/*.rpt
 Software/**/.vscode
 Software/bin_amiga
 Software/bin_pi
