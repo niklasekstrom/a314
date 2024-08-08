@@ -301,6 +301,39 @@ struct ExamineFhResponse
 	char data[1];
 };
 
+struct DiskInfoRequest
+{
+	short has_response;
+	short type;
+};
+
+struct DiskInfoResponse
+{
+	short has_response;
+	short success;
+	short error_code;
+	unsigned long total_blocks;
+	unsigned long used_blocks;
+	unsigned long block_size;
+};
+
+struct InfoRequest
+{
+	short has_response;
+	short type;
+	long key;
+};
+
+struct InfoResponse
+{
+	short has_response;
+	short success;
+	short error_code;
+	unsigned long total_blocks;
+	unsigned long used_blocks;
+	unsigned long block_size;
+};
+
 struct UnsupportedRequest
 {
 	short has_response;

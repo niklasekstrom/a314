@@ -1220,6 +1220,25 @@ void action_info(struct DosPacket *dp)
 
 	fill_info_data(id);
 
+	struct InfoRequest *req = (struct InfoRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = dp->dp_Type;
+	req->key = lock == NULL ? 0 : lock->fl_Key;
+
+	write_req_and_wait_for_res(sizeof(struct InfoRequest));
+
+	struct InfoResponse *res = (struct InfoResponse *)request_buffer;
+	if (!res->success)
+	{
+		dbg("  Failed, error code $l\n", (LONG)res->error_code);
+	}
+	else
+	{
+		id->id_NumBlocks = res->total_blocks;
+		id->id_NumBlocksUsed = res->used_blocks;
+		id->id_BytesPerBlock = res->block_size;
+	}
+
 	dp->dp_Res1 = DOSTRUE;
 	dp->dp_Res2 = 0;
 	reply_packet(dp);
@@ -1232,6 +1251,24 @@ void action_disk_info(struct DosPacket *dp)
 	dbg("ACTION_DISK_INFO\n");
 
 	fill_info_data(id);
+
+	struct DiskInfoRequest *req = (struct DiskInfoRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = dp->dp_Type;
+
+	write_req_and_wait_for_res(sizeof(struct DiskInfoRequest));
+
+	struct DiskInfoResponse *res = (struct DiskInfoResponse *)request_buffer;
+	if (!res->success)
+	{
+		dbg("  Failed, error code $l\n", (LONG)res->error_code);
+	}
+	else
+	{
+		id->id_NumBlocks = res->total_blocks;
+		id->id_NumBlocksUsed = res->used_blocks;
+		id->id_BytesPerBlock = res->block_size;
+	}
 
 	dp->dp_Res1 = DOSTRUE;
 	dp->dp_Res2 = 0;
