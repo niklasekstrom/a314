@@ -12,6 +12,7 @@ import struct
 import glob
 import logging
 import json
+import shutil
 
 logging.basicConfig(format = '%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s')
 logger = logging.getLogger(__name__)
@@ -199,6 +200,8 @@ ST_LINKDIR          = 4     # hard link to dir
 ST_FILE             = -3    # must be negative for FIB!
 ST_LINKFILE         = -4    # hard link to file
 ST_PIPEFILE         = -5
+
+INFO_BLOCK_SIZE     = 512
 
 current_stream_id = 0
 
@@ -688,6 +691,25 @@ def process_same_lock(key1, key2):
     else:
         return struct.pack('>HH', 0, LOCK_SAME_VOLUME)
 
+def process_disk_info():
+    logger.debug('ACTION_DISK_INFO')
+
+    total, used, free = shutil.disk_usage(SHARED_DIRECTORY)
+    total_blocks = total // INFO_BLOCK_SIZE
+    used_blocks = used // INFO_BLOCK_SIZE
+    block_size = INFO_BLOCK_SIZE
+    return struct.pack('>HHIII', 1, 0, total_blocks, used_blocks, block_size)
+
+def process_info(key):
+    logger.debug('ACTION_INFO, key: %s', key)
+
+    # Ignore key, for now.
+    total, used, free = shutil.disk_usage(SHARED_DIRECTORY)
+    total_blocks = total // INFO_BLOCK_SIZE
+    used_blocks = used // INFO_BLOCK_SIZE
+    block_size = INFO_BLOCK_SIZE
+    return struct.pack('>HHIII', 1, 0, total_blocks, used_blocks, block_size)
+
 def process_request(req):
     #logger.debug('len(req): %s, req: %s', len(req), list(req))
 
@@ -756,6 +778,11 @@ def process_request(req):
     elif rtype == ACTION_SAME_LOCK:
         key1, key2 = struct.unpack('>II', req[2:10])
         return process_same_lock(key1, key2)
+    elif rtype == ACTION_DISK_INFO:
+        return process_disk_info()
+    elif rtype == ACTION_INFO:
+        (key,) = struct.unpack('>I', req[2:6])
+        return process_info(key)
     elif rtype == ACTION_UNSUPPORTED:
         (dp_Type,) = struct.unpack('>H', req[2:4])
         logger.warning('Unsupported action %d (Amiga/a314fs)', dp_Type)
