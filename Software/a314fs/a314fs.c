@@ -1205,7 +1205,7 @@ void fill_info_data(struct InfoData *id)
 	id->id_NumBlocks = 512 * 1024;
 	id->id_NumBlocksUsed = 10;
 	id->id_BytesPerBlock = 512;
-	id->id_DiskType = my_volume->dl_DiskType;
+	id->id_DiskType = ID_DOS_DISK;
 	id->id_VolumeNode = MKBADDR(my_volume);
 	id->id_InUse = DOSTRUE;
 }
