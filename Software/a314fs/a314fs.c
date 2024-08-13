@@ -99,7 +99,14 @@ struct MsgPort *MyCreatePort(char *name, long pri)
 	port->mp_SigTask = FindTask(NULL);
 
 	if (name)
-		AddPort(port);
+	{
+		if (AddPort(port) == NULL)
+		{
+			FreeSignal(sigbit);
+			FreeMem(port, sizeof(struct MsgPort));
+			return NULL;
+		}
+	}
 	else
 		MyNewList(&(port->mp_MsgList));
 
