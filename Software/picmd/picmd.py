@@ -220,7 +220,16 @@ class PiCmdSession(object):
                         os.chdir(os.path.join(path, *components[1:]))
                     else:
                         os.chdir(os.getenv('HOME', '/'))
-                    os.execvp(args[0], args)
+                    try:
+                        os.execvp(args[0], args)
+                    except FileNotFoundError:
+                        error_message = f'No such file or directory: {args[0]}\n'
+                        os.write(sys.stderr.fileno(), error_message.encode('utf-8'))
+                        os._exit(1)
+                    except Exception as e:
+                        error_message = f'An error occurred: {str(e)}\n'
+                        os.write(sys.stderr.fileno(), error_message.encode('utf-8'))
+                        os._exit(1)
 
                 self.start_msg = None
 
