@@ -223,11 +223,11 @@ class PiCmdSession(object):
                     try:
                         os.execvp(args[0], args)
                     except FileNotFoundError:
-                        error_message = f"No such file or directory: {args[0]}\n"
+                        error_message = f'No such file or directory: {args[0]}\n'
                         os.write(sys.stderr.fileno(), error_message.encode('utf-8'))
                         os._exit(1)
                     except Exception as e:
-                        error_message = f"An error occurred: {str(e)}\n"
+                        error_message = f'An error occurred: {str(e)}\n'
                         os.write(sys.stderr.fileno(), error_message.encode('utf-8'))
                         os._exit(1)
 
