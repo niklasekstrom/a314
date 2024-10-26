@@ -228,6 +228,8 @@ static ULONG get_present_blocks()
 	{
 		struct MemHeader *mh = (struct MemHeader *)node;
 		ULONG block = (ULONG)mh->mh_Lower >> 19;
+		if (block >= 32)
+			continue;
 		ULONG address = block << 19;
 		while (address < (ULONG)mh->mh_Upper)
 		{
