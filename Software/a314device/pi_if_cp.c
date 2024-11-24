@@ -14,6 +14,8 @@
 #include "memory_allocator.h"
 #include "config_file.h"
 
+#include "proto_clockport.h"
+
 // Warning 367 says that an eight bit shift will ignore a byte value,
 // which is correct, but intentional.
 #pragma dontwarn 367
@@ -253,8 +255,57 @@ fail1:
 	return success;
 }
 
+int probe_pi_interface_cplib(struct A314Device *dev)
+{
+	int result = FALSE;
+
+	struct Library *ClockportBase = OpenLibrary(CLOCKPORT_NAME, 0);
+	if (!ClockportBase)
+		goto errout1;
+
+	struct ClockportDescriptor *cd = FindClockport(NULL, "a314-cp");
+	if (!cd)
+		goto errout2;
+
+	dev->clockport_address = cd->cd_Address;
+	dev->interrupt_number = cd->cd_Interrupt;
+
+	Forbid();
+
+	for (int i = 7; i >= 0; i--)
+	{
+		if (AllocateClockport(cd))
+			break;
+
+		if (probe_pi_interface_once(dev))
+		{
+			result = TRUE;
+			break;
+		}
+
+		FreeClockport(cd);
+
+		if (i == 0)
+			break;
+
+		Permit();
+		delay_1s();
+		Forbid();
+	}
+
+	Permit();
+
+errout2:
+	CloseLibrary(ClockportBase);
+errout1:
+	return result;
+}
+
 int probe_pi_interface(struct A314Device *dev)
 {
+	if (probe_pi_interface_cplib(dev))
+		return TRUE;
+
 	dev->clockport_address = DEFAULT_CLOCKPORT_ADDRESS;
 	dev->interrupt_number = 6;
 
