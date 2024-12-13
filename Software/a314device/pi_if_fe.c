@@ -21,7 +21,7 @@
 // TODO: Currently the list of addresses to probe is hard coded.
 // We may want to add more dynamic detection of where the
 // shared memory ends up in the memory space.
-static ULONG probe_addresses[] = {0x040000, 0xC40000, INVALID_A314_ADDRESS};
+static const ULONG probe_addresses[] = {0x040000, 0xC40000, INVALID_A314_ADDRESS};
 
 #define QUARTER_MB		(256*1024)
 
@@ -32,7 +32,7 @@ static void add_interrupt_handlers(struct A314Device *dev)
 	memset(&dev->vertb_interrupt, 0, sizeof(struct Interrupt));
 	dev->vertb_interrupt.is_Node.ln_Type = NT_INTERRUPT;
 	dev->vertb_interrupt.is_Node.ln_Pri = -60;
-	dev->vertb_interrupt.is_Node.ln_Name = device_name;
+	dev->vertb_interrupt.is_Node.ln_Name = (char *)device_name;
 	dev->vertb_interrupt.is_Data = (APTR)dev;
 	dev->vertb_interrupt.is_Code = IntServer;
 
@@ -41,7 +41,7 @@ static void add_interrupt_handlers(struct A314Device *dev)
 	memset(&dev->int_x_interrupt, 0, sizeof(struct Interrupt));
 	dev->int_x_interrupt.is_Node.ln_Type = NT_INTERRUPT;
 	dev->int_x_interrupt.is_Node.ln_Pri = 0;
-	dev->int_x_interrupt.is_Node.ln_Name = device_name;
+	dev->int_x_interrupt.is_Node.ln_Name = (char *)device_name;
 	dev->int_x_interrupt.is_Data = (APTR)dev;
 	dev->int_x_interrupt.is_Code = IntServer;
 

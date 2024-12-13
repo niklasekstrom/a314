@@ -63,7 +63,7 @@ struct A314Device
 #define CAP_PTR(dev) (&(dev->cap))
 #endif
 
-extern char device_name[];
-extern char id_string[];
+extern const char device_name[];
+extern const char id_string[];
 
 #endif /* __A314_DEVICE_H */

@@ -38,7 +38,7 @@ static BOOL setup_task(struct A314Device *dev)
 	memset(task, 0, sizeof(struct Task));
 	task->tc_Node.ln_Type = NT_TASK;
 	task->tc_Node.ln_Pri = TASK_PRIORITY;
-	task->tc_Node.ln_Name = device_name;
+	task->tc_Node.ln_Name = (char *)device_name;
 	task->tc_SPLower = (APTR)stack;
 	task->tc_SPUpper = (APTR)(stack + TASK_STACK_SIZE);
 	task->tc_SPReg = (APTR)(stack + TASK_STACK_SIZE);
@@ -51,7 +51,7 @@ static void init_message_port(struct A314Device *dev)
 {
 	struct MsgPort *mp = &dev->task_mp;
 	memset(mp, 0, sizeof(struct MsgPort));
-	mp->mp_Node.ln_Name = device_name;
+	mp->mp_Node.ln_Name = (char *)device_name;
 	mp->mp_Node.ln_Pri = 0;
 	mp->mp_Node.ln_Type = NT_MSGPORT;
 	mp->mp_Flags = PA_SIGNAL;

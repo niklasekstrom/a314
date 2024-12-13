@@ -16,8 +16,8 @@
 
 #define SysBase (*(struct ExecBase **)4)
 
-char device_name[] = A314_NAME;
-char id_string[] = A314_NAME " 1.0 (25 Aug 2018)";
+const char device_name[] = A314_NAME;
+const char id_string[] = A314_NAME " 1.0 (25 Aug 2018)";
 
 static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") BPTR seg_list, __reg("d0") struct A314Device *dev)
 {
@@ -28,7 +28,7 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
 	// MakeLibrary() was executed before we got here.
 
 	dev->lib.lib_Node.ln_Type = NT_DEVICE;
-	dev->lib.lib_Node.ln_Name = device_name;
+	dev->lib.lib_Node.ln_Name = (char *)device_name;
 	dev->lib.lib_Flags = LIBF_SUMUSED | LIBF_CHANGED;
 	dev->lib.lib_Version = 1;
 	dev->lib.lib_Revision = 0;
@@ -110,7 +110,7 @@ static ULONG abort_io(__reg("a6") struct A314Device *dev, __reg("a1") struct A31
 	return IOERR_NOCMD;
 }
 
-static ULONG device_vectors[] =
+static const ULONG device_vectors[] =
 {
 	(ULONG)open,
 	(ULONG)close,
@@ -126,7 +126,7 @@ static ULONG device_vectors[] =
 	-1,
 };
 
-ULONG auto_init_tables[] =
+const ULONG auto_init_tables[] =
 {
 	sizeof(struct A314Device),
 	(ULONG)device_vectors,

@@ -310,7 +310,7 @@ static void add_interrupt_handler(struct A314Device *dev)
 	memset(&dev->int_x_interrupt, 0, sizeof(struct Interrupt));
 	dev->int_x_interrupt.is_Node.ln_Type = NT_INTERRUPT;
 	dev->int_x_interrupt.is_Node.ln_Pri = 0;
-	dev->int_x_interrupt.is_Node.ln_Name = device_name;
+	dev->int_x_interrupt.is_Node.ln_Name = (char *)device_name;
 	dev->int_x_interrupt.is_Data = (APTR)dev;
 	dev->int_x_interrupt.is_Code = IntServer;
 
