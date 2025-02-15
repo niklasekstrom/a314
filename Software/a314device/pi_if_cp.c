@@ -271,6 +271,17 @@ int probe_pi_interface(struct A314Device *dev)
 	return FALSE;
 }
 
+// This inline assembly was added solely to work around a bug in VBCC.
+// VBCC would replace the move to the clockport address with a clr
+// instruction, which has the side effect of also reading from the
+// address on a 68000, which is a problem.
+static void clear_cap_asm(__reg("a0") volatile UBYTE *reg_sram) =
+"    moveq   #0,d0\n"
+"    move.b  d0,(a0)\n"
+"    move.b  d0,(a0)\n"
+"    move.b  d0,(a0)\n"
+"    move.b  d0,(a0)\n";
+
 static void clear_cap(struct A314Device *dev)
 {
 	Disable();
@@ -279,8 +290,7 @@ static void clear_cap(struct A314Device *dev)
 	*CP_REG_PTR(cpa, REG_ADDR_LO) = CAP_BASE & 0xff;
 	*CP_REG_PTR(cpa, REG_ADDR_HI) = (CAP_BASE >> 8) & 0xff;
 
-	for (int i = 0; i < 4; i++)
-		*CP_REG_PTR(cpa, REG_SRAM) = 0;
+	clear_cap_asm(CP_REG_PTR(cpa, REG_SRAM));
 
 	Enable();
 }
