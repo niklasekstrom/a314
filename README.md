@@ -29,6 +29,11 @@ repositories. The currently available variants are:
 | A314-1000 | Amiga 1000 | Front expansion | <https://github.com/Eriond/A314-1000-PCB> |
 | A314-cp | Any Amiga with clockport | Clockport | <https://github.com/niklasekstrom/clockport_pi_interface> <br/> <https://github.com/Eriond/clockport_pi_interface> (alternative PCB layout) |
 
+|         |            |
+| ------------- |---------------|
+| [![A314-500](Documentation/Images/a314-500.jpg)](https://github.com/Eriond/A314-500-PCB) | [![A314-600](Documentation/Images/a314-600.jpg)](https://github.com/Eriond/A314-600-PCB) |
+| [![A314-1000](Documentation/Images/a314-1000.jpg)](https://github.com/Eriond/A314-1000-PCB) | [![A314-cp](Documentation/Images/a314-cp.jpg)](https://github.com/niklasekstrom/clockport_pi_interface) |
+
 The A314 software has also been adapted to run on the Musashi version of
 [PiStorm](https://github.com/captain-amygdala/pistorm).
 
