@@ -24,9 +24,13 @@
 
 #define PICMD_SERVICE_NAME "picmd"
 
+#define FLAG_INPUT_FILE		0x0001
+#define FLAG_OUTPUT_FILE	0x0002
+
 struct StartMsgHeader
 {
 	UWORD length;
+	UWORD flags;
 	short rows;
 	short cols;
 	UBYTE component_count;
@@ -203,6 +207,7 @@ int main(int argc, char **argv)
 
 	struct StartMsgHeader *hdr = (struct StartMsgHeader *)start_msg;
 	hdr->length = START_MSG_LEN;
+	hdr->flags = 0;
 	hdr->rows = 25;
 	hdr->cols = 80;
 	hdr->component_count = 0;

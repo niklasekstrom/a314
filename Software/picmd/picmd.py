@@ -131,15 +131,29 @@ def send_reset(stream_id):
     m = struct.pack('=IIB', 0, stream_id, MSG_RESET)
     drv.sendall(m)
 
-sessions = {}
+sessions: dict[int, 'PiCmdSession'] = {}
 
-class PiCmdSession(object):
-    def __init__(self, stream_id):
+FLAG_INPUT_FILE = 0x0001
+FLAG_OUTPUT_FILE = 0x0002
+
+class PiCmdSession:
+    def __init__(self, stream_id: int):
         self.stream_id = stream_id
         self.pid = 0
 
         self.start_msg = b''
         self.reset_after = None
+
+        self.file_input = False
+        self.file_output = False
+
+        self.pty_fd = 0
+        self.stdin_write = 0
+        self.stdout_read = 0
+
+        self.reset_received = False
+        self.eos_received = False
+        self.eos_sent = False
 
         self.rasp_was_esc = False
         self.rasp_in_cs = False
@@ -166,7 +180,7 @@ class PiCmdSession(object):
                         # ESC[1;1;rows;cols r
                         rows, cols = map(int, self.amiga_holding[6:-2].split(';'))
                         winsize = struct.pack('HHHH', rows, cols, 0, 0)
-                        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, winsize)
+                        fcntl.ioctl(self.pty_fd, termios.TIOCSWINSZ, winsize)
                     elif c == '|':
                         # Input Event Report
                         # ESC[12;0;0;x;x;x;x;x|
@@ -177,7 +191,7 @@ class PiCmdSession(object):
                     self.amiga_holding = ''
                     self.amiga_in_cs = False
         if len(out) != 0:
-            os.write(self.fd, out.encode('utf-8'))
+            os.write(self.pty_fd, out.encode('utf-8'))
 
     def process_msg_data(self, data):
         if self.start_msg is not None:
@@ -186,9 +200,12 @@ class PiCmdSession(object):
             if len(self.start_msg) == length:
                 buf = self.start_msg
 
-                rows, cols, component_count, arg_count = struct.unpack_from('>HHBB', buf, 2)
+                flags, rows, cols, component_count, arg_count = struct.unpack_from('>HHHBB', buf, 2)
 
-                ind = 8
+                self.file_input = (flags & FLAG_INPUT_FILE) != 0
+                self.file_output = (flags & FLAG_OUTPUT_FILE) != 0
+
+                ind = 10
 
                 components = []
                 for _ in range(component_count):
@@ -207,19 +224,39 @@ class PiCmdSession(object):
                 if arg_count == 0:
                     args.append('bash')
 
-                self.pid, self.fd = pty.fork()
+                if self.file_input:
+                    in_r, in_w = os.pipe()
+                    os.set_inheritable(in_r, True)
+
+                if self.file_output:
+                    out_r, out_w = os.pipe()
+                    os.set_inheritable(out_w, True)
+
+                self.pid, self.pty_fd = pty.fork()
                 if self.pid == 0:
                     os.putenv('PATH', search_path)
                     os.putenv('TERM', 'ansi')
+
                     for key, val in env_vars.items():
                         os.putenv(key, val)
+
                     winsize = struct.pack('HHHH', rows, cols, 0, 0)
                     fcntl.ioctl(sys.stdin, termios.TIOCSWINSZ, winsize)
+
                     if component_count != 0 and components[0] in volume_paths:
                         path = volume_paths[components[0]]
                         os.chdir(os.path.join(path, *components[1:]))
                     else:
                         os.chdir(os.getenv('HOME', '/'))
+
+                    if self.file_input:
+                        os.dup2(in_r, 0)
+                        os.close(in_r)
+
+                    if self.file_output:
+                        os.dup2(out_w, 1)
+                        os.close(out_w)
+
                     try:
                         os.execvp(args[0], args)
                     except FileNotFoundError:
@@ -230,18 +267,26 @@ class PiCmdSession(object):
                         error_message = f'An error occurred: {str(e)}\n'
                         os.write(sys.stderr.fileno(), error_message.encode('utf-8'))
                         os._exit(1)
+                else:
+                    if self.file_input:
+                        os.close(in_r)
+                        self.stdin_write = in_w
+                    else:
+                        self.stdin_write = self.pty_fd
+
+                    if self.file_output:
+                        os.close(out_w)
+                        self.stdout_read = out_r
+                    else:
+                        self.stdout_read = self.pty_fd
 
                 self.start_msg = None
 
         elif self.pid:
-            self.process_amiga_ansi(data)
-
-    def close(self):
-        if self.pid:
-            os.kill(self.pid, signal.SIGTERM)
-            self.pid = 0
-            os.close(self.fd)
-        del sessions[self.stream_id]
+            if not self.file_input and not self.file_output:
+                self.process_amiga_ansi(data)
+            else:
+                os.write(self.stdin_write, data)
 
     def process_rasp_ansi(self, text):
         text = text.decode('utf-8')
@@ -279,28 +324,56 @@ class PiCmdSession(object):
                     self.rasp_in_cs = False
         return out.encode('latin-1', 'replace')
 
-    def handle_text(self):
-        try:
-            text = os.read(self.fd, 1024)
-            text = self.process_rasp_ansi(text)
-            while len(text) > 0:
-                take = min(len(text), 252)
-                send_data(self.stream_id, text[:take])
-                text = text[take:]
-        except:
-            #os.close(self.fd)
-            os.kill(self.pid, signal.SIGTERM)
-            self.pid = 0
-            send_eos(self.stream_id)
-            self.reset_after = time.time() + 10
+    def handle_child_terminated(self):
+        # Child can terminate because:
+        # - Child killed due to RESET received on stream
+        # - Received ctrl-c or exit from console, closing normally
+        # - Received EOS, closing normally
+        # - Child crashed, closing abnormally
 
-    def handle_timeout(self):
-        if self.reset_after and self.reset_after < time.time():
-            send_reset(self.stream_id)
+        if self.pid:
+            os.waitpid(self.pid, 0)
+            self.pid = 0
+
+            os.close(self.pty_fd)
+
+            if self.file_input and self.stdin_write:
+                os.close(self.stdin_write)
+            self.stdin_write = 0
+
+            if self.file_output and self.stdout_read:
+                os.close(self.stdout_read)
+            self.stdout_read = 0
+
+        if not self.reset_received:
+            send_eos(self.stream_id)
+            self.eos_sent = True
+
+        if self.reset_received or self.eos_received and self.eos_sent:
             del sessions[self.stream_id]
 
+    def handle_stdout_reable(self):
+        try:
+            # If stdout is connected to pty then os.read will raise an exception
+            # when program terminates. If stdout is connected to pipe then
+            # os.read will return b'' after program terminates.
+            text = os.read(self.stdout_read, 1024)
+        except:
+            text = b''
+
+        if text == b'':
+            self.handle_child_terminated()
+            return
+
+        text = self.process_rasp_ansi(text)
+
+        while len(text) > 0:
+            take = min(len(text), 252)
+            send_data(self.stream_id, text[:take])
+            text = text[take:]
+
     def fileno(self):
-        return self.fd
+        return self.stdout_read
 
 def process_drv_msg(stream_id, ptype, payload):
     if ptype == MSG_CONNECT:
@@ -316,11 +389,28 @@ def process_drv_msg(stream_id, ptype, payload):
         if ptype == MSG_DATA:
             s.process_msg_data(payload)
         elif ptype == MSG_EOS:
-            if s.pid:
-                send_eos(s.stream_id)
-            s.close()
+            assert s.file_input
+
+            s.eos_received = True
+
+            if s.eos_sent:
+                del sessions[stream_id]
+            elif s.stdin_write:
+                os.close(s.stdin_write)
+                s.stdin_write = 0
         elif ptype == MSG_RESET:
-            s.close()
+            # This can happen if:
+            # - Failure to receive window bounds report
+            # - Reading from console failed
+            # - Reading from input file failed
+            s.reset_received = True
+
+            if s.pid:
+                os.kill(s.pid, signal.SIGKILL)
+                # Will clean up resources when stdout_read is closed.
+            else:
+                # Didn't receive start message yet.
+                del sessions[stream_id]
 
 done = False
 
@@ -351,25 +441,23 @@ if not done:
 
 while not done:
     sel_fds = [drv] + [s for s in sessions.values() if s.pid]
-    if idx == -1:
-        sel_fds.append(sys.stdin)
     rfd, wfd, xfd = select.select(sel_fds, [], [], 5.0)
 
     for fd in rfd:
-        if fd == sys.stdin:
-            line = sys.stdin.readline()
-            if not line or line.startswith('quit'):
-                for s in sessions.values():
-                    s.close()
-                drv.close()
-                done = True
-        elif fd == drv:
+        if fd == drv:
             buf = drv.recv(1024)
             if not buf:
+                # a314d closed the connection to this service.
+                # All streams are resetted by a314d.
+                # Kill child processes and exit.
                 for s in sessions.values():
-                    s.close()
+                    if s.pid:
+                        os.kill(s.pid, signal.SIGKILL)
+                        s.pid = 0
+                sessions.clear()
                 drv.close()
                 done = True
+                break
             else:
                 rbuf += buf
                 while True:
@@ -386,7 +474,4 @@ while not done:
 
                     process_drv_msg(stream_id, ptype, payload)
         else:
-            fd.handle_text()
-
-    for s in sessions.values():
-        s.handle_timeout()
+            fd.handle_stdout_reable()
