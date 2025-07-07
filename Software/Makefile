@@ -24,4 +24,4 @@ ${BIN}/spi-a314.dtbo: a314d/spi-a314-overlay.dts
 	${DTC} -I dts -O dtb -o ${BIN}/spi-a314.dtbo a314d/spi-a314-overlay.dts
 
 ${BIN}/start_gpclk: a314d/start_gpclk.c
-	${CC} a314d/start_gpclk.c -I/opt/vc/include -L/opt/vc/lib -lbcm_host -o ${BIN}/start_gpclk
+	${CC} a314d/start_gpclk.c -o ${BIN}/start_gpclk

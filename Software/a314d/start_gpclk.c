@@ -10,8 +10,6 @@
 #include <unistd.h>
 #include <time.h>
 
-#include <bcm_host.h>
-
 #define GPIO_ADDR 0x200000
 #define GPCLK_ADDR 0x101000
 
@@ -28,6 +26,39 @@
 
 volatile unsigned int *gpio;
 volatile unsigned int *gpclk;
+
+// The following three functions are borrowed from:
+// https://github.com/raspberrypi/userland/blob/master/host_applications/linux/libs/bcm_host/bcm_host.c
+
+static unsigned get_dt_ranges(const char *filename, unsigned offset)
+{
+    unsigned address = ~0;
+    FILE *fp = fopen(filename, "rb");
+    if (fp)
+    {
+        unsigned char buf[4];
+        fseek(fp, offset, SEEK_SET);
+        if (fread(buf, 1, sizeof buf, fp) == sizeof buf)
+            address = buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3] << 0;
+        fclose(fp);
+    }
+    return address;
+}
+
+static unsigned bcm_host_get_peripheral_address(void)
+{
+    unsigned address = get_dt_ranges("/proc/device-tree/soc/ranges", 4);
+    if (address == 0)
+        address = get_dt_ranges("/proc/device-tree/soc/ranges", 8);
+    return address == ~0 ? 0x20000000 : address;
+}
+
+static unsigned bcm_host_get_peripheral_size(void)
+{
+    unsigned address = get_dt_ranges("/proc/device-tree/soc/ranges", 4);
+    address = get_dt_ranges("/proc/device-tree/soc/ranges", (address == 0) ? 12 : 8);
+    return address == ~0 ? 0x01000000 : address;
+}
 
 static void create_dev_mem_mapping(size_t base, size_t size)
 {
