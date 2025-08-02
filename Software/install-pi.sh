@@ -156,6 +156,42 @@ install_frontexpansion() {
 	install_common
 }
 
+flash_cp() {
+	if ! which openFPGALoader > /dev/null 2>&1; then
+		echo "Error: openFPGALoader is not installed"
+		exit 1
+	fi
+
+	RELEASE_INFO=$(curl -s https://api.github.com/repos/niklasekstrom/clockport_pi_interface/releases/latest)
+	JED_URL=$(echo "$RELEASE_INFO" | grep -o '"browser_download_url": "[^"]*cp_pi_if\.jed"' | cut -d'"' -f4)
+	
+	if [ -z "$JED_URL" ]; then
+		echo "Error: Could not find cp_pi_if.jed in latest release"
+		exit 1
+	fi
+
+  echo "Fetching firmware"
+	
+	TEMP_JED="/tmp/cp_pi_if.jed"
+	curl -L -o "$TEMP_JED" "$JED_URL"
+	
+	if [ ! -f "$TEMP_JED" ]; then
+		echo "Error: Failed to download CPLD firmware"
+		exit 1
+	fi
+
+  echo "Flashing CPLD"
+	
+	sudo openFPGALoader -c libgpiod --pins 10:8:11:9 -f "$TEMP_JED"
+  if [ $? -eq 0 ]; then
+      echo "CPLD flashed successfully."
+  else
+      echo "CPLD flashing failed or was interrupted."
+  fi	
+
+	rm -f "$TEMP_JED"
+}
+
 case "$1" in
 	td | TD) install_trapdoor
 		;;
@@ -163,10 +199,14 @@ case "$1" in
 		;;
 	fe | FE) install_frontexpansion
 		;;
-	*)	echo "Usage: sudo ./install-pi.sh <model>"
+	flash_cp) flash_cp
+		;;
+	*)	echo "Usage: sudo ./install-pi.sh <model|action>"
 		echo "       <model> is one of:"
-		echo "         td   (trapdoor)          A314-500, A314-600"
-		echo "         cp   (clockport)         A314-cp"
-		echo "         fe   (front expansion)   A314-1000"
+		echo "         td       (trapdoor)          A314-500, A314-600"
+		echo "         cp       (clockport)         A314-cp"
+		echo "         fe       (front expansion)   A314-1000"
+		echo "       <action> is one of:"
+		echo "         flash_cp (flash cpld)   Flash latest CPLD firmware"
 		;;
 esac
