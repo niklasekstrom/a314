@@ -19,7 +19,7 @@ To build and install the software on the Raspberry Pi side, do the following:
   but any recent version should work):
   <https://www.raspberrypi.com/software/operating-systems/>
 - Update apt packages: `sudo apt update`, `sudo apt upgrade`
-- Install Dependencies: `sudo apt install python3-dev python3-distutils python3-pip python3-virtualenv build-essential git ifupdown iptables openfpgaloader`
+- Install Dependencies: `sudo apt install python3-dev python3-distutils python3-pip python3-virtualenv build-essential git ifupdown iptables`
 - Obtain a copy of the repository, either:
   - Clone the a314 repository: `git clone https://github.com/niklasekstrom/a314.git`, or
   - Download the sources from a release. Pick a release from
@@ -28,8 +28,15 @@ To build and install the software on the Raspberry Pi side, do the following:
 - Change into the Software directory: `cd a314/Software`
 - Run the installer script: `sudo ./install-pi.sh <model>`, where `<model>` is
   `td`, `cp` or `fe` depending on which variant of A314 is used.
-- For A314-cp users: Flash the latest CPLD firmware: `sudo ./install-pi.sh flash_cp`
 - Reboot the Raspberry Pi: `sudo reboot now`
+
+#### CPLD Flashing (A314-cp only)
+
+If you build the A314-cp hardware yourself, you might need to flash the CPLD
+with the latest firmware.
+
+- Install dependencies: `sudo apt install openfpgaloader`
+- Flash the latest firmware: `sudo ./flash-cpld.sh`
 
 ### Amiga
 
