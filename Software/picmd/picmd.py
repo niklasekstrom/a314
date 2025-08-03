@@ -205,7 +205,7 @@ class PiCmdSession(object):
                     ind += n
 
                 if arg_count == 0:
-                    default_shell = os.getenv('SHELL', '/bin/sh')
+                    default_shell = os.getenv('SHELL', '/bin/bash')
                     args.append(default_shell)
 
                 self.pid, self.fd = pty.fork()
