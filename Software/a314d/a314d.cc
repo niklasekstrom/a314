@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023 Niklas Ekström
+ * Copyright (c) 2018-2026 Niklas Ekström
  */
 
 #include <arpa/inet.h>
@@ -19,6 +19,7 @@
 #include <sys/types.h>
 
 #include <ctype.h>
+#include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -60,6 +61,40 @@ static int loglevel = LOGLEVEL_INFO;
 #define PKT_DATA                6
 #define PKT_EOS                 7
 #define PKT_RESET               8
+#define PKT_BOUNCE_ALLOCATED    9
+#define PKT_BOUNCE_PUSH         10
+#define PKT_BOUNCE_PUSH_EMPTY   11
+#define PKT_BOUNCE_PULL         12
+
+#define BOUNCE_SLOT_SIZE        1024
+
+#pragma pack(push, 1)
+struct PktBounceAllocated
+{
+    uint32_t address;
+    uint8_t slot_count;
+};
+
+struct PktBouncePush
+{
+    uint32_t address;
+    uint32_t length;
+    uint8_t first_slot;
+    uint8_t slot_count;
+};
+
+struct PktBouncePushEmpty
+{
+    uint8_t first_slot;
+    uint8_t slot_count;
+};
+
+struct PktBouncePull
+{
+    uint32_t address;
+    uint32_t length;
+};
+#pragma pack(pop)
 
 // Valid responses for PKT_CONNECT_RESPONSE.
 #define CONNECT_OK              0
@@ -79,6 +114,8 @@ static int loglevel = LOGLEVEL_INFO;
 #define MSG_DATA                11
 #define MSG_EOS                 12
 #define MSG_RESET               13
+#define MSG_BOUNCE_PUSH         14
+#define MSG_BOUNCE_PULL         15
 
 #define MSG_SUCCESS             1
 #define MSG_FAIL                0
@@ -309,6 +346,8 @@ struct RegisteredService
 struct PacketBuffer
 {
     int type;
+    int address;    // address and pos are used for PKT_BOUNCE_PUSH only
+    int pos;
     std::vector<uint8_t> data;
 };
 
@@ -348,6 +387,19 @@ static std::list<ClientConnection> connections;
 static std::list<RegisteredService> services;
 static std::list<LogicalChannel> channels;
 static std::list<LogicalChannel*> send_queue;
+static std::list<LogicalChannel*> push_queue;
+
+static uint32_t bounce_buffer_address;
+static uint8_t bounce_total_slots;
+static uint8_t bounce_first_slot;
+static uint8_t bounce_slot_count;
+
+static PktBouncePush push_packet;
+
+static inline uint8_t increment_slot(uint8_t slot, uint8_t offset)
+{
+    return (slot + offset) % bounce_total_slots;
+}
 
 struct OnDemandStart
 {
@@ -1277,6 +1329,42 @@ static void handle_msg_reset(ClientConnection *cc)
     create_and_enqueue_packet(ch, PKT_RESET, nullptr, 0);
 }
 
+static void handle_msg_bounce_push(ClientConnection *cc)
+{
+    LogicalChannel *ch = get_associated_channel_by_stream_id(cc, cc->header.stream_id);
+    if (!ch)
+        return;
+
+    int address = *(int *)&cc->payload[0];
+
+    if (ch->packet_queue.empty())
+        push_queue.push_back(ch);
+
+    ch->packet_queue.push_back({
+        .type = PKT_BOUNCE_PUSH,
+        .address = address,
+        .pos = 4,
+        .data = std::move(cc->payload)
+    });
+}
+
+static void handle_msg_bounce_pull(ClientConnection *cc)
+{
+    LogicalChannel *ch = get_associated_channel_by_stream_id(cc, cc->header.stream_id);
+    if (!ch)
+        return;
+
+    uint32_t address = *(uint32_t *)&cc->payload[0];
+    uint32_t length = *(uint32_t *)&cc->payload[4];
+
+    PktBouncePull pkt = {
+        .address = htobe32(address),
+        .length = htobe32(length)
+    };
+
+    create_and_enqueue_packet(ch, PKT_BOUNCE_PULL, (uint8_t *)&pkt, sizeof(pkt));
+}
+
 static void handle_received_message(ClientConnection *cc)
 {
     switch (cc->header.type)
@@ -1307,6 +1395,12 @@ static void handle_received_message(ClientConnection *cc)
         break;
     case MSG_RESET:
         handle_msg_reset(cc);
+        break;
+    case MSG_BOUNCE_PUSH:
+        handle_msg_bounce_push(cc);
+        break;
+    case MSG_BOUNCE_PULL:
+        handle_msg_bounce_pull(cc);
         break;
     default:
         // This is bad, probably should disconnect from client.
@@ -1371,6 +1465,17 @@ static void clear_packet_queue(LogicalChannel *ch)
     if (!ch->packet_queue.empty())
     {
         ch->packet_queue.clear();
+
+        if (!push_queue.empty() && push_queue.front() == ch && push_packet.slot_count != 0)
+        {
+            bounce_first_slot = push_packet.first_slot;
+            bounce_slot_count += push_packet.slot_count;
+
+            push_packet.slot_count = 0;
+            push_packet.length = 0;
+        }
+
+        push_queue.erase(std::find(push_queue.begin(), push_queue.end(), ch));
         send_queue.erase(std::find(send_queue.begin(), send_queue.end(), ch));
     }
 }
@@ -1591,6 +1696,99 @@ static void remove_channel_if_not_associated_and_empty_pq(int channel_id)
     }
 }
 
+static void handle_pkt_bounce_allocated(int channel_id, uint8_t *data, int plen)
+{
+    if (plen != sizeof(PktBounceAllocated))
+    {
+        logger_error("Received PKT_BOUNCE_ALLOCATED with unexpected size, expected %d, received %d\n", sizeof(PktBounceAllocated), plen);
+        exit(-1);
+    }
+
+    PktBounceAllocated *pkt = (PktBounceAllocated *)data;
+    bounce_buffer_address = be32toh(pkt->address);
+    bounce_total_slots = pkt->slot_count;
+    bounce_first_slot = bounce_total_slots / 2;
+    bounce_slot_count = bounce_total_slots / 2;
+}
+
+static void create_and_send_bounce_push_msg(LogicalChannel &ch, PktBouncePush *pkt)
+{
+    uint32_t address = be32toh(pkt->address);
+    uint32_t length = be32toh(pkt->length);
+
+    std::vector<uint8_t> msg(4 + length);
+
+    uint8_t *p = msg.data();
+    *(uint32_t *)p = address;
+    p += 4;
+
+    uint8_t slot = pkt->first_slot;
+
+    for (int i = 0; i < pkt->slot_count; i++)
+    {
+        uint32_t slot_address = bounce_buffer_address + (slot * BOUNCE_SLOT_SIZE);
+        uint32_t to_read = length < BOUNCE_SLOT_SIZE ? length : BOUNCE_SLOT_SIZE;
+
+        read_shm(p, slot_address, to_read);
+
+        p += to_read;
+        length -= to_read;
+
+        slot = increment_slot(slot, 1);
+    }
+
+    create_and_send_msg(ch.association, MSG_BOUNCE_PUSH, ch.stream_id, msg.data(), msg.size());
+}
+
+static void handle_pkt_bounce_push(int channel_id, uint8_t *data, int plen)
+{
+    if (plen != sizeof(PktBouncePush))
+    {
+        logger_error("Received PKT_BOUNCE_PUSH with unexpected size, expected %d, received %d\n", sizeof(PktBouncePush), plen);
+        exit(-1);
+    }
+
+    PktBouncePush *pkt = (PktBouncePush *)data;
+
+    if (increment_slot(bounce_first_slot, bounce_slot_count) != pkt->first_slot)
+    {
+        logger_error("Received PKT_BOUNCE_PUSH with unexpected first_slot, expected %d, received %d\n", increment_slot(bounce_first_slot, bounce_slot_count), pkt->first_slot);
+        exit(-1);
+    }
+
+    for (auto &ch : channels)
+    {
+        if (ch.channel_id == channel_id)
+        {
+            if (ch.association != nullptr && !ch.got_eos_from_ami)
+                create_and_send_bounce_push_msg(ch, pkt);
+
+            break;
+        }
+    }
+
+    bounce_slot_count += pkt->slot_count;
+}
+
+static void handle_pkt_bounce_push_empty(int channel_id, uint8_t *data, int plen)
+{
+    if (plen != sizeof(PktBouncePushEmpty))
+    {
+        logger_error("Received PKT_BOUNCE_PUSH_EMPTY with unexpected size, expected %d, received %d\n", sizeof(PktBouncePushEmpty), plen);
+        exit(-1);
+    }
+
+    PktBouncePushEmpty *pkt = (PktBouncePushEmpty *)data;
+
+    if (increment_slot(bounce_first_slot, bounce_slot_count) != pkt->first_slot)
+    {
+        logger_error("Received PKT_BOUNCE_PUSH_EMPTY with unexpected first_slot, expected %d, received %d\n", increment_slot(bounce_first_slot, bounce_slot_count), pkt->first_slot);
+        exit(-1);
+    }
+
+    bounce_slot_count += pkt->slot_count;
+}
+
 static void handle_received_pkt(int ptype, int channel_id, uint8_t *data, int plen)
 {
     if (ptype == PKT_CONNECT)
@@ -1601,6 +1799,12 @@ static void handle_received_pkt(int ptype, int channel_id, uint8_t *data, int pl
         handle_pkt_eos(channel_id);
     else if (ptype == PKT_RESET)
         handle_pkt_reset(channel_id);
+    else if (ptype == PKT_BOUNCE_ALLOCATED)
+        handle_pkt_bounce_allocated(channel_id, data, plen);
+    else if (ptype == PKT_BOUNCE_PUSH)
+        handle_pkt_bounce_push(channel_id, data, plen);
+    else if (ptype == PKT_BOUNCE_PUSH_EMPTY)
+        handle_pkt_bounce_push_empty(channel_id, data, plen);
 
     remove_channel_if_not_associated_and_empty_pq(channel_id);
 }
@@ -1646,33 +1850,129 @@ static void flush_send_queue()
 
     int pos = 0;
 
-    while (!send_queue.empty())
+    bool push_blocked = false;
+    bool send_blocked = false;
+
+    while ((!push_queue.empty() && !push_blocked) || (!send_queue.empty() && !send_blocked))
     {
-        LogicalChannel *ch = send_queue.front();
+        bool is_push = !push_queue.empty() && !push_blocked;
+        LogicalChannel *ch = is_push ? push_queue.front() : send_queue.front();
         PacketBuffer &pb = ch->packet_queue.front();
 
-        int ptype = pb.type;
-        int plen = 3 + pb.data.size();
+        bool was_popped = false;
 
-        if (left < plen)
-            break;
+        if (is_push)
+        {
+            if (push_packet.slot_count == 0)
+            {
+                push_packet.address = pb.address;
+                push_packet.first_slot = bounce_first_slot;
+            }
 
-        send_buf[pos++] = pb.data.size();
-        send_buf[pos++] = ptype;
-        send_buf[pos++] = ch->channel_id;
-        memcpy(&send_buf[pos], &pb.data[0], pb.data.size());
-        pos += pb.data.size();
+            while (pb.pos < pb.data.size() && bounce_slot_count != 0)
+            {
+                uint push_length = pb.data.size() - pb.pos;
+                uint chunk_size = push_length < BOUNCE_SLOT_SIZE ? push_length : BOUNCE_SLOT_SIZE;
 
-        ch->packet_queue.pop_front();
+                uint slot_address = bounce_buffer_address + (bounce_first_slot * BOUNCE_SLOT_SIZE);
+                write_shm(slot_address, &pb.data[pb.pos], chunk_size);
 
-        send_queue.pop_front();
+                push_packet.slot_count += 1;
+                push_packet.length += chunk_size;
 
-        if (!ch->packet_queue.empty())
-            send_queue.push_back(ch);
+                bounce_first_slot = increment_slot(bounce_first_slot, 1);
+                bounce_slot_count -= 1;
+
+                pb.address += chunk_size;
+                pb.pos += chunk_size;
+            }
+
+            if (push_packet.slot_count != 0 && left >= 3 + sizeof(push_packet))
+            {
+                send_buf[pos++] = sizeof(push_packet);
+                send_buf[pos++] = PKT_BOUNCE_PUSH;
+                send_buf[pos++] = ch->channel_id;
+                push_packet.address = htobe32(push_packet.address);
+                push_packet.length = htobe32(push_packet.length);
+                memcpy(&send_buf[pos], &push_packet, sizeof(push_packet));
+                pos += sizeof(push_packet);
+
+                left -= 3 + sizeof(push_packet);
+
+                push_packet.slot_count = 0;
+                push_packet.length = 0;
+            }
+
+            if (pb.pos == pb.data.size() && push_packet.slot_count == 0)
+            {
+                push_queue.pop_front();
+                was_popped = true;
+            }
+            else
+                push_blocked = true;
+        }
         else
-            remove_channel_if_not_associated_and_empty_pq(ch->channel_id);
+        {
+            int ptype = pb.type;
+            int plen = 3 + pb.data.size();
 
-        left -= plen;
+            if (left >= plen)
+            {
+                send_buf[pos++] = pb.data.size();
+                send_buf[pos++] = ptype;
+                send_buf[pos++] = ch->channel_id;
+                memcpy(&send_buf[pos], &pb.data[0], pb.data.size());
+                pos += pb.data.size();
+
+                left -= plen;
+
+                send_queue.pop_front();
+                was_popped = true;
+            }
+            else
+                send_blocked = true;
+        }
+
+        if (was_popped)
+        {
+            ch->packet_queue.pop_front();
+
+            if (!ch->packet_queue.empty())
+            {
+                if (ch->packet_queue.front().type == PKT_BOUNCE_PUSH)
+                {
+                    push_queue.push_back(ch);
+                    push_blocked = false;
+                }
+                else
+                {
+                    send_queue.push_back(ch);
+                    send_blocked = false;
+                }
+            }
+            else
+                remove_channel_if_not_associated_and_empty_pq(ch->channel_id);
+        }
+    }
+
+    int excess_slots = bounce_slot_count - (bounce_total_slots / 2);
+    if (excess_slots > 0 && push_packet.slot_count == 0 && left >= 3 + sizeof(PktBouncePushEmpty))
+    {
+        PktBouncePushEmpty pkt = {
+            .first_slot = bounce_first_slot,
+            .slot_count = (uint8_t)excess_slots
+        };
+
+        send_buf[pos++] = sizeof(pkt);
+        send_buf[pos++] = PKT_BOUNCE_PUSH_EMPTY;
+        send_buf[pos++] = 0;
+        memcpy(&send_buf[pos], &pkt, sizeof(pkt));
+        pos += sizeof(pkt);
+
+        left -= 3 + sizeof(pkt);
+
+        bounce_first_slot = increment_slot(bounce_first_slot, excess_slots);
+        bounce_slot_count -= excess_slots;
     }
 
     int to_write = pos;

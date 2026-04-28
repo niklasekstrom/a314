@@ -23,6 +23,8 @@ class A314d(object):
     MSG_DATA                = 11
     MSG_EOS                 = 12
     MSG_RESET               = 13
+    MSG_BOUNCE_PUSH         = 14
+    MSG_BOUNCE_PULL         = 15
 
     def __init__(self, service_name):
         if '-ondemand' in sys.argv:
@@ -105,4 +107,12 @@ class A314d(object):
 
     def send_reset(self, stream_id):
         m = struct.pack('=IIB', 0, stream_id, self.MSG_RESET)
+        self.drv.sendall(m)
+
+    def send_bounce_push(self, stream_id, address, data):
+        m = struct.pack('=IIBI', 4 + len(data), stream_id, self.MSG_BOUNCE_PUSH, address) + data
+        self.drv.sendall(m)
+
+    def send_bounce_pull(self, stream_id, address, length):
+        m = struct.pack('=IIBII', 8, stream_id, self.MSG_BOUNCE_PULL, address, length)
         self.drv.sendall(m)

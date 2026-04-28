@@ -10,6 +10,13 @@
 
 #include "protocol.h"
 
+#define BOUNCE_BUFFER_SLOTS	32
+
+static inline UBYTE increment_slot(UBYTE start, UBYTE offset)
+{
+	return (start + offset) % BOUNCE_BUFFER_SLOTS;
+}
+
 struct A314Device
 {
 	struct Library lib; // sizeof(struct Library) == 34
@@ -50,6 +57,15 @@ struct A314Device
 	struct MsgPort task_mp;
 
 	struct List active_sockets;
+
+	ULONG bounce_buffer_address;
+	UBYTE bounce_first_slot;
+	UBYTE bounce_slot_count;
+
+	struct Socket *push_queue_head;
+	struct Socket *push_queue_tail;
+
+	struct PktBouncePush push_packet;
 
 	struct Socket *send_queue_head;
 	struct Socket *send_queue_tail;

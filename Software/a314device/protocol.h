@@ -12,6 +12,12 @@
 #define PKT_DATA			6
 #define PKT_EOS				7
 #define PKT_RESET			8
+#define PKT_BOUNCE_ALLOCATED		9
+#define PKT_BOUNCE_PUSH			10
+#define PKT_BOUNCE_PUSH_EMPTY		11
+#define PKT_BOUNCE_PULL			12
+
+#define BOUNCE_SLOT_SIZE		1024
 
 #pragma pack(push, 1)
 struct PktHdr
@@ -19,6 +25,32 @@ struct PktHdr
 	UBYTE length;
 	UBYTE type;
 	UBYTE stream_id;
+};
+
+struct PktBounceAllocated
+{
+	uint32_t address;
+	uint8_t slot_count;
+};
+
+struct PktBouncePush
+{
+	uint32_t address;
+	uint32_t length;
+	uint8_t first_slot;
+	uint8_t slot_count;
+};
+
+struct PktBouncePushEmpty
+{
+	uint8_t first_slot;
+	uint8_t slot_count;
+};
+
+struct PktBouncePull
+{
+	uint32_t address;
+	uint32_t length;
 };
 #pragma pack(pop)
 

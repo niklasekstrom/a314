@@ -19,6 +19,7 @@ struct QueuedData
 #define SOCKET_CLOSED			0x0040
 #define SOCKET_SHOULD_SEND_RESET	0x0080
 #define SOCKET_IN_SEND_QUEUE		0x0100
+#define SOCKET_IN_PUSH_QUEUE		0x0200
 
 struct Socket
 {
@@ -34,7 +35,11 @@ struct Socket
 
 	struct A314_IORequest *pending_connect;
 	struct A314_IORequest *pending_read;
-	struct A314_IORequest *pending_write;
+	struct A314_IORequest *pending_write; // write, eos, bounce_push.
+
+	struct Socket *next_in_push_queue;
+	ULONG push_address;
+	ULONG push_length;
 
 	struct Socket *next_in_send_queue;
 	UWORD send_queue_required_length;
@@ -54,3 +59,6 @@ extern struct Socket *find_socket_by_stream_id(struct A314Device *dev, UBYTE str
 
 extern void add_to_send_queue(struct A314Device *dev, struct Socket *s, UWORD required_length);
 extern void remove_from_send_queue(struct A314Device *dev, struct Socket *s);
+
+extern void add_to_push_queue(struct A314Device *dev, struct Socket *s);
+extern void remove_from_push_queue(struct A314Device *dev, struct Socket *s);

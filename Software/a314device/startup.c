@@ -60,6 +60,20 @@ static void init_message_port(struct A314Device *dev)
 	NewList(&(mp->mp_MsgList));
 }
 
+void init_bounce_buffer(struct A314Device *dev)
+{
+	dev->bounce_buffer_address = a314base_alloc_mem(dev, BOUNCE_BUFFER_SLOTS * BOUNCE_SLOT_SIZE);
+
+	if (dev->bounce_buffer_address != INVALID_A314_ADDRESS)
+	{
+		dev->bounce_slot_count = BOUNCE_BUFFER_SLOTS / 2;
+
+		struct PktBounceAllocated pkt = {dev->bounce_buffer_address, BOUNCE_BUFFER_SLOTS};
+
+		write_to_a2r(dev, PKT_BOUNCE_ALLOCATED, 0, sizeof(pkt), (UBYTE *)&pkt);
+	}
+}
+
 BOOL task_start(struct A314Device *dev)
 {
 	if (!setup_task(dev))
@@ -78,6 +92,8 @@ BOOL task_start(struct A314Device *dev)
 	init_sockets(dev);
 
 	setup_pi_interface(dev);
+
+	init_bounce_buffer(dev);
 
 	AddTask(&dev->task, (void *)task_main, 0);
 

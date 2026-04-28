@@ -10,6 +10,7 @@
 #define A314_WRITE			(CMD_NONSTD+2)
 #define A314_EOS			(CMD_NONSTD+3)
 #define A314_RESET			(CMD_NONSTD+4)
+#define A314_BOUNCE_PUSH		(CMD_NONSTD+5)
 
 #define A314_CONNECT_OK			0
 #define A314_CONNECT_SOCKET_IN_USE	1
@@ -29,6 +30,10 @@
 #define A314_EOS_RESET			2
 
 #define A314_RESET_OK			0
+
+#define A314_BOUNCE_PUSH_OK		0
+#define A314_BOUNCE_PUSH_EOS_SENT	1
+#define A314_BOUNCE_PUSH_RESET		2
 
 #define MEMF_A314			(1<<7)
 

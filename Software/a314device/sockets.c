@@ -133,3 +133,46 @@ void remove_from_send_queue(struct A314Device *dev, struct Socket *s)
 		s->flags &= ~SOCKET_IN_SEND_QUEUE;
 	}
 }
+
+void add_to_push_queue(struct A314Device *dev, struct Socket *s)
+{
+	dbg_trace("Enter: add_to_push_queue");
+
+	s->next_in_push_queue = NULL;
+
+	if (dev->push_queue_head == NULL)
+		dev->push_queue_head = s;
+	else
+		dev->push_queue_tail->next_in_push_queue = s;
+	dev->push_queue_tail = s;
+
+	s->flags |= SOCKET_IN_PUSH_QUEUE;
+}
+
+void remove_from_push_queue(struct A314Device *dev, struct Socket *s)
+{
+	dbg_trace("Enter: remove_from_push_queue");
+
+	if (s->flags & SOCKET_IN_PUSH_QUEUE)
+	{
+		if (dev->push_queue_head == s)
+		{
+			dev->push_queue_head = s->next_in_push_queue;
+			if (dev->push_queue_head == NULL)
+				dev->push_queue_tail = NULL;
+		}
+		else
+		{
+			struct Socket *curr = dev->push_queue_head;
+			while (curr->next_in_push_queue != s)
+				curr = curr->next_in_push_queue;
+
+			curr->next_in_push_queue = s->next_in_push_queue;
+			if (dev->push_queue_tail == s)
+				dev->push_queue_tail = curr;
+		}
+
+		s->next_in_push_queue = NULL;
+		s->flags &= ~SOCKET_IN_PUSH_QUEUE;
+	}
+}
