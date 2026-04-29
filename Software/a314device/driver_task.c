@@ -277,6 +277,22 @@ static void handle_pkt_bounce_push(struct A314Device *dev, UBYTE offset, UBYTE l
 	dev->bounce_slot_count += pkt.slot_count;
 }
 
+static void handle_pkt_bounce_push_inline(struct A314Device *dev, UBYTE offset, UBYTE length, struct Socket *s)
+{
+	dbg_trace("Enter: handle_pkt_bounce_push_inline");
+
+	struct PktBouncePushInline pkt;
+	if (length < sizeof(pkt))
+	{
+		dbg_error("FATAL ERROR: received PKT_BOUNCE_PUSH_INLINE of wrong size");
+		// TODO: Guru meditation.
+	}
+
+	read_from_r2a(dev, (UBYTE *)&pkt, offset, 4);
+
+	read_from_r2a(dev, (UBYTE *)pkt.address, offset + 4, length - 4);
+}
+
 static void handle_pkt_bounce_push_empty(struct A314Device *dev, UBYTE offset, UBYTE length)
 {
 	dbg_trace("Enter: handle_pkt_bounce_push_empty");
@@ -311,7 +327,7 @@ static void handle_pkt_bounce_pull(struct A314Device *dev, UBYTE offset, UBYTE l
 		return;
 	}
 
-	if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_IN_PUSH_QUEUE) != 0)
+	if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & SOCKET_PUSHING))
 	{
 		dbg_error("SERIOUS ERROR: received PKT_BOUNCE_PULL while operation in progress");
 		close_socket(dev, s, TRUE);
@@ -322,7 +338,12 @@ static void handle_pkt_bounce_pull(struct A314Device *dev, UBYTE offset, UBYTE l
 
 	s->push_address = pkt.address;
 	s->push_length = pkt.length;
-	add_to_push_queue(dev, s);
+	s->flags |= SOCKET_PUSHING;
+
+	if (pkt.length <= MAX_INLINE_PUSH)
+		add_to_send_queue(dev, s, 4 + pkt.length);
+	else
+		add_to_push_queue(dev, s);
 }
 
 static void handle_r2a_packet(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE offset, UBYTE length)
@@ -365,6 +386,10 @@ static void handle_r2a_packet(struct A314Device *dev, UBYTE type, UBYTE stream_i
 	else if (type == PKT_BOUNCE_PUSH)
 	{
 		handle_pkt_bounce_push(dev, offset, length, s);
+	}
+	else if (type == PKT_BOUNCE_PUSH_INLINE)
+	{
+		handle_pkt_bounce_push_inline(dev, offset, length, s);
 	}
 	else if (type == PKT_BOUNCE_PULL)
 	{
@@ -441,11 +466,14 @@ static void handle_room_in_a2r(struct A314Device *dev)
 			if (s->pending_write != NULL)
 			{
 				struct A314_IORequest *ior = s->pending_write;
+
 				ior->a314_Request.io_Error = A314_BOUNCE_PUSH_OK;
 				ReplyMsg((struct Message *)ior);
 
 				s->pending_write = NULL;
 			}
+
+			s->flags &= ~SOCKET_PUSHING;
 		}
 		else
 			break;
@@ -476,6 +504,22 @@ static void handle_room_in_a2r(struct A314Device *dev)
 			struct A314_IORequest *ior = s->pending_connect;
 			int len = ior->a314_Length;
 			write_to_a2r(dev, PKT_CONNECT, s->stream_id, (UBYTE)len, ior->a314_Buffer);
+		}
+		else if (s->flags & SOCKET_PUSHING)
+		{
+			write_to_a2r_push_inline(dev, s->stream_id, (UBYTE)s->push_length, s->push_address);
+
+			if (s->pending_write != NULL)
+			{
+				struct A314_IORequest *ior = s->pending_write;
+
+				ior->a314_Request.io_Error = A314_BOUNCE_PUSH_OK;
+				ReplyMsg((struct Message *)ior);
+
+				s->pending_write = NULL;
+			}
+
+			s->flags &= ~SOCKET_PUSHING;
 		}
 		else if (s->pending_write != NULL)
 		{
@@ -727,7 +771,7 @@ static void handle_app_bounce_push(struct A314Device *dev, struct A314_IORequest
 	}
 	else
 	{
-		if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & (SOCKET_RCVD_EOS_FROM_APP | SOCKET_IN_PUSH_QUEUE)))
+		if (s->pending_connect != NULL || s->pending_write != NULL || (s->flags & (SOCKET_RCVD_EOS_FROM_APP | SOCKET_PUSHING)))
 		{
 			ior->a314_Length = 0;
 			ior->a314_Request.io_Error = A314_BOUNCE_PUSH_RESET;
@@ -740,7 +784,12 @@ static void handle_app_bounce_push(struct A314Device *dev, struct A314_IORequest
 			s->pending_write = ior;
 			s->push_address = ior->a314_Buffer;
 			s->push_length = ior->a314_Length;
-			add_to_push_queue(dev, s);
+			s->flags |= SOCKET_PUSHING;
+
+			if (ior->a314_Length <= MAX_INLINE_PUSH)
+				add_to_send_queue(dev, s, 4 + ior->a314_Length);
+			else
+				add_to_push_queue(dev, s);
 		}
 	}
 }

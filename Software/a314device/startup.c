@@ -68,7 +68,7 @@ void init_bounce_buffer(struct A314Device *dev)
 	{
 		dev->bounce_slot_count = BOUNCE_BUFFER_SLOTS / 2;
 
-		struct PktBounceAllocated pkt = {dev->bounce_buffer_address, BOUNCE_BUFFER_SLOTS};
+		struct PktBounceAllocated pkt = {dev->bounce_buffer_address, BOUNCE_SLOT_SIZE, BOUNCE_BUFFER_SLOTS};
 
 		write_to_a2r(dev, PKT_BOUNCE_ALLOCATED, 0, sizeof(pkt), (UBYTE *)&pkt);
 	}

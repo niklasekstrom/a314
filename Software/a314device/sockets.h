@@ -20,6 +20,7 @@ struct QueuedData
 #define SOCKET_SHOULD_SEND_RESET	0x0080
 #define SOCKET_IN_SEND_QUEUE		0x0100
 #define SOCKET_IN_PUSH_QUEUE		0x0200
+#define SOCKET_PUSHING			0x0400
 
 struct Socket
 {

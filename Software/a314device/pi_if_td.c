@@ -109,3 +109,21 @@ void write_to_a2r(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE len
 		a2r_buffer[index++] = *data++;
 	ca->cap.a2r_tail = index;
 }
+
+void write_to_a2r_push_inline(struct A314Device *dev, UBYTE stream_id, UBYTE length, ULONG address)
+{
+	struct {
+		UBYTE bytes[4];
+		ULONG address;
+	} hdr = {{0, length + 4, PKT_BOUNCE_PUSH_INLINE, stream_id}, address};
+
+	struct ComArea *ca = dev->ca;
+	UBYTE index = ca->cap.a2r_tail;
+	UBYTE *a2r_buffer = ca->a2r_buffer;
+	for (WORD i = 1; i < sizeof(hdr); i++)
+		a2r_buffer[index++] = hdr.bytes[i];
+	UBYTE *data = (UBYTE *)address;
+	for (int i = 0; i < (int)length; i++)
+		a2r_buffer[index++] = *data++;
+	ca->cap.a2r_tail = index;
+}

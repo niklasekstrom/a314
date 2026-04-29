@@ -188,6 +188,54 @@ void write_to_a2r(struct A314Device *dev, UBYTE type, UBYTE stream_id, UBYTE len
 	Enable();
 }
 
+void write_to_a2r_push_inline(struct A314Device *dev, UBYTE stream_id, UBYTE length, ULONG address)
+{
+	dbg_trace("Enter: write_to_a2r_push_inline, stream_id=$b, length=$b, address=$l", stream_id, length, address);
+
+	struct {
+		UBYTE bytes[4];
+		ULONG address;
+	} hdr = {{0, length + 4, PKT_BOUNCE_PUSH_INLINE, stream_id}, address};
+
+	Disable();
+
+	UBYTE offset = dev->cap.a2r_tail;
+
+	ULONG cpa = dev->clockport_address;
+	*CP_REG_PTR(cpa, REG_ADDR_LO) = (A2R_BASE + offset) & 0xff;
+	*CP_REG_PTR(cpa, REG_ADDR_HI) = ((A2R_BASE + offset) >> 8) & 0xff;
+
+	volatile UBYTE *p = CP_REG_PTR(cpa, REG_SRAM);
+
+	for (int i = 1; i < sizeof(hdr); i++)
+	{
+		*p = hdr.bytes[i];
+		offset++;
+		if (offset == 0)
+		{
+			*CP_REG_PTR(cpa, REG_ADDR_LO) = (A2R_BASE + 0) & 0xff;
+			*CP_REG_PTR(cpa, REG_ADDR_HI) = ((A2R_BASE + 0) >> 8) & 0xff;
+		}
+	}
+
+	UBYTE *data = (UBYTE *)address;
+
+	for (int i = 0; i < length; i++)
+	{
+		*p = *data++;
+		offset++;
+		if (offset == 0)
+		{
+			*CP_REG_PTR(cpa, REG_ADDR_LO) = (A2R_BASE + 0) & 0xff;
+			*CP_REG_PTR(cpa, REG_ADDR_HI) = ((A2R_BASE + 0) >> 8) & 0xff;
+		}
+	}
+
+	dev->cap.a2r_tail = offset;
+
+	Enable();
+}
+
 static int probe_pi_interface_once(struct A314Device *dev)
 {
 	int found = FALSE;

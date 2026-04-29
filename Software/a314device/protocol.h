@@ -14,10 +14,13 @@
 #define PKT_RESET			8
 #define PKT_BOUNCE_ALLOCATED		9
 #define PKT_BOUNCE_PUSH			10
-#define PKT_BOUNCE_PUSH_EMPTY		11
-#define PKT_BOUNCE_PULL			12
+#define PKT_BOUNCE_PUSH_INLINE		11
+#define PKT_BOUNCE_PUSH_EMPTY		12
+#define PKT_BOUNCE_PULL			13
 
 #define BOUNCE_SLOT_SIZE		1024
+
+#define MAX_INLINE_PUSH			121
 
 #pragma pack(push, 1)
 struct PktHdr
@@ -30,6 +33,7 @@ struct PktHdr
 struct PktBounceAllocated
 {
 	uint32_t address;
+	uint16_t slot_size;
 	uint8_t slot_count;
 };
 
@@ -39,6 +43,12 @@ struct PktBouncePush
 	uint32_t length;
 	uint8_t first_slot;
 	uint8_t slot_count;
+};
+
+struct PktBouncePushInline
+{
+	uint32_t address;
+	// Followed by data.
 };
 
 struct PktBouncePushEmpty

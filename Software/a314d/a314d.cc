@@ -63,15 +63,17 @@ static int loglevel = LOGLEVEL_INFO;
 #define PKT_RESET               8
 #define PKT_BOUNCE_ALLOCATED    9
 #define PKT_BOUNCE_PUSH         10
-#define PKT_BOUNCE_PUSH_EMPTY   11
-#define PKT_BOUNCE_PULL         12
+#define PKT_BOUNCE_PUSH_INLINE  11
+#define PKT_BOUNCE_PUSH_EMPTY   12
+#define PKT_BOUNCE_PULL         13
 
-#define BOUNCE_SLOT_SIZE        1024
+#define MAX_INLINE_PUSH         121
 
 #pragma pack(push, 1)
 struct PktBounceAllocated
 {
     uint32_t address;
+    uint16_t slot_size;
     uint8_t slot_count;
 };
 
@@ -81,6 +83,12 @@ struct PktBouncePush
     uint32_t length;
     uint8_t first_slot;
     uint8_t slot_count;
+};
+
+struct PktBouncePushInline
+{
+    uint32_t address;
+    // Followed by data.
 };
 
 struct PktBouncePushEmpty
@@ -346,7 +354,7 @@ struct RegisteredService
 struct PacketBuffer
 {
     int type;
-    int address;    // address and pos are used for PKT_BOUNCE_PUSH only
+    uint32_t address;    // address and pos are used for PKT_BOUNCE_PUSH only
     int pos;
     std::vector<uint8_t> data;
 };
@@ -390,6 +398,7 @@ static std::list<LogicalChannel*> send_queue;
 static std::list<LogicalChannel*> push_queue;
 
 static uint32_t bounce_buffer_address;
+static uint16_t bounce_slot_size;
 static uint8_t bounce_total_slots;
 static uint8_t bounce_first_slot;
 static uint8_t bounce_slot_count;
@@ -1335,17 +1344,32 @@ static void handle_msg_bounce_push(ClientConnection *cc)
     if (!ch)
         return;
 
-    int address = *(int *)&cc->payload[0];
+    uint32_t address = *(uint32_t *)&cc->payload[0];
 
-    if (ch->packet_queue.empty())
-        push_queue.push_back(ch);
+    if (cc->payload.size() <= MAX_INLINE_PUSH)
+    {
+        if (ch->packet_queue.empty())
+            send_queue.push_back(ch);
 
-    ch->packet_queue.push_back({
-        .type = PKT_BOUNCE_PUSH,
-        .address = address,
-        .pos = 4,
-        .data = std::move(cc->payload)
-    });
+        *(uint32_t *)&cc->payload[0] = htobe32(address);
+
+        ch->packet_queue.push_back({
+            .type = PKT_BOUNCE_PUSH_INLINE,
+            .data = std::move(cc->payload)
+        });
+    }
+    else
+    {
+        if (ch->packet_queue.empty())
+            push_queue.push_back(ch);
+
+        ch->packet_queue.push_back({
+            .type = PKT_BOUNCE_PUSH,
+            .address = address,
+            .pos = 4,
+            .data = std::move(cc->payload)
+        });
+    }
 }
 
 static void handle_msg_bounce_pull(ClientConnection *cc)
@@ -1706,6 +1730,7 @@ static void handle_pkt_bounce_allocated(int channel_id, uint8_t *data, int plen)
 
     PktBounceAllocated *pkt = (PktBounceAllocated *)data;
     bounce_buffer_address = be32toh(pkt->address);
+    bounce_slot_size = be16toh(pkt->slot_size);
     bounce_total_slots = pkt->slot_count;
     bounce_first_slot = bounce_total_slots / 2;
     bounce_slot_count = bounce_total_slots / 2;
@@ -1726,8 +1751,8 @@ static void create_and_send_bounce_push_msg(LogicalChannel &ch, PktBouncePush *p
 
     for (int i = 0; i < pkt->slot_count; i++)
     {
-        uint32_t slot_address = bounce_buffer_address + (slot * BOUNCE_SLOT_SIZE);
-        uint32_t to_read = length < BOUNCE_SLOT_SIZE ? length : BOUNCE_SLOT_SIZE;
+        uint32_t slot_address = bounce_buffer_address + (slot * bounce_slot_size);
+        uint32_t to_read = length < bounce_slot_size ? length : bounce_slot_size;
 
         read_shm(p, slot_address, to_read);
 
@@ -1770,6 +1795,30 @@ static void handle_pkt_bounce_push(int channel_id, uint8_t *data, int plen)
     bounce_slot_count += pkt->slot_count;
 }
 
+static void handle_pkt_bounce_push_inline(int channel_id, uint8_t *data, int plen)
+{
+    if (plen < sizeof(PktBouncePushInline))
+    {
+        logger_error("Received PKT_BOUNCE_PUSH_INLINE with unexpected size, expected at least %d, received %d\n", sizeof(PktBouncePushInline), plen);
+        exit(-1);
+    }
+
+    PktBouncePushInline *pkt = (PktBouncePushInline *)data;
+
+    pkt->address = be32toh(pkt->address);
+
+    for (auto &ch : channels)
+    {
+        if (ch.channel_id == channel_id)
+        {
+            if (ch.association != nullptr && !ch.got_eos_from_ami)
+                create_and_send_msg(ch.association, MSG_BOUNCE_PUSH, ch.stream_id, data, plen);
+
+            break;
+        }
+    }
+}
+
 static void handle_pkt_bounce_push_empty(int channel_id, uint8_t *data, int plen)
 {
     if (plen != sizeof(PktBouncePushEmpty))
@@ -1803,6 +1852,8 @@ static void handle_received_pkt(int ptype, int channel_id, uint8_t *data, int pl
         handle_pkt_bounce_allocated(channel_id, data, plen);
     else if (ptype == PKT_BOUNCE_PUSH)
         handle_pkt_bounce_push(channel_id, data, plen);
+    else if (ptype == PKT_BOUNCE_PUSH_INLINE)
+        handle_pkt_bounce_push_inline(channel_id, data, plen);
     else if (ptype == PKT_BOUNCE_PUSH_EMPTY)
         handle_pkt_bounce_push_empty(channel_id, data, plen);
 
@@ -1872,9 +1923,9 @@ static void flush_send_queue()
             while (pb.pos < pb.data.size() && bounce_slot_count != 0)
             {
                 uint push_length = pb.data.size() - pb.pos;
-                uint chunk_size = push_length < BOUNCE_SLOT_SIZE ? push_length : BOUNCE_SLOT_SIZE;
+                uint chunk_size = push_length < bounce_slot_size ? push_length : bounce_slot_size;
 
-                uint slot_address = bounce_buffer_address + (bounce_first_slot * BOUNCE_SLOT_SIZE);
+                uint slot_address = bounce_buffer_address + (bounce_first_slot * bounce_slot_size);
                 write_shm(slot_address, &pb.data[pb.pos], chunk_size);
 
                 push_packet.slot_count += 1;
@@ -1941,13 +1992,15 @@ static void flush_send_queue()
             {
                 if (ch->packet_queue.front().type == PKT_BOUNCE_PUSH)
                 {
+                    if (push_queue.empty())
+                        push_blocked = false;
                     push_queue.push_back(ch);
-                    push_blocked = false;
                 }
                 else
                 {
+                    if (send_queue.empty())
+                        send_blocked = false;
                     send_queue.push_back(ch);
-                    send_blocked = false;
                 }
             }
             else
