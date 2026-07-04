@@ -219,6 +219,9 @@ class ScsiService(object):
 
         status, sk, asc, ascq, respdata = self.exec_read(img, cdb, data_length)
 
+        if len(respdata) > data_length:
+            respdata = respdata[:data_length]
+
         if direction == DIR_READ and respdata and address:
             self.mem_write_queue.append((stream_id, status, sk, asc, ascq, len(respdata)))
             self.a314d.send_write_mem_req(address, respdata)

@@ -79,7 +79,16 @@ LONG cli_main(void)
     ior.io_Message.mn_ReplyPort = port;
     ior.io_Message.mn_Length = sizeof(ior);
 
-    if (OpenDevice((STRPTR)DEVICE_NAME, 0, (struct IORequest*)&ior, 0))
+    BOOL opened = FALSE;
+    for (UWORD u = 0; u < A314SCSI_MAX_DRIVES; u++)
+    {
+        if (!OpenDevice((STRPTR)DEVICE_NAME, u * A314SCSI_UNIT_STEP, (struct IORequest*)&ior, 0))
+        {
+            opened = TRUE;
+            break;
+        }
+    }
+    if (!opened)
     {
         kprintf("a314scsi: cli OpenDevice FAILED\n");
         DeletePort(port);

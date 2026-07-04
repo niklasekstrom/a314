@@ -177,6 +177,7 @@ BPTR load_seglist(struct A314ScsiBase* base, struct Drive* d, ULONG first)
 
     // Parse the hunks into the allocated segments.
     ULONG idx = 0;
+    BOOL failed = FALSE;
     while (p < end && idx < numHunks)
     {
         ULONG htype = *p++ & 0x3FFFFFFFUL;
@@ -247,8 +248,24 @@ BPTR load_seglist(struct A314ScsiBase* base, struct Drive* d, ULONG first)
         else
         {
             kprintf("a314scsi: bad hunk type %lx\n", htype);
+            failed = TRUE;
             break;
         }
+    }
+
+    if (failed || idx != numHunks)
+    {
+        for (ULONG i = 0; i < numHunks; i++)
+        {
+            if (seg[i])
+            {
+                FreeMem(seg[i], segBytes[i] + 8);
+            }
+        }
+        FreeMem(seg, numHunks * sizeof(APTR));
+        FreeMem(segBytes, numHunks * sizeof(ULONG));
+        FreeMem(data, len);
+        return 0;
     }
 
     // Link the SegList and build the result BPTR (points at each node's next field).

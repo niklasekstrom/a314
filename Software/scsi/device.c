@@ -24,7 +24,7 @@
 extern void task_body(void);
 
 const char device_name[] = DEVICE_NAME;
-const char id_string[] = DEVICE_NAME " 1.0 (9.9.2025)";
+const char id_string[] = DEVICE_NAME " 1.0 (4.7.2026)";
 
 // ---------------------------------------------------------------------------
 // Drive lookup / discovery
@@ -195,6 +195,10 @@ static const UWORD nsd_supported[] =
     CMD_WRITE,
     CMD_UPDATE,
     CMD_CLEAR,
+    TD_MOTOR,
+    TD_SEEK,
+    TD_FORMAT,
+    TD_REMOVE,
     TD_CHANGENUM,
     TD_CHANGESTATE,
     TD_PROTSTATUS,
@@ -395,8 +399,8 @@ static void begin_io(__reg("a6") struct A314ScsiBase* base,
 
         default:
             // Handled asynchronously by the io task.
-            PutMsg(base->reqport, &ior->io_Message);
             ior->io_Flags &= ~IOF_QUICK;
+            PutMsg(base->reqport, &ior->io_Message);
             return;
     }
 

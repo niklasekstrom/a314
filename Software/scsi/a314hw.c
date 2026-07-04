@@ -212,8 +212,14 @@ LONG a314_scsi(struct A314ScsiBase* base, struct Drive* d, struct SCSICmd* cmd)
         return err;
     }
 
+    if (res.kind != A314SCSI_CMD_RES)
+    {
+        kprintf("a314scsi: bad res kind=%ld\n", (ULONG)res.kind);
+        return IOERR_ABORTED;
+    }
+
     cmd->scsi_Status = res.scsi_status;
-    cmd->scsi_Actual = res.actual_length;
+    cmd->scsi_Actual = (res.actual_length > cmd->scsi_Length) ? cmd->scsi_Length : res.actual_length;
 
     if (dir == A314SCSI_DIR_READ && bounced && res.actual_length)
     {

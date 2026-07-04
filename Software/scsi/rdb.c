@@ -145,6 +145,9 @@ static void mount_partition(struct A314ScsiBase* base, struct Drive* d, struct P
         me->env_vec[i] = env[i];
     }
 
+    if (me->env_vec[0] > env_longs - 1)
+        me->env_vec[0] = env_longs - 1;
+
     // Drive name (from the partition) and exec device name, as BCPL strings.
     UBYTE dn_len = ((const UBYTE*)pb->pb_DriveName)[0];
     if (dn_len > 34)
@@ -239,10 +242,17 @@ void mount_drive(struct A314ScsiBase* base, struct Drive* d)
         }
 
         struct RigidDiskBlock* r = (struct RigidDiskBlock*)buf;
-        if (r->rdb_ID == IDNAME_RIGIDDISK && sum_block((ULONG*)buf, r->rdb_SummedLongs) == 0)
+        if (r->rdb_ID == IDNAME_RIGIDDISK)
         {
-            rdb = r;
-            break;
+            ULONG longs = r->rdb_SummedLongs;
+            if (longs > d->blocksize / 4)
+                longs = d->blocksize / 4;
+
+            if (sum_block((ULONG*)buf, longs) == 0)
+            {
+                rdb = r;
+                break;
+            }
         }
     }
 
@@ -275,8 +285,12 @@ void mount_drive(struct A314ScsiBase* base, struct Drive* d)
                     break;
                 }
 
-                mount_partition(base, d, pb, fstab, fscount, expansion);
-                part_block = pb->pb_Next;
+                ULONG next = pb->pb_Next;
+                if (!(pb->pb_Flags & PBFF_NOMOUNT))
+                {
+                    mount_partition(base, d, pb, fstab, fscount, expansion);
+                }
+                part_block = next;
             }
             CloseLibrary((struct Library*)expansion);
         }
