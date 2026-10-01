@@ -141,6 +141,25 @@ void append_ulong(ULONG x)
 	blen += 4;
 }
 
+// From Kickstart 3.0 screen->BitMap is only a copy of the bitmap that the
+// screen is rendered into and displayed from, so update all of them.
+void set_screen_planes(struct Screen *screen, UBYTE *p, int depth, int stride)
+{
+	struct BitMap *bms[3];
+	bms[0] = &(screen->BitMap);
+	bms[1] = screen->RastPort.BitMap;
+	bms[2] = screen->ViewPort.RasInfo ? screen->ViewPort.RasInfo->BitMap : NULL;
+
+	for (int j = 0; j < 3; j++)
+	{
+		if (bms[j])
+		{
+			for (int i = 0; i < depth; i++)
+				bms[j]->Planes[i] = p + (i * stride);
+		}
+	}
+}
+
 void append_uword(UWORD x)
 {
 	*((UWORD *)&awbuf[blen]) = x;
@@ -397,8 +416,9 @@ int main()
 				UBYTE *np = p + (i * size);
 				memcpy(np, op, size);
 				old_planes[i] = op;
-				bm->Planes[i] = np;
 			}
+
+			set_screen_planes(screen, p, depth, size);
 
 			RemakeDisplay();
 
@@ -413,8 +433,7 @@ int main()
 
 			memcpy(p, old_ptr, size * depth);
 
-			for (int i = 0; i < depth; i++)
-				bm->Planes[i] = p + (i * 80);
+			set_screen_planes(screen, p, depth, 80);
 
 			RemakeDisplay();
 
