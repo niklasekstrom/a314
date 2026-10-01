@@ -38,7 +38,7 @@ install_common() {
 
 	# Install Python packages in virtual environment
 	python3 -m virtualenv /opt/a314/venv
-	/opt/a314/venv/bin/pip install pyudev websockets python-pytun bpls2gif/
+	/opt/a314/venv/bin/pip install pyudev "websockets>=14" python-pytun bpls2gif/
 
 	# Add tap0 interface
 	modinstall ethernet/pi-config/tap0 /etc/network/interfaces.d
