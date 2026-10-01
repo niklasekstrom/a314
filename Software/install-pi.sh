@@ -15,6 +15,19 @@ modinstall() {
 	sed -e s%##USER##%${A314_USER}%g -e s%##GROUP##%${A314_GROUP}%g -e s%##HOME##%${A314_HOME}%g $1 > $2/`basename $1`
 }
 
+install_term_improvements() {
+	local TEMPFILE=$(mktemp)
+	trap "rm -f $TEMPFILE" EXIT
+
+	cat <<"EOF" >"$TEMPFILE"
+amiga-color|Amiga console with ANSI colors,
+        colors#8, pairs#64,
+        op=\E[39;49m, setaf=\E[3%p1%dm, setab=\E[4%p1%dm,
+        use=amiga,
+EOF
+	sudo tic "$TEMPFILE"
+}
+
 install_common() {
 	install a314d/a314d.py /opt/a314
 	install picmd/picmd.py /opt/a314
@@ -52,6 +65,8 @@ install_common() {
 	systemctl daemon-reload
 	systemctl enable a314d
 	systemctl enable a314net
+
+	install_term_improvements
 
 	echo
 	echo "Installation complete"
