@@ -115,10 +115,13 @@ class MyProtocol(asyncio.Protocol):
         print('Connection to driver lost', exc)
         if ws_server:
             ws_server.close()
-            ws_server.wait_closed()
         loop.stop()
 
-loop = asyncio.get_event_loop()
+# Make prints show up immediately in the journal when started by a314d.
+sys.stdout.reconfigure(line_buffering=True)
+
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 ws_server = None
 active_browser = None
 
@@ -260,8 +263,12 @@ def start_read_screenshot():
         msg = struct.pack('=IIBII', 8, 0, MSG_READ_MEM_REQ, protocol.ptr, 3*256*80)
         protocol.transport.write(msg)
 
-async def browser_handler(websocket, path):
+async def browser_handler(websocket, path = None):
     global active_browser
+
+    # Newer versions of websockets only pass the connection to the handler.
+    if path is None:
+        path = websocket.request.path
 
     print('Connection to ', path, ' was made')
 
@@ -293,7 +300,7 @@ async def browser_handler(websocket, path):
 
 async def create_websockets_server():
     global ws_server
-    ws_server = await websockets.serve(browser_handler, '0.0.0.0', 6789, loop = loop)
+    ws_server = await websockets.serve(browser_handler, '0.0.0.0', 6789)
     print('Websocket server created')
 
 try:
