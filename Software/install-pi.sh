@@ -22,6 +22,7 @@ install_common() {
 	install piaudio/piaudio.py /opt/a314
 	install remotewb/remotewb.py /opt/a314
 	install disk/disk.py /opt/a314
+	install scsi/scsi.py /opt/a314
 	install ethernet/ethernet.py /opt/a314
 	install hid/hid.py /opt/a314
 	install remote-mouse/remote-mouse.py /opt/a314
@@ -32,6 +33,7 @@ install_common() {
 	[ -f /etc/opt/a314/picmd.conf ] || modinstall picmd/picmd.conf /etc/opt/a314
 	[ -f /etc/opt/a314/a314fs.conf ] || modinstall a314fs/a314fs.conf /etc/opt/a314
 	[ -f /etc/opt/a314/disk.conf ] || modinstall disk/disk.conf /etc/opt/a314
+	[ -f /etc/opt/a314/scsi.conf ] || modinstall scsi/scsi.conf /etc/opt/a314
 
 	# Add shared directory for a314fs
 	sudo -u $A314_USER mkdir -p ${A314_HOME}/a314shared
