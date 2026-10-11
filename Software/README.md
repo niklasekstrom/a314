@@ -4,7 +4,7 @@ The A314 software supports multiple variants of A314 hardware.
 The variants of the software use the following acronyms:
 
 - a314-td (trapdoor), works with A314-500 and A314-600
-- a314-cp (clockport), works with A314-cp
+- a314-cp, a314-cp-gayle (clockport), works with A314-cp
 - a314-fe (front expansion), works with A314-1000
 
 ## How to install
@@ -37,7 +37,7 @@ The binaries for the Amiga side are already built and are available as part of a
 There are multiple sub directories in the release archive, and the files in those sub directories should be copied to the corresponding sub directories in the AmigaOS system volume.
 
 Note that in the Devs directory there are multiple different versions of a314.device:
-`a314-td.device`, `a314-cp.device`, `a314-fe.device`.
+`a314-td.device`, `a314-cp.device`, `a314-fe.device`, `a314-cp-gayle.device`.
 Copy only the version that matches your A314 hardware and rename it to `a314.device`.
 
 After these files are copied to the Amiga it should be possible to run the pi command.
@@ -46,7 +46,7 @@ or with arguments to run a particular Linux command.
 
 #### Configuration file
 
-For the a314-cp driver it is possible to write a configuration file to `DEVS:a314.config`.
+For the a314-cp and a314-cp-gayle driver it is possible to write a configuration file to `DEVS:a314.config`.
 The configuration file is a text file, where each line has the format `<key> = <value>`.
 The keys are:
 
@@ -58,6 +58,12 @@ a314-cp are:
 
 ```text
 ClockportAddress = D80001
+Interrupt = 6
+```
+and a314-cp-gayle are:
+
+```text
+ClockportAddress = D80000
 Interrupt = 6
 ```
 

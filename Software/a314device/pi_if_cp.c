@@ -30,7 +30,11 @@
 #define REG_IRQ_PI	0x02
 #define REG_IRQ_CP	0x01
 
+#ifdef GAYLE_ADAPTER
+#define CP_REG_PTR(cpa, reg) ((volatile UBYTE *)(cpa + (reg << 12)))
+#else
 #define CP_REG_PTR(cpa, reg) ((volatile UBYTE *)(cpa + (reg << 2)))
+#endif
 
 #define SysBase (*(struct ExecBase **)4)
 
