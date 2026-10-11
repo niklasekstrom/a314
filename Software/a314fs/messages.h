@@ -348,4 +348,41 @@ struct UnsupportedResponse
 	short error_code;
 };
 
+struct DieRequest
+{
+	UBYTE has_response;
+	UBYTE type;
+};
+
+struct DieResponse
+{
+	UBYTE success;
+	ULONG error_code;
+};
+
+struct InhibitRequest
+{
+	UBYTE has_response;
+	UBYTE type;
+	LONG inhibit;
+};
+
+struct InhibitResponse
+{
+	UBYTE success;
+	ULONG error_code;
+};
+
+struct FlushRequest
+{
+	UBYTE has_response;
+	UBYTE type;
+};
+
+struct FlushResponse
+{
+	UBYTE success;
+	ULONG error_code;
+};
+
 #pragma pack(pop)

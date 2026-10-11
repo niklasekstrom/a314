@@ -710,11 +710,56 @@ def process_info(key):
     block_size = INFO_BLOCK_SIZE
     return struct.pack('>HHIII', 1, 0, total_blocks, used_blocks, block_size)
 
+# Add a global variable to track mount state
+is_mounted = True
+
+def process_die():
+    logger.debug('ACTION_DIE')
+    global is_mounted
+    is_mounted = False
+    # Close all open file handles
+    for fp in list(open_file_handles.keys()):
+        process_end(fp)
+    # Clear all locks
+    locks.clear()
+    return struct.pack('>HH', 1, 0)
+
+def process_inhibit(inhibit):
+    logger.debug('ACTION_INHIBIT, inhibit: %s', inhibit)
+    global is_mounted
+    if inhibit:
+        # Inhibit the volume (prepare for unmount)
+        is_mounted = False
+    else:
+        # Uninhibit the volume (remount)
+        is_mounted = True
+    return struct.pack('>HH', 1, 0)
+
+def process_flush():
+    logger.debug('ACTION_FLUSH')
+    os.sync()
+    return struct.pack('>HH', 1, 0)
+
+
 def process_request(req):
     #logger.debug('len(req): %s, req: %s', len(req), list(req))
 
+    global is_mounted
+
     (rtype,) = struct.unpack('>H', req[:2])
 
+    if rtype == ACTION_DIE:
+        return process_die()
+    elif rtype == ACTION_INHIBIT:
+        (inhibit,) = struct.unpack('>I', req[2:6])
+        return process_inhibit(inhibit)
+    elif rtype == ACTION_FLUSH:
+        return process_flush()
+
+    # For all other actions, check if the volume is mounted
+    if not is_mounted:
+        return struct.pack('>HH', 0, ERROR_DEVICE_NOT_MOUNTED)
+    
     if rtype == ACTION_LOCATE_OBJECT:
         key, mode, nlen = struct.unpack('>IHB', req[2:9])
         name = req[9:9+nlen].decode('latin-1')
@@ -825,6 +870,7 @@ while not done:
                 send_reset(current_stream_id)
             current_stream_id = stream_id
             send_connect_response(stream_id, 0)
+            is_mounted = True # Reset the mount state on a new connection
         else:
             send_connect_response(stream_id, 3)
     elif ptype == MSG_DATA:
@@ -838,7 +884,9 @@ while not done:
             logger.debug('Got EOS, stream closed')
             send_eos(stream_id)
             current_stream_id = None
+            is_mounted = False # Reset the mount state on stream close
     elif ptype == MSG_RESET:
         if stream_id == current_stream_id:
             logger.debug('Got RESET, stream closed')
             current_stream_id = None
+            is_mounted = False # Reset the mount state on stream close
