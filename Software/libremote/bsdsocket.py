@@ -7,10 +7,13 @@ import logging
 logging.basicConfig(format='%(levelname)s, %(asctime)s, %(name)s, line %(lineno)d: %(message)s', level=logging.DEBUG)
 
 from a314d import A314d
+import errno
+import fcntl
 import queue
 import select
 import socket
 import struct
+import termios
 import threading
 import time
 from typing import Dict, List, Tuple, Optional, Any
@@ -101,6 +104,13 @@ FN_GETHOSTID = 43
 FN_SOCKETBASETAGLIST = 44
 FN_GETSOCKETEVENTS = 45
 
+# Functions that return a pointer, and so return NULL on failure.
+POINTER_OPS = {
+    FN_INET_NTOA, FN_GETHOSTBYNAME, FN_GETHOSTBYADDR, FN_GETNETBYNAME,
+    FN_GETNETBYADDR, FN_GETSERVBYNAME, FN_GETSERVBYPORT, FN_GETPROTOBYNAME,
+    FN_GETPROTOBYNUMBER,
+}
+
 TAG_DONE = 0
 TAG_IGNORE = 1
 TAG_MORE = 2
@@ -131,15 +141,98 @@ SBTC_ERRNOLONGPTR   = 24
 SBTC_HERRNOLONGPTR  = 25
 SBTC_RELEASESTRPTR  = 29
 
-EINTR = 4
-EBADF = 9
-ETIMEDOUT = 60
-ECONNREFUSED = 61
+# Errno values as seen by the Amiga (BSD numbering, as in Roadshow's
+# sys/errno.h). Linux uses different numbers for most of these.
+BSD_ERRNO = {
+    'EPERM': 1, 'ENOENT': 2, 'EINTR': 4, 'EIO': 5, 'EBADF': 9,
+    'ENOMEM': 12, 'EACCES': 13, 'EFAULT': 14, 'EINVAL': 22, 'ENFILE': 23,
+    'EMFILE': 24, 'EPIPE': 32, 'EAGAIN': 35, 'EWOULDBLOCK': 35,
+    'EINPROGRESS': 36, 'EALREADY': 37, 'ENOTSOCK': 38, 'EDESTADDRREQ': 39,
+    'EMSGSIZE': 40, 'EPROTOTYPE': 41, 'ENOPROTOOPT': 42,
+    'EPROTONOSUPPORT': 43, 'ESOCKTNOSUPPORT': 44, 'EOPNOTSUPP': 45,
+    'ENOTSUP': 45, 'EPFNOSUPPORT': 46, 'EAFNOSUPPORT': 47, 'EADDRINUSE': 48,
+    'EADDRNOTAVAIL': 49, 'ENETDOWN': 50, 'ENETUNREACH': 51, 'ENETRESET': 52,
+    'ECONNABORTED': 53, 'ECONNRESET': 54, 'ENOBUFS': 55, 'EISCONN': 56,
+    'ENOTCONN': 57, 'ESHUTDOWN': 58, 'ETIMEDOUT': 60, 'ECONNREFUSED': 61,
+    'EHOSTDOWN': 64, 'EHOSTUNREACH': 65,
+}
+
+EINTR = BSD_ERRNO['EINTR']
+EBADF = BSD_ERRNO['EBADF']
+EINVAL = BSD_ERRNO['EINVAL']
+EMFILE = BSD_ERRNO['EMFILE']
+EWOULDBLOCK = BSD_ERRNO['EWOULDBLOCK']
+EINPROGRESS = BSD_ERRNO['EINPROGRESS']
+EALREADY = BSD_ERRNO['EALREADY']
+ENOPROTOOPT = BSD_ERRNO['ENOPROTOOPT']
+EPROTONOSUPPORT = BSD_ERRNO['EPROTONOSUPPORT']
+EAFNOSUPPORT = BSD_ERRNO['EAFNOSUPPORT']
+ETIMEDOUT = BSD_ERRNO['ETIMEDOUT']
+ECONNREFUSED = BSD_ERRNO['ECONNREFUSED']
+
+def bsd_errno(linux_errno: Optional[int]) -> int:
+    name = errno.errorcode.get(linux_errno) if linux_errno is not None else None
+    return BSD_ERRNO.get(name, EINVAL)
+
+# h_errno values.
+HOST_NOT_FOUND = 1
+TRY_AGAIN = 2
+NO_RECOVERY = 3
+
+AF_INET = 2
+SOCK_STREAM = 1
+SOCK_DGRAM = 2
+
+MSG_OOB = 0x1
+MSG_PEEK = 0x2
+MSG_DONTWAIT = 0x80
+
+FIONBIO = 0x8004667e
+FIONREAD = 0x4004667f
+
+# (Amiga level, Amiga optname) -> (Linux level, Linux optname, kind)
+SOCKOPTS = {
+    (0xffff, 0x0004): (socket.SOL_SOCKET, socket.SO_REUSEADDR, 'int'),
+    (0xffff, 0x0008): (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 'int'),
+    (0xffff, 0x0020): (socket.SOL_SOCKET, socket.SO_BROADCAST, 'int'),
+    (0xffff, 0x0100): (socket.SOL_SOCKET, socket.SO_OOBINLINE, 'int'),
+    (0xffff, 0x1001): (socket.SOL_SOCKET, socket.SO_SNDBUF, 'int'),
+    (0xffff, 0x1002): (socket.SOL_SOCKET, socket.SO_RCVBUF, 'int'),
+    (0xffff, 0x1007): (socket.SOL_SOCKET, socket.SO_ERROR, 'errno'),
+    (0xffff, 0x1008): (socket.SOL_SOCKET, socket.SO_TYPE, 'int'),
+    (6, 0x0001): (socket.IPPROTO_TCP, socket.TCP_NODELAY, 'int'),
+}
+
+MAX_SOCKETS = 64
+MAX_RECV_LENGTH = 256 * 1024
+
+# Returned in D0 to signal failure.
+FAIL = 2**32 - 1
+
+# An A314 stream message carries at most 252 bytes of payload (see
+# a314device/driver_task.c), which limits the in-message read/write requests.
+MAX_MSG_LENGTH = 252
+
+def to_signed(value: int) -> int:
+    return value - 2**32 if value & 0x80000000 else value
+
+class StreamReset(Exception):
+    '''The Amiga closed the library; the instance thread should exit.'''
+
+class SockError(Exception):
+    '''An error that is reported to the Amiga with a BSD errno value.'''
+    def __init__(self, errno: int) -> None:
+        super().__init__(errno)
+        self.errno = errno
 
 class AmSocket:
     def __init__(self, slot: int, sock: socket.socket) -> None:
         self.slot = slot
         self.sock = sock
+        # Pi side sockets are always non-blocking, and blocking calls are
+        # emulated using wait_ready(). This flag is the Amiga's view (FIONBIO).
+        self.nonblocking = False
+        sock.setblocking(False)
 
 class LibInstance:
     def __init__(self, service: 'LibRemoteService', stream_id: int) -> None:
@@ -156,15 +249,24 @@ class LibInstance:
         self.log_tag_ptr = 0
         self.errno_ptr = 0
         self.errno_size = 0
-        self.herrno_ptr = None
+        self.herrno_ptr = 0
+        self.sigio_mask = 0
+        self.sigurg_mask = 0
+        self.sigevent_mask = 0
 
         # Store the latest errno value locally, as it may be asked for.
         self.errno = 0
+        self.herrno = 0
+
+        # Signals received by the Amiga task during the current operation,
+        # including those already set when the operation was called.
+        self.pending_signals = 0
 
         self.return_mem_address = 0
         self.sockets: Dict[int, AmSocket] = {}
 
-        threading.Thread(target=self.run).start()
+        self.thread = threading.Thread(target=self.run)
+        self.thread.start()
 
     # Put items on queue.
     def process_stream_reset(self):
@@ -232,9 +334,101 @@ class LibInstance:
         while True:
             qitem, arg = self.wait_any_qitem()
             if qitem == QITEM_RESET:
-                raise InterruptedError()
+                raise StreamReset()
             elif qitem == match_qitem:
                 return arg
+            elif qitem == QITEM_SIGNALS:
+                self.pending_signals |= arg
+            else:
+                logger.warning('Unexpected queue item %s while waiting for %s', qitem, match_qitem)
+
+    def wait_ready(self, rlist: List[socket.socket], wlist: List[socket.socket], xlist: List[socket.socket],
+                   deadline: Optional[float], user_mask: int) -> Tuple[List[socket.socket], List[socket.socket], List[socket.socket], int]:
+        '''Wait until a socket is ready, the deadline (time.monotonic()) passes,
+        or a break signal or a signal in user_mask is received. Returns the
+        ready sockets and the received signals that are in the masks.'''
+        mask = self.break_mask | user_mask
+
+        while True:
+            if self.pending_signals & mask:
+                timeout = 0.0
+            elif deadline is None:
+                timeout = None
+            else:
+                timeout = max(0.0, deadline - time.monotonic())
+
+            rl, wl, xl = select.select(rlist + [self.wait_sock], wlist, xlist, timeout)
+
+            if self.wait_sock in rl:
+                rl.remove(self.wait_sock)
+                qitem, arg = self.wait_any_qitem(0)
+                if qitem == QITEM_RESET:
+                    raise StreamReset()
+                elif qitem == QITEM_SIGNALS:
+                    self.pending_signals |= arg
+                else:
+                    logger.warning('Unexpected queue item %s while waiting for sockets', qitem)
+
+            signals = self.pending_signals & mask
+            if rl or wl or xl or signals or timeout == 0.0:
+                return rl, wl, xl, signals
+
+    def wait_socket(self, s: AmSocket, readable: bool) -> None:
+        '''Block until s is readable/writable. Raises EINTR on a break signal.
+        The break signal is not consumed, so it is still set on the Amiga.'''
+        sl = [s.sock]
+        rl, wl, _, signals = self.wait_ready(sl if readable else [], [] if readable else sl, [], None, 0)
+        if not rl and not wl and signals:
+            raise SockError(EINTR)
+
+    def get_socket(self, sock: int) -> AmSocket:
+        s = self.sockets.get(sock)
+        if not s:
+            raise SockError(EBADF)
+        return s
+
+    def alloc_slot(self) -> int:
+        for slot in range(MAX_SOCKETS):
+            if slot not in self.sockets:
+                return slot
+        raise SockError(EMFILE)
+
+    def read_int_arg(self, address: int, length: int) -> int:
+        '''Read an int option value of 1, 2 or 4 bytes.'''
+        if length >= 4:
+            (value,) = struct.unpack('>i', self.read_mem(address, 4))
+        elif length == 2:
+            (value,) = struct.unpack('>h', self.read_mem(address, 2))
+        elif length == 1:
+            (value,) = struct.unpack('>b', self.read_mem(address, 1))
+        else:
+            raise SockError(EINVAL)
+        return value
+
+    def read_sockaddr(self, address: int, length: int) -> Tuple[str, int]:
+        '''Read a struct sockaddr_in. sin_len is ignored, as it is often 0.'''
+        length = to_signed(length)
+        if not address or length < 8:
+            raise SockError(EINVAL)
+        data = self.read_mem(address, min(length, 16))
+        if data[1] != AF_INET:
+            raise SockError(EAFNOSUPPORT)
+        (port,) = struct.unpack('>H', data[2:4])
+        return (socket.inet_ntoa(data[4:8]), port)
+
+    def write_sockaddr(self, address: int, length_ptr: int, addr: Tuple[str, int]) -> None:
+        '''Write a struct sockaddr_in, and its length to *length_ptr.'''
+        if not address or not length_ptr:
+            return
+        (capacity,) = struct.unpack('>i', self.read_mem(length_ptr, 4))
+        if capacity < 0:
+            raise SockError(EINVAL)
+        host, port = addr[0], addr[1]
+        data = struct.pack('>BBH4s8x', 16, AF_INET, port, socket.inet_aton(host))
+        writes = [(length_ptr, struct.pack('>I', len(data)))]
+        if capacity:
+            writes.append((address, data[:capacity]))
+        self.multi_write_mem(writes)
 
     # Blocking functions to run commands on Amiga.
     def alloc_mem(self, length: int) -> int:
@@ -317,97 +511,101 @@ class LibInstance:
                 data = struct.pack(fmt, errno)
                 self.write_mem(self.errno_ptr, data)
 
+    def set_herrno(self, herrno: int):
+        self.herrno = herrno
+        if self.herrno_ptr:
+            self.write_mem(self.herrno_ptr, struct.pack('>I', herrno))
+
+    def fail_op(self, op: int, errno: int):
+        '''Report a failed operation to the Amiga.'''
+        self.set_errno(errno)
+        result = 0 if op in POINTER_OPS else FAIL
+        self.service.send_op_res(self.stream_id, result, 0)
+
     # The implemented library functions.
     def handle_socket_op(self, domain: int, type_: int, protocol: int):
         logger.debug('handle_socket_op(domain=%s, type_=%s, protocol=%s)', domain, type_, protocol)
 
-        AF_INET         = 2
-        SOCK_STREAM     = 1
-        SOCK_DGRAM      = 2
+        if domain != AF_INET:
+            raise SockError(EAFNOSUPPORT)
 
-        result = 2**32 - 1
+        if type_ == SOCK_STREAM:
+            sock_type = socket.SOCK_STREAM
+        elif type_ == SOCK_DGRAM:
+            sock_type = socket.SOCK_DGRAM
+        else:
+            raise SockError(EPROTONOSUPPORT)
 
-        slot = min(i for i in range(64) if i not in self.sockets)
-
-        if domain == AF_INET:
-            if type_ == SOCK_STREAM:
-                self.sockets[slot] = AmSocket(slot, socket.socket())
-                result = slot
-            elif type_ == SOCK_DGRAM:
-                self.sockets[slot] = AmSocket(slot, socket.socket(type=socket.SOCK_DGRAM))
-                result = slot
+        slot = self.alloc_slot()
+        self.sockets[slot] = AmSocket(slot, socket.socket(socket.AF_INET, sock_type))
+        result = slot
 
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_bind_op(self, sock: int, name: int, namelen: int):
         logger.debug('handle_bind_op(sock=%s, name=%s, namelen=%s)', sock, name, namelen)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+        addr = self.read_sockaddr(name, namelen)
+        s.sock.bind(addr)
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_listen_op(self, sock: int, backlog: int):
         logger.debug('handle_listen_op(sock=%s, backlog=%s)', sock, backlog)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+        s.sock.listen(max(0, to_signed(backlog)))
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_accept_op(self, sock: int, addr: int, addrlen: int):
         logger.debug('handle_accept_op(sock=%s, addr=%s, addrlen=%s)', sock, addr, addrlen)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+
+        while True:
+            try:
+                conn, peer = s.sock.accept()
+                break
+            except BlockingIOError:
+                if s.nonblocking:
+                    raise SockError(EWOULDBLOCK)
+                self.wait_socket(s, True)
+
+        try:
+            slot = self.alloc_slot()
+            self.write_sockaddr(addr, addrlen, peer)
+        except BaseException:
+            conn.close()
+            raise
+
+        new_s = AmSocket(slot, conn)
+        # As in BSD, the accepted socket inherits the non-blocking mode.
+        new_s.nonblocking = s.nonblocking
+        self.sockets[slot] = new_s
+        result = slot
+
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_connect_op(self, sock: int, name: int, namelen: int):
         logger.debug('handle_connect_op(sock=%s, name=%s, namelen=%s)', sock, name, namelen)
+        s = self.get_socket(sock)
+        addr = self.read_sockaddr(name, namelen)
 
-        data = self.read_mem(name, namelen)
+        err = s.sock.connect_ex(addr)
 
-        (port,) = struct.unpack('>H', data[2:4])
-        host = '.'.join(map(str, data[4:8]))
-        addr = (host, port)
-        #logger.debug('addr=%s', addr)
+        if err == errno.EINPROGRESS:
+            if s.nonblocking:
+                raise SockError(EINPROGRESS)
 
-        # TODO: Handle non blocking operation.
+            # Raises EINTR on a break signal; the connection attempt then
+            # continues in the background, as in BSD.
+            self.wait_socket(s, False)
+            err = s.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
 
-        result = 2**32 - 1
-        signals_consumed = 0
-        errno = None
+        if err:
+            raise SockError(bsd_errno(err))
 
-        s = self.sockets.get(sock)
-        if not s:
-            errno = EBADF
-        else:
-            s.sock.setblocking(False)
-
-            try:
-                s.sock.connect(addr)
-            except BlockingIOError:
-                while True:
-                    rl, wl, _ = select.select([s.sock, self.wait_sock], [s.sock], [])
-
-                    if s.sock in rl or s.sock in wl:
-                        try:
-                            s.sock.getpeername()
-                            result = 0
-                        except:
-                            # TODO: What errno should be returned here?
-                            errno = ETIMEDOUT
-                        break
-
-                    if self.wait_sock in rl:
-                        hash = self.wait_sock.recv(1)
-                        assert hash == b'#'
-                        qitem, signals = self.queue.get(block=False)
-                        assert qitem == QITEM_SIGNALS
-                        signals_consumed = signals & self.break_mask
-                        if signals_consumed:
-                            errno = EINTR
-                            break
-            except:
-                # TODO: What errno should be returned here?
-                errno = ECONNREFUSED
-
-            s.sock.setblocking(True)
-
-        self.set_errno(errno)
-        self.service.send_op_res(self.stream_id, result, signals_consumed)
+        result = 0
+        self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_sendto_op(self, sock: int, buf: int, len_: int, flags: int, to: int, tolen: int):
         logger.debug('handle_sendto_op(sock=%s, buf=%s, len_=%s, flags=%s, to=%s, tolen=%s)', sock, buf, len_, flags, to, tolen)
@@ -416,25 +614,49 @@ class LibInstance:
 
     def handle_send_op(self, sock: int, buf: int, len_: int, flags: int):
         logger.debug('handle_send_op(sock=%s, buf=%s, len_=%s, flags=%s)', sock, buf, len_, flags)
+        s = self.get_socket(sock)
 
-        s = self.sockets.get(sock)
-        if not s:
-            # TODO: Set/write errno.
-            result = 2**32 - 1
-        else:
-            data = b''
-            addr = buf
+        len_ = to_signed(len_)
+        if len_ < 0:
+            raise SockError(EINVAL)
 
-            while len(data) < len_:
-                take = min(len_ - len(data), self.bb_size)
-                self.copy_to_bounce(self.bb_address, addr, take)
-                data += self.read_bounce(self.bb_address, take)
-                addr += take
+        send_flags = socket.MSG_OOB if flags & MSG_OOB else 0
+        nonblocking = s.nonblocking or (flags & MSG_DONTWAIT) != 0
 
-            sent = s.sock.send(data)
-            #logger.debug('Sent %d bytes (of %d), data: %s', sent, len(data), data)
-            result = sent
+        data = b''
+        addr = buf
 
+        while len(data) < len_:
+            take = min(len_ - len(data), self.bb_size)
+            self.copy_to_bounce(self.bb_address, addr, take)
+            data += self.read_bounce(self.bb_address, take)
+            addr += take
+
+        # A blocking send sends all data, unless interrupted. If some data was
+        # sent before an interruption then the partial count is returned.
+        sent = 0
+        while True:
+            try:
+                sent += s.sock.send(data[sent:], send_flags)
+                if sent == len(data) or nonblocking:
+                    break
+            except BlockingIOError:
+                if nonblocking:
+                    if sent:
+                        break
+                    raise SockError(EWOULDBLOCK)
+                try:
+                    self.wait_socket(s, False)
+                except SockError:
+                    if sent:
+                        break
+                    raise
+            except OSError:
+                if sent:
+                    break
+                raise
+
+        result = sent
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_recvfrom_op(self, sock: int, buf: int, len_: int, flags: int, addr: int, addrlen: int):
@@ -444,271 +666,244 @@ class LibInstance:
 
     def handle_recv_op(self, sock: int, buf: int, len_: int, flags: int):
         logger.debug('handle_recv_op(sock=%s, buf=%s, len_=%s, flags=%s)', sock, buf, len_, flags)
+        s = self.get_socket(sock)
 
-        MSG_PEEK = 2
+        len_ = to_signed(len_)
+        if len_ < 0:
+            raise SockError(EINVAL)
 
-        s = self.sockets.get(sock)
-        if not s:
-            # TODO: Set/write errno.
-            result = 2**32 - 1
-        else:
-            recv_flags = 0
-            if flags & MSG_PEEK:
-                recv_flags |= socket.MSG_PEEK
+        recv_flags = 0
+        if flags & MSG_PEEK:
+            recv_flags |= socket.MSG_PEEK
+        if flags & MSG_OOB:
+            recv_flags |= socket.MSG_OOB
+        nonblocking = s.nonblocking or (flags & MSG_DONTWAIT) != 0
 
-            data = s.sock.recv(len_, recv_flags)
+        data = b''
+        if len_:
+            while True:
+                try:
+                    data = s.sock.recv(min(len_, MAX_RECV_LENGTH), recv_flags)
+                    break
+                except BlockingIOError:
+                    if nonblocking:
+                        raise SockError(EWOULDBLOCK)
+                    self.wait_socket(s, True)
 
-            addr = buf
-            offset = 0
+        addr = buf
+        offset = 0
 
-            while offset < len(data):
-                take = min(len(data) - offset, self.bb_size)
+        while offset < len(data):
+            take = min(len(data) - offset, self.bb_size)
 
-                self.write_bounce(self.bb_address, data[offset:offset + take])
-                self.copy_from_bounce(addr, self.bb_address, take)
+            self.write_bounce(self.bb_address, data[offset:offset + take])
+            self.copy_from_bounce(addr, self.bb_address, take)
 
-                offset += take
-                addr += take
+            offset += take
+            addr += take
 
-            result = len(data)
-
-        self.service.send_op_res(self.stream_id, result, 0)
-
-    # Attempt at optimized version.
-    # Unfortunately doesn't seem to give better performance.
-    def handle_recv_op_opt(self, sock: int, buf: int, len_: int, flags: int):
-        logger.debug('handle_recv_op(sock=%s, buf=%s, len_=%s, flags=%s)', sock, buf, len_, flags)
-
-        MSG_PEEK = 2
-
-        s = self.sockets.get(sock)
-        if not s:
-            # TODO: Set/write errno.
-            result = 2**32 - 1
-        else:
-            recv_flags = 0
-            if flags & MSG_PEEK:
-                recv_flags |= socket.MSG_PEEK
-
-            data = s.sock.recv(len_, recv_flags)
-
-            if len(data) <= self.bb_size:
-                self.write_bounce(self.bb_address, data)
-                self.copy_from_bounce(buf, self.bb_address, len(data))
-            else:
-                offset = 0
-                bb_addr = self.bb_address
-                mem_addr = buf
-
-                take = min(len(data) - offset, self.bb_size // 2)
-                self.write_bounce(bb_addr, data[offset:offset + take])
-                self.service.send_copy_from_bounce_req(self.stream_id, [(mem_addr, bb_addr, take)])
-
-                pending_copy_from_count = 1
-
-                offset += take
-                bb_addr = (self.bb_address + self.bb_size // 2) if bb_addr == self.bb_address else self.bb_address
-                mem_addr += take
-
-                while offset < len(data):
-                    if pending_copy_from_count == 2:
-                        self.wait_qitem(QITEM_COPY_FROM_BOUNCE_RES)
-                        pending_copy_from_count -= 1
-
-                    take = min(len(data) - offset, self.bb_size // 2)
-                    self.service.start_write_mem(self.stream_id, bb_addr, data[offset:offset + take])
-
-                    while True:
-                        qitem, _ = self.queue.get()
-                        if qitem == QITEM_RESET:
-                            raise InterruptedError()
-                        elif qitem == QITEM_COPY_FROM_BOUNCE_RES:
-                            pending_copy_from_count -= 1
-                        elif qitem == QITEM_WRITE_BOUNCE_COMPLETE:
-                            break
-
-                    self.service.send_copy_from_bounce_req(self.stream_id, [(mem_addr, bb_addr, take)])
-                    pending_copy_from_count += 1
-
-                    offset += take
-                    bb_addr = (self.bb_address + self.bb_size // 2) if bb_addr == self.bb_address else self.bb_address
-                    mem_addr += take
-
-                while pending_copy_from_count:
-                    self.wait_qitem(QITEM_COPY_FROM_BOUNCE_RES)
-                    pending_copy_from_count -= 1
-
-            result = len(data)
-
+        result = len(data)
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_shutdown_op(self, sock: int, how: int):
         logger.debug('handle_shutdown_op(sock=%s, how=%s)', sock, how)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+        if how > 2:
+            raise SockError(EINVAL)
+        s.sock.shutdown(how)
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_setsockopt_op(self, sock: int, level: int, optname: int, optval: int, optlen: int):
         logger.debug('handle_setsockopt_op(sock=%s, level=%s, optname=%s, optval=%s, optlen=%s)', sock, level, optname, optval, optlen)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+
+        opt = SOCKOPTS.get((level, optname))
+        if not opt or opt[2] != 'int':
+            logger.info('Unsupported socket option level=%s optname=%s', level, optname)
+            raise SockError(ENOPROTOOPT)
+
+        if not optval:
+            raise SockError(EINVAL)
+        value = self.read_int_arg(optval, to_signed(optlen))
+        s.sock.setsockopt(opt[0], opt[1], value)
+
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_getsockopt_op(self, sock: int, level: int, optname: int, optval: int, optlen: int):
         logger.debug('handle_getsockopt_op(sock=%s, level=%s, optname=%s, optval=%s, optlen=%s)', sock, level, optname, optval, optlen)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+
+        opt = SOCKOPTS.get((level, optname))
+        if not opt:
+            logger.info('Unsupported socket option level=%s optname=%s', level, optname)
+            raise SockError(ENOPROTOOPT)
+
+        if not optval or not optlen:
+            raise SockError(EINVAL)
+        (capacity,) = struct.unpack('>i', self.read_mem(optlen, 4))
+        if capacity < 4:
+            raise SockError(EINVAL)
+
+        value = s.sock.getsockopt(opt[0], opt[1])
+        if opt[2] == 'errno' and value:
+            value = bsd_errno(value)
+
+        self.multi_write_mem([(optval, struct.pack('>i', value)), (optlen, struct.pack('>I', 4))])
+
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_getsockname_op(self, sock: int, name: int, namelen: int):
         logger.debug('handle_getsockname_op(sock=%s, name=%s, namelen=%s)', sock, name, namelen)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+        if not name or not namelen:
+            raise SockError(EINVAL)
+        self.write_sockaddr(name, namelen, s.sock.getsockname())
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_getpeername_op(self, sock: int, name: int, namelen: int):
         logger.debug('handle_getpeername_op(sock=%s, name=%s, namelen=%s)', sock, name, namelen)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+        if not name or not namelen:
+            raise SockError(EINVAL)
+        self.write_sockaddr(name, namelen, s.sock.getpeername())
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_ioctlsocket_op(self, sock: int, req: int, argp: int):
         logger.debug('handle_ioctlsocket_op(sock=%s, req=%s, argp=%s)', sock, req, argp)
-        result = 2**32 - 1
+        s = self.get_socket(sock)
+
+        if not argp:
+            raise SockError(EINVAL)
+
+        if req == FIONBIO:
+            (value,) = struct.unpack('>i', self.read_mem(argp, 4))
+            s.nonblocking = value != 0
+        elif req == FIONREAD:
+            buf = bytearray(4)
+            fcntl.ioctl(s.sock.fileno(), termios.FIONREAD, buf)
+            (count,) = struct.unpack('=i', buf)
+            self.write_mem(argp, struct.pack('>i', count))
+        else:
+            logger.info('Unsupported IoctlSocket request %#x', req)
+            raise SockError(EINVAL)
+
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_closesocket_op(self, sock: int):
         logger.debug('handle_closesocket_op(sock=%s)', sock)
-
-        s = self.sockets.get(sock)
-        if not s:
-            # TODO: Set/write errno.
-            result = 2**32 - 1
-        else:
-            try:
-                s.sock.close()
-            except:
-                pass
-            del self.sockets[sock]
-            result = 0
-
+        s = self.get_socket(sock)
+        del self.sockets[sock]
+        try:
+            s.sock.close()
+        except OSError:
+            pass
+        result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_waitselect_op(self, nfds: int, read_fds: int, write_fds: int, except_fds: int, _timeout: int, signals: int):
         logger.debug('handle_waitselect_op(nfds=%s, read_fds=%s, write_fds=%s, except_fds=%s, _timeout=%s, signals=%s)', nfds, read_fds, write_fds, except_fds, _timeout, signals)
 
-        # NOTE: FD_SETSIZE is currently hardcoded to 32 bits (one ULONG).
-        # TODO: Look at nfds to see how many ULONGs to copy.
+        nfds = to_signed(nfds)
+        if nfds < 0:
+            raise SockError(EINVAL)
+
+        # As allowed by the autodoc, nfds is truncated to the sockets supported.
+        nfds = min(nfds, MAX_SOCKETS)
+        nwords = (nfds + 31) // 32
+
+        # fd_set is an array of 32-bit words, fd 0 is bit 0 of the first word.
+        fd_set_ptrs = [read_fds, write_fds, except_fds]
 
         read_reqs = []
-
-        if read_fds:
-            read_reqs.append((read_fds, 4))
-
-        if write_fds:
-            read_reqs.append((write_fds, 4))
-
-        if except_fds:
-            read_reqs.append((except_fds, 4))
-
+        for ptr in fd_set_ptrs:
+            if ptr and nwords:
+                read_reqs.append((ptr, nwords * 4))
         if _timeout:
             read_reqs.append((_timeout, 8))
-
         if signals:
             read_reqs.append((signals, 4))
 
-        if read_reqs:
-            bufs = self.multi_read_mem(read_reqs)
+        bufs = self.multi_read_mem(read_reqs) if read_reqs else []
 
-        # Extract.
-        offset = 0
-        rfds = 0
-        wfds = 0
-        xfds = 0
-        timeout_val = None
-        signals_val = 0
+        fd_masks = []
+        for ptr in fd_set_ptrs:
+            mask = 0
+            if ptr and nwords:
+                words = struct.unpack(f'>{nwords}I', bufs.pop(0))
+                for i, word in enumerate(words):
+                    mask |= word << (32 * i)
+                mask &= (1 << nfds) - 1
+            fd_masks.append(mask)
 
-        if read_fds:
-            (rfds,) = struct.unpack('>I', bufs[offset])
-            offset += 1
-
-        if write_fds:
-            (wfds,) = struct.unpack('>I', bufs[offset])
-            offset += 1
-
-        if except_fds:
-            (xfds,) = struct.unpack('>I', bufs[offset])
-            offset += 1
-
+        deadline = None
         if _timeout:
-            sec, usec = struct.unpack('>II', bufs[offset])
-            timeout_val = sec + usec / 1e6
-            offset += 1
+            sec, usec = struct.unpack('>ii', bufs.pop(0))
+            if sec < 0 or usec < 0 or usec >= 1000000:
+                raise SockError(EINVAL)
+            deadline = time.monotonic() + sec + usec / 1e6
 
+        user_mask = 0
         if signals:
-            (signals_val,) = struct.unpack('>I', bufs[offset])
-            offset += 1
+            (user_mask,) = struct.unpack('>I', bufs.pop(0))
 
-        logger.debug('rfds=%s, wfds=%s, xfds=%s, timeout=%s, signals=%s)', rfds, wfds, xfds, timeout_val, signals_val)
+        logger.debug('fd_masks=%s, deadline=%s, user_mask=%s', fd_masks, deadline, user_mask)
 
-        # TODO: Validate that these sockets are available.
+        all_fds = fd_masks[0] | fd_masks[1] | fd_masks[2]
+        for fd in range(nfds):
+            if all_fds & (1 << fd) and fd not in self.sockets:
+                raise SockError(EBADF)
 
-        rlist = []
-        wlist = []
-        xlist = []
+        lists = [[self.sockets[fd].sock for fd in range(nfds) if mask & (1 << fd)] for mask in fd_masks]
 
-        for s in self.sockets.values():
-            if rfds & (1 << s.slot):
-                rlist.append(s.sock)
+        rl, wl, xl, received = self.wait_ready(lists[0], lists[1], lists[2], deadline, user_mask)
 
-            if wfds & (1 << s.slot):
-                wlist.append(s.sock)
+        # Bits in both masks are attributed to the user signals.
+        user_signals = received & user_mask
+        if received & self.break_mask & ~user_mask:
+            # The break signal is not consumed, so it is still set on the Amiga.
+            raise SockError(EINTR)
 
-            if xfds & (1 << s.slot):
-                xlist.append(s.sock)
+        ready_masks = []
+        for ready in (rl, wl, xl):
+            ready_ids = set(id(sock) for sock in ready)
+            mask = 0
+            for fd in range(nfds):
+                s = self.sockets.get(fd)
+                if s and id(s.sock) in ready_ids:
+                    mask |= 1 << fd
+            ready_masks.append(mask)
 
-        # TODO: Handle signals, both break signals and signals given in the function call.
-
-        rlist_out, wlist_out, xlist_out = select.select(rlist, wlist, xlist, timeout_val)
-
-        rfds_out = 0
-        wfds_out = 0
-        xfds_out = 0
-
-        for s in self.sockets.values():
-            if s.sock in rlist_out:
-                rfds_out |= 1 << s.slot
-
-            if s.sock in wlist_out:
-                wfds_out |= 1 << s.slot
-
-            if s.sock in xlist_out:
-                xfds_out |= 1 << s.slot
-
-        # Update Xfds.
         write_reqs = []
-
-        if read_fds:
-            write_reqs.append((read_fds, struct.pack('>I', rfds_out)))
-
-        if write_fds:
-            write_reqs.append((write_fds, struct.pack('>I', wfds_out)))
-
-        if except_fds:
-            write_reqs.append((except_fds, struct.pack('>I', xfds_out)))
-
+        for ptr, mask in zip(fd_set_ptrs, ready_masks):
+            if ptr and nwords:
+                words = [(mask >> (32 * i)) & 0xffffffff for i in range(nwords)]
+                write_reqs.append((ptr, struct.pack(f'>{nwords}I', *words)))
         if signals:
-            write_reqs.append((signals, struct.pack('>I', 0)))
+            write_reqs.append((signals, struct.pack('>I', user_signals)))
 
         if write_reqs:
             self.multi_write_mem(write_reqs)
 
-        result = len(set(rlist_out) | set(wlist_out) | set(xlist_out))
-        self.service.send_op_res(self.stream_id, result, 0)
+        result = sum(bin(mask).count('1') for mask in ready_masks)
+        self.service.send_op_res(self.stream_id, result, user_signals)
 
     def handle_setsocketsignals_op(self, int_mask: int, io_mask: int, urgent_mask: int):
         logger.debug('handle_setsocketsignals_op(int_mask=%s, io_mask=%s, urgent_mask=%s)', int_mask, io_mask, urgent_mask)
+        self.break_mask = int_mask
+        self.sigio_mask = io_mask
+        self.sigurg_mask = urgent_mask
         result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_getdtablesize_op(self):
         logger.debug('handle_getdtablesize_op()')
-        result = 2**32 - 1
+        result = MAX_SOCKETS
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_obtainsocket_op(self, id_: int, domain: int, type_: int, protocol: int):
@@ -728,11 +923,15 @@ class LibInstance:
 
     def handle_errno_op(self):
         logger.debug('handle_errno_op()')
-        result = 2**32 - 1
+        result = self.errno
         self.service.send_op_res(self.stream_id, result, 0)
 
     def handle_seterrnoptr_op(self, errno_ptr: int, size: int):
         logger.debug('handle_seterrnoptr_op(errno_ptr=%s, size=%s)', errno_ptr, size)
+        if size not in (1, 2, 4):
+            raise SockError(EINVAL)
+        self.errno_ptr = errno_ptr
+        self.errno_size = size
         result = 0
         self.service.send_op_res(self.stream_id, result, 0)
 
@@ -785,7 +984,20 @@ class LibInstance:
     def handle_gethostbyname_op(self, name: int):
         logger.debug('handle_gethostbyname_op(name=%s)', name)
         data = self.read_str(name)
-        host_addr = socket.gethostbyname(data)
+
+        # NOTE: The lookup blocks, and cannot be interrupted by a break signal.
+        try:
+            host_addr = socket.gethostbyname(data)
+        except socket.gaierror as e:
+            logger.debug('gethostbyname(%s) failed: %s', data, e)
+            if e.errno in (socket.EAI_AGAIN,):
+                self.set_herrno(TRY_AGAIN)
+            elif e.errno in (socket.EAI_FAIL,):
+                self.set_herrno(NO_RECOVERY)
+            else:
+                self.set_herrno(HOST_NOT_FOUND)
+            self.service.send_op_res(self.stream_id, 0, 0)
+            return
         logger.debug('host_addr=%s', host_addr)
 
         result = 0
@@ -888,135 +1100,215 @@ class LibInstance:
 
                 #logger.debug('Tag: key=%s, is_ref=%s, is_set=%s, value=%s', key, is_ref, is_set, value)
 
-                if not is_set or is_ref:
-                    result = i + 1
-                    break
-
-                if key == SBTC_BREAKMASK:
-                    self.break_mask = value
-                elif key == SBTC_LOGTAGPTR:
-                    self.log_tag_ptr = value
-                elif key == SBTC_ERRNOLONGPTR:
-                    self.errno_ptr = value
-                    self.errno_size = 4
-                elif key == SBTC_HERRNOLONGPTR:
-                    self.herrno_ptr = value
+                if is_set:
+                    if is_ref:
+                        (value,) = struct.unpack('>I', self.read_mem(value, 4))
+                    if not self.set_socketbase_value(key, value):
+                        result = i + 1
+                        break
                 else:
-                    result = i + 1
-                    break
-            elif key not in (TAG_DONE, TAG_MORE):
+                    current = self.get_socketbase_value(key)
+                    if current is None:
+                        result = i + 1
+                        break
+                    # A GETVAL replaces ti_Data, a GETREF writes to *ti_Data.
+                    dst = value if is_ref else tags + i * 8 + 4
+                    self.write_mem(dst, struct.pack('>I', current & 0xffffffff))
+            elif key not in (TAG_DONE, TAG_MORE, TAG_IGNORE):
                 logger.debug('Unknown tag: key=%s, value=%s', key, value)
                 result = i + 1
                 break
 
         self.service.send_op_res(self.stream_id, result, 0)
 
+    def set_socketbase_value(self, code: int, value: int) -> bool:
+        if code == SBTC_BREAKMASK:
+            self.break_mask = value
+        elif code == SBTC_SIGIOMASK:
+            self.sigio_mask = value
+        elif code == SBTC_SIGURGMASK:
+            self.sigurg_mask = value
+        elif code == SBTC_SIGEVENTMASK:
+            self.sigevent_mask = value
+        elif code == SBTC_ERRNO:
+            self.errno = value
+        elif code == SBTC_HERRNO:
+            self.herrno = value
+        elif code == SBTC_DTABLESIZE:
+            # The table has a fixed size, larger requests are refused.
+            return value <= MAX_SOCKETS
+        elif code == SBTC_LOGTAGPTR:
+            self.log_tag_ptr = value
+        elif code == SBTC_ERRNOBYTEPTR:
+            self.errno_ptr, self.errno_size = value, 1
+        elif code == SBTC_ERRNOWORDPTR:
+            self.errno_ptr, self.errno_size = value, 2
+        elif code == SBTC_ERRNOLONGPTR:
+            self.errno_ptr, self.errno_size = value, 4
+        elif code == SBTC_HERRNOLONGPTR:
+            self.herrno_ptr = value
+        else:
+            logger.info('Unsupported SocketBaseTagList set code %s', code)
+            return False
+        return True
+
+    def get_socketbase_value(self, code: int) -> Optional[int]:
+        if code == SBTC_BREAKMASK:
+            return self.break_mask
+        elif code == SBTC_SIGIOMASK:
+            return self.sigio_mask
+        elif code == SBTC_SIGURGMASK:
+            return self.sigurg_mask
+        elif code == SBTC_SIGEVENTMASK:
+            return self.sigevent_mask
+        elif code == SBTC_ERRNO:
+            return self.errno
+        elif code == SBTC_HERRNO:
+            return self.herrno
+        elif code == SBTC_DTABLESIZE:
+            return MAX_SOCKETS
+        elif code == SBTC_LOGTAGPTR:
+            return self.log_tag_ptr
+        logger.info('Unsupported SocketBaseTagList get code %s', code)
+        return None
+
     def handle_getsocketevents_op(self, event_ptr: int):
         logger.debug('handle_getsocketevents_op(event_ptr=%s)', event_ptr)
         result = 2**32 - 1
         self.service.send_op_res(self.stream_id, result, 0)
+
+    def dispatch_op(self, op: int, args: bytes):
+        if op == FN_SOCKET:
+            self.handle_socket_op(*struct.unpack(">3I", args))
+        elif op == FN_BIND:
+            self.handle_bind_op(*struct.unpack(">3I", args))
+        elif op == FN_LISTEN:
+            self.handle_listen_op(*struct.unpack(">2I", args))
+        elif op == FN_ACCEPT:
+            self.handle_accept_op(*struct.unpack(">3I", args))
+        elif op == FN_CONNECT:
+            self.handle_connect_op(*struct.unpack(">3I", args))
+        elif op == FN_SENDTO:
+            self.handle_sendto_op(*struct.unpack(">6I", args))
+        elif op == FN_SEND:
+            self.handle_send_op(*struct.unpack(">4I", args))
+        elif op == FN_RECVFROM:
+            self.handle_recvfrom_op(*struct.unpack(">6I", args))
+        elif op == FN_RECV:
+            self.handle_recv_op(*struct.unpack(">4I", args))
+        elif op == FN_SHUTDOWN:
+            self.handle_shutdown_op(*struct.unpack(">2I", args))
+        elif op == FN_SETSOCKOPT:
+            self.handle_setsockopt_op(*struct.unpack(">5I", args))
+        elif op == FN_GETSOCKOPT:
+            self.handle_getsockopt_op(*struct.unpack(">5I", args))
+        elif op == FN_GETSOCKNAME:
+            self.handle_getsockname_op(*struct.unpack(">3I", args))
+        elif op == FN_GETPEERNAME:
+            self.handle_getpeername_op(*struct.unpack(">3I", args))
+        elif op == FN_IOCTLSOCKET:
+            self.handle_ioctlsocket_op(*struct.unpack(">3I", args))
+        elif op == FN_CLOSESOCKET:
+            self.handle_closesocket_op(*struct.unpack(">1I", args))
+        elif op == FN_WAITSELECT:
+            self.handle_waitselect_op(*struct.unpack(">6I", args))
+        elif op == FN_SETSOCKETSIGNALS:
+            self.handle_setsocketsignals_op(*struct.unpack(">3I", args))
+        elif op == FN_GETDTABLESIZE:
+            self.handle_getdtablesize_op()
+        elif op == FN_OBTAINSOCKET:
+            self.handle_obtainsocket_op(*struct.unpack(">4I", args))
+        elif op == FN_RELEASESOCKET:
+            self.handle_releasesocket_op(*struct.unpack(">2I", args))
+        elif op == FN_RELEASECOPYOFSOCKET:
+            self.handle_releasecopyofsocket_op(*struct.unpack(">2I", args))
+        elif op == FN_ERRNO:
+            self.handle_errno_op()
+        elif op == FN_SETERRNOPTR:
+            self.handle_seterrnoptr_op(*struct.unpack(">2I", args))
+        elif op == FN_INET_NTOA:
+            self.handle_inet_ntoa_op(*struct.unpack(">1I", args))
+        elif op == FN_INET_ADDR:
+            self.handle_inet_addr_op(*struct.unpack(">1I", args))
+        elif op == FN_INET_LNAOF:
+            self.handle_inet_lnaof_op(*struct.unpack(">1I", args))
+        elif op == FN_INET_NETOF:
+            self.handle_inet_netof_op(*struct.unpack(">1I", args))
+        elif op == FN_INET_MAKEADDR:
+            self.handle_inet_makeaddr_op(*struct.unpack(">2I", args))
+        elif op == FN_INET_NETWORK:
+            self.handle_inet_network_op(*struct.unpack(">1I", args))
+        elif op == FN_GETHOSTBYNAME:
+            self.handle_gethostbyname_op(*struct.unpack(">1I", args))
+        elif op == FN_GETHOSTBYADDR:
+            self.handle_gethostbyaddr_op(*struct.unpack(">3I", args))
+        elif op == FN_GETNETBYNAME:
+            self.handle_getnetbyname_op(*struct.unpack(">1I", args))
+        elif op == FN_GETNETBYADDR:
+            self.handle_getnetbyaddr_op(*struct.unpack(">2I", args))
+        elif op == FN_GETSERVBYNAME:
+            self.handle_getservbyname_op(*struct.unpack(">2I", args))
+        elif op == FN_GETSERVBYPORT:
+            self.handle_getservbyport_op(*struct.unpack(">2I", args))
+        elif op == FN_GETPROTOBYNAME:
+            self.handle_getprotobyname_op(*struct.unpack(">1I", args))
+        elif op == FN_GETPROTOBYNUMBER:
+            self.handle_getprotobynumber_op(*struct.unpack(">1I", args))
+        elif op == FN_VSYSLOG:
+            self.handle_vsyslog_op(*struct.unpack(">3I", args))
+        elif op == FN_DUP2SOCKET:
+            self.handle_dup2socket_op(*struct.unpack(">2I", args))
+        elif op == FN_SENDMSG:
+            self.handle_sendmsg_op(*struct.unpack(">3I", args))
+        elif op == FN_RECVMSG:
+            self.handle_recvmsg_op(*struct.unpack(">3I", args))
+        elif op == FN_GETHOSTNAME:
+            self.handle_gethostname_op(*struct.unpack(">2I", args))
+        elif op == FN_GETHOSTID:
+            self.handle_gethostid_op()
+        elif op == FN_SOCKETBASETAGLIST:
+            self.handle_socketbasetaglist_op(*struct.unpack(">1I", args))
+        elif op == FN_GETSOCKETEVENTS:
+            self.handle_getsocketevents_op(*struct.unpack(">1I", args))
+        else:
+            logger.warning('Unknown operation %s', op)
+            raise SockError(EINVAL)
 
     # Dispatcher loop.
     def run(self):
         try:
             while True:
                 op, args = self.wait_qitem(QITEM_OP_REQ)
-                if op == FN_SOCKET:
-                    self.handle_socket_op(*struct.unpack(">3I", args))
-                elif op == FN_BIND:
-                    self.handle_bind_op(*struct.unpack(">3I", args))
-                elif op == FN_LISTEN:
-                    self.handle_listen_op(*struct.unpack(">2I", args))
-                elif op == FN_ACCEPT:
-                    self.handle_accept_op(*struct.unpack(">3I", args))
-                elif op == FN_CONNECT:
-                    self.handle_connect_op(*struct.unpack(">3I", args))
-                elif op == FN_SENDTO:
-                    self.handle_sendto_op(*struct.unpack(">6I", args))
-                elif op == FN_SEND:
-                    self.handle_send_op(*struct.unpack(">4I", args))
-                elif op == FN_RECVFROM:
-                    self.handle_recvfrom_op(*struct.unpack(">6I", args))
-                elif op == FN_RECV:
-                    self.handle_recv_op(*struct.unpack(">4I", args))
-                elif op == FN_SHUTDOWN:
-                    self.handle_shutdown_op(*struct.unpack(">2I", args))
-                elif op == FN_SETSOCKOPT:
-                    self.handle_setsockopt_op(*struct.unpack(">5I", args))
-                elif op == FN_GETSOCKOPT:
-                    self.handle_getsockopt_op(*struct.unpack(">5I", args))
-                elif op == FN_GETSOCKNAME:
-                    self.handle_getsockname_op(*struct.unpack(">3I", args))
-                elif op == FN_GETPEERNAME:
-                    self.handle_getpeername_op(*struct.unpack(">3I", args))
-                elif op == FN_IOCTLSOCKET:
-                    self.handle_ioctlsocket_op(*struct.unpack(">3I", args))
-                elif op == FN_CLOSESOCKET:
-                    self.handle_closesocket_op(*struct.unpack(">1I", args))
-                elif op == FN_WAITSELECT:
-                    self.handle_waitselect_op(*struct.unpack(">6I", args))
-                elif op == FN_SETSOCKETSIGNALS:
-                    self.handle_setsocketsignals_op(*struct.unpack(">3I", args))
-                elif op == FN_GETDTABLESIZE:
-                    self.handle_getdtablesize_op()
-                elif op == FN_OBTAINSOCKET:
-                    self.handle_obtainsocket_op(*struct.unpack(">4I", args))
-                elif op == FN_RELEASESOCKET:
-                    self.handle_releasesocket_op(*struct.unpack(">2I", args))
-                elif op == FN_RELEASECOPYOFSOCKET:
-                    self.handle_releasecopyofsocket_op(*struct.unpack(">2I", args))
-                elif op == FN_ERRNO:
-                    self.handle_errno_op()
-                elif op == FN_SETERRNOPTR:
-                    self.handle_seterrnoptr_op(*struct.unpack(">2I", args))
-                elif op == FN_INET_NTOA:
-                    self.handle_inet_ntoa_op(*struct.unpack(">1I", args))
-                elif op == FN_INET_ADDR:
-                    self.handle_inet_addr_op(*struct.unpack(">1I", args))
-                elif op == FN_INET_LNAOF:
-                    self.handle_inet_lnaof_op(*struct.unpack(">1I", args))
-                elif op == FN_INET_NETOF:
-                    self.handle_inet_netof_op(*struct.unpack(">1I", args))
-                elif op == FN_INET_MAKEADDR:
-                    self.handle_inet_makeaddr_op(*struct.unpack(">2I", args))
-                elif op == FN_INET_NETWORK:
-                    self.handle_inet_network_op(*struct.unpack(">1I", args))
-                elif op == FN_GETHOSTBYNAME:
-                    self.handle_gethostbyname_op(*struct.unpack(">1I", args))
-                elif op == FN_GETHOSTBYADDR:
-                    self.handle_gethostbyaddr_op(*struct.unpack(">3I", args))
-                elif op == FN_GETNETBYNAME:
-                    self.handle_getnetbyname_op(*struct.unpack(">1I", args))
-                elif op == FN_GETNETBYADDR:
-                    self.handle_getnetbyaddr_op(*struct.unpack(">2I", args))
-                elif op == FN_GETSERVBYNAME:
-                    self.handle_getservbyname_op(*struct.unpack(">2I", args))
-                elif op == FN_GETSERVBYPORT:
-                    self.handle_getservbyport_op(*struct.unpack(">2I", args))
-                elif op == FN_GETPROTOBYNAME:
-                    self.handle_getprotobyname_op(*struct.unpack(">1I", args))
-                elif op == FN_GETPROTOBYNUMBER:
-                    self.handle_getprotobynumber_op(*struct.unpack(">1I", args))
-                elif op == FN_VSYSLOG:
-                    self.handle_vsyslog_op(*struct.unpack(">3I", args))
-                elif op == FN_DUP2SOCKET:
-                    self.handle_dup2socket_op(*struct.unpack(">2I", args))
-                elif op == FN_SENDMSG:
-                    self.handle_sendmsg_op(*struct.unpack(">3I", args))
-                elif op == FN_RECVMSG:
-                    self.handle_recvmsg_op(*struct.unpack(">3I", args))
-                elif op == FN_GETHOSTNAME:
-                    self.handle_gethostname_op(*struct.unpack(">2I", args))
-                elif op == FN_GETHOSTID:
-                    self.handle_gethostid_op()
-                elif op == FN_SOCKETBASETAGLIST:
-                    self.handle_socketbasetaglist_op(*struct.unpack(">1I", args))
-                elif op == FN_GETSOCKETEVENTS:
-                    self.handle_getsocketevents_op(*struct.unpack(">1I", args))
-        except InterruptedError:
+
+                # The last ULONG is the signals that were set when the
+                # operation was called. Older signals are not relevant.
+                (self.pending_signals,) = struct.unpack('>I', args[-4:])
+                args = args[:-4]
+
+                try:
+                    self.dispatch_op(op, args)
+                except StreamReset:
+                    raise
+                except SockError as e:
+                    logger.debug('Operation %s failed with errno %s', op, e.errno)
+                    self.fail_op(op, e.errno)
+                except OSError as e:
+                    logger.debug('Operation %s failed: %s', op, e)
+                    self.fail_op(op, bsd_errno(e.errno))
+                except Exception:
+                    logger.exception('Operation %s raised an exception', op)
+                    self.fail_op(op, EINVAL)
+        except StreamReset:
             logger.info('LibInstance thread was RESET')
         except:
             logger.exception('LibInstance thread crashed')
+        finally:
+            for s in self.sockets.values():
+                try:
+                    s.sock.close()
+                except OSError:
+                    pass
+            self.sockets.clear()
 
         self.wait_sock.close()
         self.notify_sock.close()
@@ -1042,7 +1334,7 @@ class LibRemoteService:
 
     def send_op_res(self, stream_id: int, result: int, signals_consumed: int, copy_reqs: List[Tuple[int, int, int]] = None, write_reqs: List[Tuple[int, bytes]] = None):
         copy_reqs_count = 0 if copy_reqs is None else len(copy_reqs)
-        data = struct.pack('>BBII', MSG_OP_RES, copy_reqs_count, result, signals_consumed)
+        data = struct.pack('>BBII', MSG_OP_RES, copy_reqs_count, result & 0xffffffff, signals_consumed)
 
         if copy_reqs:
             for dst, src, length in copy_reqs:
@@ -1055,6 +1347,7 @@ class LibRemoteService:
                     data += b'\x00'
                 data += buf
 
+        assert len(data) <= MAX_MSG_LENGTH
         with self.send_lock:
             self.a314d.send_data(stream_id, data)
 
@@ -1069,9 +1362,12 @@ class LibRemoteService:
             self.a314d.send_data(stream_id, data)
 
     def send_read_mem_req(self, stream_id: int, descs: List[Tuple[int, int]]):
+        # The response carries the data after a two byte header.
+        assert sum(length for _, length in descs) <= MAX_MSG_LENGTH - 2
         data = struct.pack('>BB', MSG_READ_MEM_REQ, 0)
         for src, length in descs:
             data += struct.pack('>IBB', src, length, 0)
+        assert len(data) <= MAX_MSG_LENGTH
 
         with self.send_lock:
             self.a314d.send_data(stream_id, data)
@@ -1084,6 +1380,7 @@ class LibRemoteService:
                 data += b'\x00'
             data += buf
 
+        assert len(data) <= MAX_MSG_LENGTH
         with self.send_lock:
             self.a314d.send_data(stream_id, data)
 
@@ -1198,7 +1495,7 @@ class LibRemoteService:
         buf = self.a314d.drv.recv(8192)
         if not buf:
             logger.error('Connection to a314d was closed, shutting down')
-            exit(-1)
+            return False
 
         self.rbuf += buf
         while True:
@@ -1214,6 +1511,8 @@ class LibRemoteService:
 
             self.process_drv_msg(stream_id, ptype, payload)
 
+        return True
+
     def run(self):
         logger.info('LibRemote service started')
 
@@ -1224,7 +1523,16 @@ class LibRemoteService:
                 break
 
             if self.a314d in rl:
-                self.handle_a314d_readable()
+                if not self.handle_a314d_readable():
+                    break
+
+        # Stop the instance threads, so that their sockets are closed.
+        instances = list(self.instances.values())
+        self.instances.clear()
+        for inst in instances:
+            inst.process_stream_reset()
+        for inst in instances:
+            inst.thread.join(5.0)
 
         self.a314d.close()
 

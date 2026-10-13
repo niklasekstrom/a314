@@ -160,6 +160,12 @@ static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *write_b
 {
     uint8_t *read_buf = lib->read_buf;
 
+    // Append the signals that are already set, so that the Pi side knows
+    // about them before it decides on the result. The same signals are also
+    // forwarded in MSG_SIGNALS below, but that can happen too late.
+    *(uint32_t *)&write_buf[write_length] = SetSignal(0, 0) & ~SIGF_SINGLE;
+    write_length += 4;
+
     lib->read_req.a314_Buffer = read_buf;
     lib->read_req.a314_Length = sizeof(lib->read_buf);
     lib->read_req.a314_Request.io_Command = A314_READ;
