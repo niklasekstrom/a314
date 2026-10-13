@@ -24,9 +24,9 @@
 #define BOUNCE_BUFFER_SIZE  (16*1024)
 
 // Must keep VERSION in romtag.asm in sync.
-#define LIB_VERSION     3
+#define LIB_VERSION     4
 #define LIB_REVISION    0
-#define LIB_DATE        "28.5.2024"
+#define LIB_DATE        "13.10.2026"
 
 #define VSTR(s) STR(s)
 #define STR(s) #s
