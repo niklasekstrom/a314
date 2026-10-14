@@ -44,6 +44,40 @@ After these files are copied to the Amiga it should be possible to run the pi co
 The pi command can be invoked by `pi` without any arguments to get an interactive bash terminal,
 or with arguments to run a particular Linux command.
 
+It is also possible to execute commands on the Amiga from the Raspberry Pi. On the Amiga,
+start the daemon `A314shd` (e.g. `run >NIL: A314shd`, or add it to `S:user-startup`), and then
+invoke `a314sh` on the Pi:
+
+```text
+a314sh list sys:
+a314sh status
+a314sh break 1
+```
+
+The command runs in the daemon's shell context, so its output and return code are sent back
+to the Pi. The daemon keeps state between invocations, so for example `cd` affects later
+commands. Running `a314sh` without arguments reads commands from standard input, one per line,
+which also makes it usable as a simple interactive Amiga shell from the Pi.
+
+#### A314Info
+
+`A314Info` is an Amiga command that displays live system statistics from the
+Raspberry Pi: per-core CPU usage, memory usage, kernel version, and disk usage
+of the root filesystem. If no options are specified, it prints information to the
+console.  If MUI is specified, it uses a MUI 3.8 user interface when 
+`muimaster.library` is available and otherwise falls back to a simpler GadTools/
+Intuition interface. The GadTools interface can be invoked directly with the GT
+option.  A314Info requires AmigaOS 2.04 or newer.
+
+If using a graphical interface, the statistics refresh interval can be set in the window 
+using the Refresh slider, with the `REFRESH` argument when starting from a shell 
+(`A314Info MUI REFRESH=2000`), or with the `REFRESH` tooltype when starting from Workbench. 
+The interval is given in milliseconds, from 500 to 30000, with a default of 2000.
+
+On the Pi side, the `a314info` service is installed by `install-pi.sh` and started
+on demand by `a314d`. If `a314info` was added to an existing `/etc/opt/a314/a314d.conf`,
+restart the daemon with `sudo systemctl restart a314d`.
+
 #### Configuration file
 
 For the a314-cp driver it is possible to write a configuration file to `DEVS:a314.config`.
@@ -78,6 +112,10 @@ To do so, follow these steps:
   - Install lha extraction software: `sudo apt install lhasa`
   - Extract archive: `lha xw=~/amiga/NDK3.2 NDK3.2.lha`
   - Add environment variable: `export NDK32=~/amiga/NDK3.2`
+- Optionally, to build A314Info, download the MUI developer archive (MUI SDK, e.g.
+  `dev/mui/mui38dev.lha` from Aminet), extract it, and set an environment variable
+  pointing to the directory that contains `libraries/mui.h`, for example:
+  `export MUISDK=~/amiga/MUI/Developer/C/Include`
 - Clone the a314 repo: `git clone https://github.com/niklasekstrom/a314.git ~/amiga/a314`
 - Change into the Software directory: `cd ~/amiga/a314/Software`
 - Build binaries by running: `make -f Makefile-amiga`
