@@ -138,18 +138,21 @@ class FakeAmiga:
     def call(self, op, *args, pre_signals=0, timeout=10.0):
         assert not self.was_reset
 
-        self.task_signals &= ~pre_signals
-        signals_received = pre_signals
+        # The snapshot is SetSignal(0, 0), so it includes signals that were
+        # left set by earlier calls. Wait(-1) then clears them on the task.
+        self.task_signals |= pre_signals
+        signals_received = self.task_signals
+        self.task_signals = 0
 
         payload = struct.pack('>BB', bsl.MSG_OP_REQ, op)
         payload += struct.pack(f'>{len(args)}I', *(a & 0xffffffff for a in args))
-        payload += struct.pack('>I', pre_signals)
+        payload += struct.pack('>I', signals_received)
         assert len(payload) <= bsl.MAX_MSG_LENGTH
         self.service.process_stream_data(STREAM_ID, payload)
 
         # library.c also forwards the already set signals in MSG_SIGNALS.
-        if pre_signals:
-            self.service.process_stream_data(STREAM_ID, struct.pack('>BBI', bsl.MSG_SIGNALS, 0, pre_signals))
+        if signals_received:
+            self.service.process_stream_data(STREAM_ID, struct.pack('>BBI', bsl.MSG_SIGNALS, 0, signals_received))
 
         while True:
             item = self.inbox.get(timeout=timeout)
@@ -439,6 +442,45 @@ class BsdSocketTest(unittest.TestCase):
         self.assertEqual(a.task_signals, SIGBREAKF_CTRL_C)
         self.assertEqual(a.errno(), bsl.EINTR)
 
+    def test_waitselect_break_stays_posted(self):
+        a = self.amiga
+        fd, _ = a.listener()
+        n, _, _, _ = a.waitselect(fd + 1, rfds=[fd], timeout=0, pre_signals=SIGBREAKF_CTRL_C)
+        self.assertEqual(n, -1)
+        # The break signal is still set, so the next call is interrupted too.
+        n, _, _, _ = a.waitselect(fd + 1, rfds=[fd], timeout=5)
+        self.assertEqual(n, -1)
+        # Until the program clears it, as with SetSignal(0, SIGBREAKF_CTRL_C).
+        a.task_signals &= ~SIGBREAKF_CTRL_C
+        n, _, _, _ = a.waitselect(fd + 1, rfds=[fd], timeout=0)
+        self.assertEqual(n, 0)
+
+    def test_waitselect_user_signal_consumed_once(self):
+        a = self.amiga
+        fd, _ = a.listener()
+        n, _, _, sigs = a.waitselect(fd + 1, rfds=[fd], timeout=0, sigmask=SIG_USER, pre_signals=SIG_USER | (1 << 8))
+        self.assertEqual((n, sigs), (0, SIG_USER))
+        n, _, _, sigs = a.waitselect(fd + 1, rfds=[fd], timeout=0, sigmask=SIG_USER)
+        self.assertEqual((n, sigs), (0, 0))
+        self.assertEqual(a.task_signals, 1 << 8)
+
+    def test_waitselect_ready_and_user_signal(self):
+        # The Roadshow autodoc: for any result >= 0 the user signals that were
+        # received are returned and cleared, also when sockets are ready.
+        a = self.amiga
+        fd, port = a.listener()
+        self.client(port)
+        n, rfds, _, sigs = a.waitselect(fd + 1, rfds=[fd], timeout=5, sigmask=SIG_USER, pre_signals=SIG_USER)
+        self.assertEqual((n, rfds, sigs), (1, {fd}, SIG_USER))
+        self.assertEqual(a.consumed, SIG_USER)
+
+    def test_waitselect_bad_timeout(self):
+        a = self.amiga
+        fd, _ = a.listener()
+        n, _, _, _ = a.waitselect(fd + 1, rfds=[fd], timeout=100000001)
+        self.assertEqual(n, -1)
+        self.assertEqual(a.errno(), bsl.EINVAL)
+
     def test_waitselect_break_in_user_mask(self):
         # As amiagent does: Ctrl-C in the user mask is returned, not EINTR.
         a = self.amiga
@@ -597,6 +639,39 @@ class BsdSocketTest(unittest.TestCase):
         self.assertIsNone(a.call(bsl.FN_BIND, fd, a.sockaddr('127.0.0.1', 0), 16))
         a.inst.thread.join(5.0)
         self.assertFalse(a.inst.thread.is_alive())
+
+    def test_post_to_exited_instance(self):
+        a = self.amiga
+        a.inst.process_stream_reset()
+        a.inst.thread.join(5.0)
+        self.assertFalse(a.inst.thread.is_alive())
+        # The instance is still registered, and must not take the service down.
+        a.inst.process_signals(SIGBREAKF_CTRL_C)
+        a.service.process_stream_data(STREAM_ID, struct.pack('>BBI', bsl.MSG_SIGNALS, 0, 1))
+
+    def test_shutdown_on_daemon_reset(self):
+        a = self.amiga
+        _, port = a.listener()
+        a.service.process_stream_connect(2, b'bsl')
+        other = a.service.instances[2]
+
+        # The connection to a314d is readable, but recv() fails.
+        r, w = socket.socketpair()
+        self.clients += [r, w]
+        w.send(b'x')
+
+        class Drv:
+            def recv(self, n):
+                raise ConnectionResetError()
+
+        a.service.a314d.fileno = r.fileno
+        a.service.a314d.drv = Drv()
+        a.service.run()
+
+        self.assertEqual(a.service.instances, {})
+        for inst in (a.inst, other):
+            self.assertFalse(inst.thread.is_alive())
+        self.assertTrue(self.port_is_free(port))
 
 if __name__ == '__main__':
     unittest.main()

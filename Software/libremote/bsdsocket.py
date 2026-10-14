@@ -265,61 +265,58 @@ class LibInstance:
         self.return_mem_address = 0
         self.sockets: Dict[int, AmSocket] = {}
 
-        self.thread = threading.Thread(target=self.run)
+        # A daemon thread, so that a thread stuck in a synchronous call such
+        # as gethostbyname() does not keep the service from exiting.
+        self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
     # Put items on queue.
+    def post(self, kind: int, item: Any):
+        self.queue.put((kind, item))
+        try:
+            self.notify_sock.send(b'#')
+        except OSError:
+            # The thread has already exited and closed its sockets.
+            pass
+
     def process_stream_reset(self):
-        self.queue.put((QITEM_RESET, None))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_RESET, None)
 
     def process_read_mem_complete(self, address: int, data: bytes):
-        self.queue.put((QITEM_READ_BOUNCE_COMPLETE, data))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_READ_BOUNCE_COMPLETE, data)
 
     def process_write_mem_complete(self, address: int):
-        self.queue.put((QITEM_WRITE_BOUNCE_COMPLETE, None))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_WRITE_BOUNCE_COMPLETE, None)
 
     def process_signals(self, signals: int):
-        self.queue.put((QITEM_SIGNALS, signals))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_SIGNALS, signals)
 
     def process_op_req(self, op: int, args: bytes):
-        self.queue.put((QITEM_OP_REQ, (op, args)))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_OP_REQ, (op, args))
 
     def process_alloc_mem_res(self, address: int):
-        self.queue.put((QITEM_ALLOC_MEM_RES, address))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_ALLOC_MEM_RES, address)
 
     def process_free_mem_res(self):
-        self.queue.put((QITEM_FREE_MEM_RES, None))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_FREE_MEM_RES, None)
 
     def process_read_mem_res(self, data: bytes):
-        self.queue.put((QITEM_READ_MEM_RES, data))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_READ_MEM_RES, data)
 
     def process_write_mem_res(self):
-        self.queue.put((QITEM_WRITE_MEM_RES, None))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_WRITE_MEM_RES, None)
 
     def process_copy_from_bounce_res(self):
-        self.queue.put((QITEM_COPY_FROM_BOUNCE_RES, None))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_COPY_FROM_BOUNCE_RES, None)
 
     def process_copy_to_bounce_res(self):
-        self.queue.put((QITEM_COPY_TO_BOUNCE_RES, None))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_COPY_TO_BOUNCE_RES, None)
 
     def process_copy_str_to_bounce_res(self, length: int):
-        self.queue.put((QITEM_COPY_STR_TO_BOUNCE_RES, length))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_COPY_STR_TO_BOUNCE_RES, length)
 
     def process_copy_tag_list_to_bounce_res(self, length: int):
-        self.queue.put((QITEM_COPY_TAG_LIST_TO_BOUNCE_RES, length))
-        self.notify_sock.send(b'#')
+        self.post(QITEM_COPY_TAG_LIST_TO_BOUNCE_RES, length)
 
     # Wait for queue item.
     def wait_any_qitem(self, timeout: Optional[float] = None) -> Tuple[int, Any]:
@@ -844,7 +841,7 @@ class LibInstance:
         deadline = None
         if _timeout:
             sec, usec = struct.unpack('>ii', bufs.pop(0))
-            if sec < 0 or usec < 0 or usec >= 1000000:
+            if sec < 0 or sec > 100000000 or usec < 0 or usec >= 1000000:
                 raise SockError(EINVAL)
             deadline = time.monotonic() + sec + usec / 1e6
 
@@ -1492,7 +1489,11 @@ class LibRemoteService:
             self.process_write_mem_res()
 
     def handle_a314d_readable(self):
-        buf = self.a314d.drv.recv(8192)
+        try:
+            buf = self.a314d.drv.recv(8192)
+        except OSError as e:
+            logger.error('Connection to a314d failed, shutting down: %s', e)
+            return False
         if not buf:
             logger.error('Connection to a314d was closed, shutting down')
             return False
@@ -1516,16 +1517,20 @@ class LibRemoteService:
     def run(self):
         logger.info('LibRemote service started')
 
-        while True:
-            try:
-                rl, _, _ = select.select([self.a314d], [], [], 10.0)
-            except KeyboardInterrupt:
-                break
-
-            if self.a314d in rl:
-                if not self.handle_a314d_readable():
+        try:
+            while True:
+                try:
+                    rl, _, _ = select.select([self.a314d], [], [], 10.0)
+                except KeyboardInterrupt:
                     break
 
+                if self.a314d in rl:
+                    if not self.handle_a314d_readable():
+                        break
+        finally:
+            self.shutdown()
+
+    def shutdown(self):
         # Stop the instance threads, so that their sockets are closed.
         instances = list(self.instances.values())
         self.instances.clear()
