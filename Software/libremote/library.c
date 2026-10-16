@@ -26,7 +26,7 @@
 // Must keep VERSION in romtag.asm in sync.
 #define LIB_VERSION     4
 #define LIB_REVISION    0
-#define LIB_DATE        "13.10.2026"
+#define LIB_DATE        "16.10.2026"
 
 #define VSTR(s) STR(s)
 #define STR(s) #s
@@ -54,7 +54,16 @@ struct LibRemote
     uint32_t bounce_buffer_address;
     struct MemChunkHdr *chunks;
     uint8_t read_buf[256];
+    uint8_t write_buf[256];
 };
+
+// The write buffer is kept in the library base rather than on the stack of
+// the caller. Programs are often run with the default stack of 4 KB, which a
+// 256 byte buffer per call can make overflow.
+static UBYTE *get_write_buf(__reg("a6") struct LibRemote *lib)
+{
+    return lib->write_buf;
+}
 
 static uint32_t null_func()
 {
