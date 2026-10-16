@@ -24,9 +24,9 @@
 #define BOUNCE_BUFFER_SIZE  (16*1024)
 
 // Must keep VERSION in romtag.asm in sync.
-#define LIB_VERSION     3
+#define LIB_VERSION     4
 #define LIB_REVISION    0
-#define LIB_DATE        "28.5.2024"
+#define LIB_DATE        "16.10.2026"
 
 #define VSTR(s) STR(s)
 #define STR(s) #s
@@ -54,7 +54,16 @@ struct LibRemote
     uint32_t bounce_buffer_address;
     struct MemChunkHdr *chunks;
     uint8_t read_buf[256];
+    uint8_t write_buf[256];
 };
+
+// The write buffer is kept in the library base rather than on the stack of
+// the caller. Programs are often run with the default stack of 4 KB, which a
+// 256 byte buffer per call can make overflow.
+static UBYTE *get_write_buf(__reg("a6") struct LibRemote *lib)
+{
+    return lib->write_buf;
+}
 
 static uint32_t null_func()
 {
@@ -159,6 +168,12 @@ static int get_tag_list_length(struct TagItem *tag_list)
 static uint32_t send_request(__reg("a6") struct LibRemote *lib, uint8_t *write_buf, uint32_t write_length)
 {
     uint8_t *read_buf = lib->read_buf;
+
+    // Append the signals that are already set, so that the Pi side knows
+    // about them before it decides on the result. The same signals are also
+    // forwarded in MSG_SIGNALS below, but that can happen too late.
+    *(uint32_t *)&write_buf[write_length] = SetSignal(0, 0) & ~SIGF_SINGLE;
+    write_length += 4;
 
     lib->read_req.a314_Buffer = read_buf;
     lib->read_req.a314_Length = sizeof(lib->read_buf);

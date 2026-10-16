@@ -17,6 +17,7 @@ contents += '''struct LibRemote;
 static ULONG null_func();
 static BPTR expunge();
 static BPTR close(__reg("a6") struct LibRemote *lib);
+static UBYTE *get_write_buf(__reg("a6") struct LibRemote *lib);
 static ULONG send_request(__reg("a6") struct LibRemote *lib, UBYTE *write_buf, ULONG write_length);
 
 '''
@@ -35,7 +36,7 @@ for i, func in enumerate(funcs):
     if len(args):
         contents += ', ' + ', '.join(gen_param(reg) for reg, _, _ in args)
     contents += ')\n{\n'
-    contents += f'    UBYTE write_buf[256];\n'
+    contents += '    UBYTE *write_buf = get_write_buf(lib);\n'
     for j, (reg, _, _) in enumerate(args):
         contents += f'    *(ULONG *)&write_buf[{2 + j*4}] = (ULONG){reg};\n'
     contents += '    write_buf[0] = MSG_OP_REQ;\n'

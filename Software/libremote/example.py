@@ -280,7 +280,7 @@ class LibRemoteService:
             (signals,) = struct.unpack('>I', payload[2:])
             inst.process_signals(signals)
         elif kind == MSG_OP_REQ:
-            inst.process_op_req(payload[1], payload[2:])
+            inst.process_op_req(payload[1], payload[2:-4])
         elif kind == MSG_ALLOC_MEM_RES:
             (address,) = struct.unpack('>I', payload[2:])
             inst.process_alloc_mem_res(address)
