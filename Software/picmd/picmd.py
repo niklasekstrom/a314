@@ -165,7 +165,7 @@ class PiCmdSession(object):
                         # Window Bounds Report
                         # ESC[1;1;rows;cols r
                         rows, cols = map(int, self.amiga_holding[6:-2].split(';'))
-                        winsize = struct.pack('HHHH', rows, cols, 0, 0)
+                        winsize = struct.pack('HHHH', rows, cols - 1 if cols > 1 else cols, 0, 0)
                         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, winsize)
                     elif c == '|':
                         # Input Event Report
@@ -214,7 +214,7 @@ class PiCmdSession(object):
                     os.putenv('TERM', 'ansi')
                     for key, val in env_vars.items():
                         os.putenv(key, val)
-                    winsize = struct.pack('HHHH', rows, cols, 0, 0)
+                    winsize = struct.pack('HHHH', rows, cols - 1 if cols > 1 else cols, 0, 0)
                     fcntl.ioctl(sys.stdin, termios.TIOCSWINSZ, winsize)
                     if component_count != 0 and components[0] in volume_paths:
                         path = volume_paths[components[0]]

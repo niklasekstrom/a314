@@ -53,6 +53,8 @@ install_common() {
 	systemctl enable a314d
 	systemctl enable a314net
 
+	tic picmd/amiga-color.ti
+
 	echo
 	echo "Installation complete"
 	echo "Restart the Raspberry Pi (sudo reboot now) to automatically start a314 software"
