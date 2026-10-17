@@ -1,0 +1,4 @@
+amiga-color|Amiga console with ANSI colors,
+        colors#8, pairs#64,
+        op=\E[39;49m, setaf=\E[3%p1%dm, setab=\E[4%p1%dm,
+        use=amiga,
