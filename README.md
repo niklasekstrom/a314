@@ -47,6 +47,10 @@ The volume in PI0: is called PiDisk:, and is mapped to a directory in the RPi.
 - [*pi*](Software/picmd) is a command that lets you invoke executables on the RPi from the AmigaDOS CLI. For example, if your current working directory is on PiDisk: and you run `pi vc hello.c -o hello`, then the vc program (the VBCC cross-compiler) is executed on the RPi with the given arguments. It will cross-compile `hello.c` into the Amiga executable file `hello`. The resulting binary is immediately accessible through the a314fs.  
 You may also launch Interactive applications using the pi command, such as `pi mc -a` which will run Midnight Commander. Running pi without any arguments is equivalent to `pi bash` and will present you with a bash prompt from the RPi.
 
+- [*A314Info*](Software/a314info) displays live Raspberry Pi statistics on the Amiga, including per-core CPU usage, memory, kernel version, and root filesystem usage. It supports console output and graphical interfaces.
+
+- [*a314sh*](Software/a314sh) lets you run AmigaDOS commands from the Raspberry Pi. Its Amiga-side daemon keeps a persistent shell context and returns command output and status to the Pi.
+
 |         |            |
 | ------------- |---------------|
 | ![Pi command](Documentation/Images/workbench.jpg)  | ![Cross-compiling in RemoteWB](Documentation/Images/remotewb-compiler.png) |
