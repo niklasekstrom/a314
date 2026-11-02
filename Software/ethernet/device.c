@@ -82,7 +82,7 @@ struct BufDesc
 // Constants.
 
 const char device_name[] = DEVICE_NAME;
-const char id_string[] = DEVICE_NAME " 1.2 (11.3.2025)";
+const char id_string[] = DEVICE_NAME " 1.3 (24.10.2026)";
 
 static const char service_name[] = SERVICE_NAME;
 static const char a314_device_name[] = A314_NAME;
@@ -239,6 +239,8 @@ static void copy_from_bd_and_reply(struct IOSana2Req *ios2, struct BufDesc *bd)
 
 	if (bcast)
 		ios2->ios2_Req.io_Flags |= SANA2IOF_BCAST;
+	else if (eh->eh_Dst[0] & 1)
+		ios2->ios2_Req.io_Flags |= SANA2IOF_MCAST;
 
 	ios2->ios2_PacketType = eh->eh_Type;
 
@@ -786,6 +788,16 @@ static void begin_io(__reg("a6") struct Library *dev, __reg("a1") struct IOSana2
 	case S2_GETGLOBALSTATS:
 		if (ios2->ios2_StatData)
 			memcpy(ios2->ios2_StatData, &global_stats, sizeof(struct Sana2DeviceStats));
+		break;
+
+	// Multicast: the Pi's tap interface receives every frame on its segment and
+	// this driver passes every frame up (it filters nothing by address), so a
+	// group needs no filter here - the requests are accepted so a TCP/IP stack
+	// can use mDNS (names like amiga.local) over this interface.
+	case S2_ADDMULTICASTADDRESS:
+	case S2_ADDMULTICASTADDRESSES:
+	case S2_DELMULTICASTADDRESS:
+	case S2_DELMULTICASTADDRESSES:
 		break;
 
 	default:
