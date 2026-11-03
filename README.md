@@ -65,6 +65,8 @@ You may also launch Interactive applications using the pi command, such as `pi m
 connected to the RPI with USB, and forwards those input events to input.device
 in the Amiga.
 
+- [*PiStats*](Software/pistats) displays live Raspberry Pi statistics on the Amiga, including per-core CPU usage, memory, kernel version, and root filesystem usage. It supports console output and graphical interfaces.
+
 ## What could it potentially be used for in the future?
 
 Here are some services that we have considered but not gotten around to implement:

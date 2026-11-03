@@ -1,6 +1,7 @@
 .PHONY: bin_dir all
 
 VC=vc +kick13 -I${NDK32}/Include_H
+VC68K=vc +aos68k -I${NDK32}/Include_H -I${MUISDK}
 BIN=bin_amiga
 
 all: bin_dir ${BIN}/Devs/a314-td.device ${BIN}/Devs/a314-fe.device ${BIN}/Devs/a314-cp.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/PiAudio ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device ${BIN}/C/RemoteWB ${BIN}/C/VideoPlayer ${BIN}/C/DiagA314td
@@ -59,3 +60,10 @@ ${BIN}/C/VideoPlayer: a314device/a314.h a314device/proto_a314.h videoplayer/vide
 
 ${BIN}/C/DiagA314td: diag/diag.c
 	${VC} diag/diag.c -o ${BIN}/C/DiagA314td
+
+${BIN}/C/PiStats: a314device/a314.h pistats/pistats.c
+	${VC68K} pistats/pistats.c -lamiga -o ${BIN}/C/PiStats
+
+ifdef MUISDK
+all: ${BIN}/C/PiStats
+endif
