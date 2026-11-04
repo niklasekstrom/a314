@@ -44,6 +44,20 @@ After these files are copied to the Amiga it should be possible to run the pi co
 The pi command can be invoked by `pi` without any arguments to get an interactive bash terminal,
 or with arguments to run a particular Linux command.
 
+It is also possible to execute commands on the Amiga from the Raspberry Pi. On the Amiga,
+start the daemon `A314shd` (e.g. `run >NIL: A314shd`, or add it to `S:user-startup`), and then
+invoke `a314sh` on the Pi:
+
+```text
+a314sh list sys:
+a314sh status
+a314sh break 1
+```
+
+The command runs in the daemon's shell context, so its output and return code are sent back
+to the Pi. Running `a314sh` without arguments reads commands from standard input, one per line,
+which also makes it usable as a simple interactive Amiga shell from the Pi.
+
 #### Configuration file
 
 For the a314-cp driver it is possible to write a configuration file to `DEVS:a314.config`.

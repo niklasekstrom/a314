@@ -26,9 +26,16 @@ install_common() {
 	install hid/hid.py /opt/a314
 	install remote-mouse/remote-mouse.py /opt/a314
 	install videoplayer/videoplayer.py /opt/a314
+	install a314sh/a314shd.py /opt/a314
+	install a314sh/a314sh.py /usr/local/bin/a314sh
 
 	# Write configuration files, but don't overwrite
 	[ -f /etc/opt/a314/a314d.conf ] || modinstall a314d/a314d.conf /etc/opt/a314
+
+	# a314d.conf is not overwritten on reinstall, so register a314sh for existing installations
+	grep -q '^a314sh' /etc/opt/a314/a314d.conf || \
+		printf 'a314sh\t/opt/a314/venv/bin/python3\t/opt/a314/a314shd.py\n' >> /etc/opt/a314/a314d.conf
+
 	[ -f /etc/opt/a314/picmd.conf ] || modinstall picmd/picmd.conf /etc/opt/a314
 	[ -f /etc/opt/a314/a314fs.conf ] || modinstall a314fs/a314fs.conf /etc/opt/a314
 	[ -f /etc/opt/a314/disk.conf ] || modinstall disk/disk.conf /etc/opt/a314
