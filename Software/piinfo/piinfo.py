@@ -3,9 +3,9 @@
 
 # Copyright (c) 2026 Jeremy Bauer
 #
-# a314info is a service that reports Raspberry Pi system statistics to
-# the Amiga. The Amiga-side application (A314Info) connects to the
-# "a314info" service and polls for statistics by sending a single-byte
+# piinfo is a service that reports Raspberry Pi system statistics to
+# the Amiga. The Amiga-side application (PiInfo) connects to the
+# "piinfo" service and polls for statistics by sending a single-byte
 # request (REQ_STATS). Each reply is a length-prefixed binary frame:
 #
 #   u32  body_len          (big-endian)
@@ -34,7 +34,7 @@ from a314d import A314d
 
 logger = logging.getLogger(__name__)
 
-SERVICE_NAME = 'a314info'  # Service name for a314d
+SERVICE_NAME = 'piinfo'  # Service name for a314d
 
 REQ_STATS = 1            # Request type for statistics
 
@@ -128,7 +128,7 @@ class InfoService(object):
             if payload == SERVICE_NAME.encode():
                 if self.stream_id is not None:
                     self.a314d.send_reset(self.stream_id)
-                logger.info('Amiga connected to a314info service')
+                logger.info('Amiga connected to piinfo service')
                 self.stream_id = stream_id
                 self.prev_cpu = read_cpu_counters()  # prime baseline
                 self.a314d.send_connect_response(stream_id, CONNECT_OK)
@@ -138,7 +138,7 @@ class InfoService(object):
             if ptype == self.a314d.MSG_DATA:
                 self.a314d.send_data(stream_id, self.gather_stats())
             elif ptype == self.a314d.MSG_EOS:
-                logger.info('Amiga disconnected from a314info service')
+                logger.info('Amiga disconnected from piinfo service')
                 self.a314d.send_eos(stream_id)
                 self.stream_id = None
             elif ptype == self.a314d.MSG_RESET:
@@ -166,7 +166,7 @@ class InfoService(object):
             self.process_drv_msg(stream_id, ptype, payload)
 
     def run(self):
-        logger.info('a314info service is running')
+        logger.info('piinfo service is running')
 
         while True:
             try:
@@ -186,11 +186,11 @@ class InfoService(object):
                         if self.stream_id is not None:
                             self.a314d.send_reset(self.stream_id)
                         self.a314d.close()
-                        logger.info('a314info service stopped')
+                        logger.info('piinfo service stopped')
                         return
 
         self.a314d.close()
-        logger.info('a314info service stopped')
+        logger.info('piinfo service stopped')
 
 
 if __name__ == '__main__':

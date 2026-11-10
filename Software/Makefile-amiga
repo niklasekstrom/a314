@@ -1,9 +1,6 @@
 .PHONY: bin_dir all
 
 VC=vc +kick13 -I${NDK32}/Include_H
-# A314Info needs proto headers for gadtools/muimaster that are only
-# available in the aos68k target, and MUI SDK headers via MUISDK
-# (MUISDK is the directory containing libraries/mui.h).
 VC68K=vc +aos68k -I${NDK32}/Include_H -I${MUISDK}
 BIN=bin_amiga
 
@@ -64,11 +61,9 @@ ${BIN}/C/VideoPlayer: a314device/a314.h a314device/proto_a314.h videoplayer/vide
 ${BIN}/C/DiagA314td: diag/diag.c
 	${VC} diag/diag.c -o ${BIN}/C/DiagA314td
 
-${BIN}/C/A314Info: a314device/a314.h a314info/a314info.c
-	${VC68K} a314info/a314info.c -lamiga -o ${BIN}/C/A314Info
+${BIN}/C/PiInfo: a314device/a314.h piinfo/piinfo.c
+	${VC68K} piinfo/piinfo.c -lamiga -o ${BIN}/C/PiInfo
 
 ifdef MUISDK
-all: ${BIN}/C/A314Info
-else
-$(info MUISDK is not set - skipping A314Info (needs the MUI SDK C/include directory))
+all: ${BIN}/C/PiInfo
 endif
