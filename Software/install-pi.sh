@@ -26,7 +26,7 @@ install_common() {
 	install hid/hid.py /opt/a314
 	install remote-mouse/remote-mouse.py /opt/a314
 	install videoplayer/videoplayer.py /opt/a314
-	install piinfo/piinfo.py /opt/a314
+	install pistats/pistats.py /opt/a314
 
 	# Write configuration files, but don't overwrite
 	[ -f /etc/opt/a314/a314d.conf ] || modinstall a314d/a314d.conf /etc/opt/a314

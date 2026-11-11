@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2026 Jeremy Bauer
  *
- * PiInfo - display Raspberry Pi system statistics on the Amiga.
+ * PiStats - display Raspberry Pi system statistics on the Amiga.
  *
- * Connects to the "piinfo" service on the Pi (piinfo.py) and
+ * Connects to the "pistats" service on the Pi (pistats.py) and
  * displays per-core CPU usage, memory usage, kernel version and root
  * filesystem disk usage, refreshed at a configurable interval.
  *
  * UI: MUI 3.8+ when muimaster.library is present, otherwise a GadTools
  * fallback. Requires AmigaOS 2.04+.
  *
- * Usage (Shell):  PiInfo [REFRESH=<ms>] [MUI] [GT] [TXT]
+ * Usage (Shell):  PiStats [REFRESH=<ms>] [MUI] [GT] [TXT]
  *                 REFRESH in 500..30000, default 2000
  *                 MUI/GT force the corresponding UI; TXT prints one
  *                 statistics snapshot on the console and exits.
@@ -64,7 +64,7 @@
 
 #include "../a314device/a314.h"
 
-#define SERVICE_NAME	"piinfo"
+#define SERVICE_NAME	"pistats"
 #define REQ_STATS	0x01
 
 #define MAX_CORES	8
@@ -92,8 +92,8 @@
 enum { IF_MUI, IF_GT, IF_TXT };
 static int ui_mode = IF_TXT;
 
-#define APPNAME		"PiInfo"
-static const char verstag[] = "$VER: PiInfo 1.1 (01.11.2026)";
+#define APPNAME		"PiStats"
+static const char verstag[] = "$VER: PiStats 1.1 (01.11.2026)";
 
 #ifndef MAKE_ID
 #define MAKE_ID(a,b,c,d)	((ULONG)(a) << 24 | (ULONG)(b) << 16 | \
@@ -549,7 +549,7 @@ static BOOL mui_main(void)
 		MUIA_Application_Copyright, (ULONG)"(C) 2026 Jeremy Bauer",
 		MUIA_Application_Author, (ULONG)"Jeremy Bauer",
 		MUIA_Application_Description, (ULONG)"Raspberry Pi system information",
-		MUIA_Application_Base, (ULONG)"PIINFO",
+		MUIA_Application_Base, (ULONG)"PISTATS",
 		MUIA_Application_SingleTask, TRUE,
 		MUIA_Application_Menustrip, MenustripObject,
 			MUIA_Family_Child, MenuObject,
@@ -1253,7 +1253,7 @@ int main(void)
 	IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 36);
 	if (!IntuitionBase)
 	{
-		printf("PiInfo UI mode requires AmigaOS 2.04 or newer\n");
+		printf("PiStats UI mode requires AmigaOS 2.04 or newer\n");
 		cleanup();
 		return RETURN_FAIL;
 	}
@@ -1278,13 +1278,13 @@ int main(void)
 				MUIMasterBase = NULL;
 				if (!mui_ok && ui_mode == IF_MUI)
 				{
-					printf("PiInfo: unable to open MUI window\n");
+					printf("PiStats: unable to open MUI window\n");
 					rc = RETURN_FAIL;
 				}
 			}
 			else if (ui_mode == IF_MUI)
 			{
-				printf("PiInfo: muimaster.library V19 not available\n");
+				printf("PiStats: muimaster.library V19 not available\n");
 				rc = RETURN_FAIL;
 			}
 		}
@@ -1300,7 +1300,7 @@ int main(void)
 			}
 			else
 			{
-				printf("PiInfo requires MUI 3.8 or gadtools.library\n");
+				printf("PiStats requires MUI 3.8 or gadtools.library\n");
 				rc = RETURN_FAIL;
 			}
 		}

@@ -61,9 +61,9 @@ ${BIN}/C/VideoPlayer: a314device/a314.h a314device/proto_a314.h videoplayer/vide
 ${BIN}/C/DiagA314td: diag/diag.c
 	${VC} diag/diag.c -o ${BIN}/C/DiagA314td
 
-${BIN}/C/PiInfo: a314device/a314.h piinfo/piinfo.c
-	${VC68K} piinfo/piinfo.c -lamiga -o ${BIN}/C/PiInfo
+${BIN}/C/PiStats: a314device/a314.h pistats/pistats.c
+	${VC68K} pistats/pistats.c -lamiga -o ${BIN}/C/PiStats
 
 ifdef MUISDK
-all: ${BIN}/C/PiInfo
+all: ${BIN}/C/PiStats
 endif
