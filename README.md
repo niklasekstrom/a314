@@ -67,6 +67,8 @@ in the Amiga.
 
 - [*PiStats*](Software/pistats) displays live Raspberry Pi statistics on the Amiga, including per-core CPU usage, memory, kernel version, and root filesystem usage. It supports console output and graphical interfaces.
 
+- [*a314sh*](Software/a314sh) lets you run AmigaDOS commands from the Raspberry Pi. Its Amiga-side daemon keeps a persistent shell context and returns command output and status to the Pi.
+
 ## What could it potentially be used for in the future?
 
 Here are some services that we have considered but not gotten around to implement:
