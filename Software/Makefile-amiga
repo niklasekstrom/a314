@@ -4,7 +4,7 @@ VC=vc +kick13 -I${NDK32}/Include_H
 VC68K=vc +aos68k -I${NDK32}/Include_H -I${MUISDK}
 BIN=bin_amiga
 
-all: bin_dir ${BIN}/Devs/a314-td.device ${BIN}/Devs/a314-fe.device ${BIN}/Devs/a314-cp.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/PiAudio ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device ${BIN}/C/RemoteWB ${BIN}/C/VideoPlayer ${BIN}/C/DiagA314td
+all: bin_dir ${BIN}/Devs/a314-td.device ${BIN}/Devs/a314-fe.device ${BIN}/Devs/a314-cp.device ${BIN}/L/a314fs ${BIN}/Devs/MountList ${BIN}/C/Pi ${BIN}/C/PiSetClock ${BIN}/C/PiAudio ${BIN}/C/RemoteMouse ${BIN}/C/PiHid ${BIN}/Devs/a314eth.device ${BIN}/Devs/a314disk.device ${BIN}/C/RemoteWB ${BIN}/C/VideoPlayer ${BIN}/C/DiagA314td ${BIN}/C/A314shd
 
 bin_dir:
 	mkdir -p ${BIN}
@@ -67,3 +67,6 @@ ${BIN}/C/PiStats: a314device/a314.h pistats/pistats.c
 ifdef MUISDK
 all: ${BIN}/C/PiStats
 endif
+
+${BIN}/C/A314shd: a314device/a314.h a314sh/a314shd.c
+	${VC} a314sh/a314shd.c -lamiga -o ${BIN}/C/A314shd
