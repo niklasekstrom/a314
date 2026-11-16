@@ -73,7 +73,10 @@ struct DriveGeometry
 #define SIGF_A314               (1UL << SIGB_A314)
 #define SIGF_OP_REQ             (1UL << SIGB_OP_REQ)
 
-#define BOOT_PRIORITY           -5
+#define BOOT_PRIORITY           10      // above 5 to boot bfore of the internal floppy
+
+#define BOOT_INSERT_TIMEOUT_MS  5000    // at coldstart we need to wait
+#define BOOT_INSERT_POLL_MS     20      // for unit 0's image to be auto-inserted
 
 // TRACK_SIZE = 5632
 #define TRACK_SIZE              (NUMSECS * TD_SECTOR)
@@ -177,7 +180,7 @@ struct DiskDevice
 // Constants.
 
 const char device_name[] = DEVICE_NAME;
-const char id_string[] = DEVICE_NAME " 1.0 (29 April 2021)";
+const char id_string[] = DEVICE_NAME " 1.1 (1 July 2026)";
 
 static const char service_name[] = SERVICE_NAME;
 static const char a314_device_name[] = A314_NAME;
@@ -647,6 +650,8 @@ static void add_boot_node(struct ExpansionBase *expansion_base, struct DriveStat
     Permit();
 }
 
+static void wait_for_disk_present(struct DiskDevice *dev, UWORD unit, ULONG timeout_ms);
+
 static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg("a0") BPTR seg_list, __reg("d0") struct DiskDevice *dev)
 {
     dev->saved_seg_list = seg_list;
@@ -709,6 +714,12 @@ static struct Library *init_device(__reg("a6") struct ExecBase *sys_base, __reg(
 
     dbg_init();
     dbg("Started");
+
+    // At coldstart the boot node was added above, but the disk image is
+    // auto-inserted asynchronously by the disk service. Wait for unit 0 to
+    // become present so its bootblock is readable when the DOS strap runs.
+    if (!seg_list)
+        wait_for_disk_present(dev, 0, BOOT_INSERT_TIMEOUT_MS);
 
     return &dev->lib;
 
@@ -792,3 +803,47 @@ const ULONG auto_init_tables[] =
     0,
     (ULONG)init_device,
 };
+
+static void wait_for_disk_present(struct DiskDevice *dev, UWORD unit, ULONG timeout_ms)
+{
+    struct DriveState *ds = &dev->drive_states[unit];
+
+    if (ds->present)
+        return;
+
+    BYTE sig = AllocSignal(-1);
+    if (sig == -1)
+        return;
+
+    struct MsgPort port;
+    memset(&port, 0, sizeof(port));
+    port.mp_Node.ln_Type = NT_MSGPORT;
+    port.mp_Flags = PA_SIGNAL;
+    port.mp_SigBit = sig;
+    port.mp_SigTask = FindTask(NULL);
+    NewList(&port.mp_MsgList);
+
+    struct timerequest tr;
+    memset(&tr, 0, sizeof(tr));
+    tr.tr_node.io_Message.mn_Node.ln_Type = NT_MESSAGE;
+    tr.tr_node.io_Message.mn_ReplyPort = &port;
+    tr.tr_node.io_Message.mn_Length = sizeof(tr);
+
+    if (OpenDevice(TIMERNAME, UNIT_VBLANK, (struct IORequest *)&tr, 0) == 0)
+    {
+        ULONG waited = 0;
+        while (!ds->present && waited < timeout_ms)
+        {
+            tr.tr_node.io_Command = TR_ADDREQUEST;
+            tr.tr_time.tv_secs = 0;
+            tr.tr_time.tv_micro = BOOT_INSERT_POLL_MS * 1000;
+            DoIO((struct IORequest *)&tr);
+            waited += BOOT_INSERT_POLL_MS;
+        }
+
+        CloseDevice((struct IORequest *)&tr);
+    }
+
+    FreeSignal(sig);
+}
+
