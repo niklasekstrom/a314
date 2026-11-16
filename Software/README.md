@@ -30,6 +30,14 @@ To build and install the software on the Raspberry Pi side, do the following:
   `td`, `cp` or `fe` depending on which variant of A314 is used.
 - Reboot the Raspberry Pi: `sudo reboot now`
 
+#### CPLD Flashing (A314-cp only)
+
+If you build the A314-cp hardware yourself, you might need to flash the CPLD
+with the latest firmware.
+
+- Install dependencies: `sudo apt install openfpgaloader`
+- Flash the latest firmware: `sudo ./flash-cpld.sh`
+
 ### Amiga
 
 The binaries for the Amiga side are already built and are available as part of a release on the GitHub page: <https://github.com/niklasekstrom/a314/releases>
