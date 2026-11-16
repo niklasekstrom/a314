@@ -6,6 +6,7 @@
 #include <exec/ports.h>
 #include <exec/nodes.h>
 #include <exec/libraries.h>
+#include <exec/memory.h>
 
 #include <devices/timer.h>
 
@@ -70,12 +71,25 @@ BOOL request_buffer_in_a314_memory;
 // These are allocated in A314 memory.
 ULONG request_buffer_address;
 ULONG data_buffer_address;
+ULONG data_buffer_size;
+
+void DeletePort(struct MsgPort *port)
+{
+	if (port)
+	{
+		if (port->mp_Node.ln_Name)
+			RemPort(port);
+		if (port->mp_SigBit < 32)
+			FreeSignal(port->mp_SigBit);
+		FreeMem(port, sizeof(struct MsgPort));
+	}
+}
 
 void MyNewList(struct List *l)
 {
-    l->lh_Head = (struct Node *)&(l->lh_Tail);
-    l->lh_Tail = NULL;
-    l->lh_TailPred = (struct Node *)&(l->lh_Head);
+	l->lh_Head = (struct Node *)&(l->lh_Tail);
+	l->lh_Tail = NULL;
+	l->lh_TailPred = (struct Node *)&(l->lh_Head);
 }
 
 struct MsgPort *MyCreatePort(char *name, long pri)
@@ -375,7 +389,8 @@ void startup_fs_handler(struct DosPacket *dp)
 		request_buffer_address = AllocMemA314(REQ_RES_BUF_SIZE);
 	}
 
-	data_buffer_address = AllocMemA314(BUFFER_SIZE);
+	data_buffer_size = BUFFER_SIZE;
+	data_buffer_address = AllocMemA314(data_buffer_size);
 
 	// Så vi kan anta att vi kommer hit, och då har vi en ström till rasp-sidan, där vi kan skicka data.
 	create_and_add_volume();
@@ -1284,6 +1299,72 @@ void action_is_filesystem(struct DosPacket *dp)
 	reply_packet(dp);
 }
 
+void action_die(struct DosPacket *dp)
+{
+	dbg("ACTION_DIE\n");
+
+	struct DieRequest *req = (struct DieRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = ACTION_DIE;
+
+	write_req_and_wait_for_res(sizeof(struct DieRequest));
+
+	// Clean up resources here
+	if (A314Base)
+		CloseLibrary(A314Base);
+	if (a314_ior)
+		CloseDevice((struct IORequest *)a314_ior);
+	if (a314_mp)
+		DeletePort(a314_mp);
+	if (timer_mp)
+		DeletePort(timer_mp);
+	if (mp)
+		DeletePort(mp);
+	if (request_buffer)
+		FreeMem(request_buffer, REQ_RES_BUF_SIZE);
+	if (data_buffer_address)
+		FreeMemA314(data_buffer_address, data_buffer_size);
+
+	dp->dp_Res1 = DOSTRUE;
+	dp->dp_Res2 = 0;
+	reply_packet(dp);
+}
+
+void action_inhibit(struct DosPacket *dp)
+{
+	LONG inhibit = dp->dp_Arg1;
+	dbg("ACTION_INHIBIT\n");
+	dbg("  inhibit = $l\n", inhibit);
+
+	struct InhibitRequest *req = (struct InhibitRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = ACTION_INHIBIT;
+	req->inhibit = inhibit;
+
+	write_req_and_wait_for_res(sizeof(struct InhibitRequest));
+
+	struct InhibitResponse *res = (struct InhibitResponse *)request_buffer;
+	dp->dp_Res1 = res->success ? DOSTRUE : DOSFALSE;
+	dp->dp_Res2 = res->error_code;
+	reply_packet(dp);
+}
+
+void action_flush(struct DosPacket *dp)
+{
+	dbg("ACTION_FLUSH\n");
+
+	struct FlushRequest *req = (struct FlushRequest *)request_buffer;
+	req->has_response = 0;
+	req->type = ACTION_FLUSH;
+
+	write_req_and_wait_for_res(sizeof(struct FlushRequest));
+
+	struct FlushResponse *res = (struct FlushResponse *)request_buffer;
+	dp->dp_Res1 = res->success ? DOSTRUE : DOSFALSE;
+	dp->dp_Res2 = res->error_code;
+	reply_packet(dp);
+}
+
 void action_unsupported(struct DosPacket *dp)
 {
 	dbg("ACTION_UNSUPPORTED\n");
@@ -1350,14 +1431,15 @@ void start(__reg("a0") struct DosPacket *startup_packet)
 
 		case ACTION_IS_FILESYSTEM: action_is_filesystem(dp); break;
 
+		case ACTION_DIE: action_die(dp); break;
+		case ACTION_INHIBIT: action_inhibit(dp); break;
+		case ACTION_FLUSH: action_flush(dp); break;
+
 		/*
 		case ACTION_CURRENT_VOLUME: action_current_volume(dp); break;
 		case ACTION_RENAME_DISK: action_rename_disk(dp); break;
 
-		case ACTION_DIE: //action_die(dp); break;
 		case ACTION_MORE_CACHE: //action_more_cache(dp); break;
-		case ACTION_FLUSH: //action_flush(dp); break;
-		case ACTION_INHIBIT: //action_inhibit(dp); break;
 		case ACTION_WRITE_PROTECT: //action_write_protect(dp); break;
 		*/
 
